@@ -10,14 +10,14 @@ CREATE TABLE tala_logistics_v2.courier_positions (
 CREATE INDEX idx_logistics_position_fresh ON tala_logistics_v2.courier_positions(observed_at);
 -- Eliminar último punto al desconectar o revocar al conductor.
 CREATE FUNCTION tala_logistics_v2.purge_offline_position()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $gps$
 BEGIN
   IF NOT NEW.online OR NOT NEW.approved THEN
     DELETE FROM tala_logistics_v2.courier_positions WHERE courier_id=NEW.id;
   END IF;
   RETURN NEW;
 END;
-$;
+$gps$;
 CREATE TRIGGER trg_logistics_purge_offline_position
 AFTER UPDATE OF online,approved ON tala_logistics_v2.couriers
 FOR EACH ROW WHEN (NOT NEW.online OR NOT NEW.approved)
