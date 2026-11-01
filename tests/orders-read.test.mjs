@@ -242,3 +242,55 @@ test('P0 read: legacy incomplete snapshot gets safe error, not a fabricated rece
     assert.equal(response.body.code,'RECEIPT_UNAVAILABLE');
   }finally{await f.close();}
 });
+
+test('P0 read: delivery receipt shows service and shipment, never driver payout',{
+  skip:!enabled,timeout:20000
+},async()=>{
+  const f=await fixture();
+  try{
+    const shop=await f.createStore();
+    const buyer=await f.createAccount('customer');
+    const order=await f.createOrder(buyer,shop.store,shop.product,'delivery');
+    const result=await f.request('GET','/api/v2/orders/'+order.id+'/receipt',undefined,buyer.cookie);
+    assert.equal(result.status,200,JSON.stringify(result.body));
+    assert.equal(result.body.itemsMinor,'30000');
+    assert.equal(result.body.serviceFeeMinor,'2100');
+    assert.equal(result.body.deliveryFeeMinor,'3900');
+    assert.equal(result.body.tipMinor,'0');
+    assert.equal(result.body.totalMinor,'36000');
+    const raw=JSON.stringify(result.body);
+    assert.equal(raw.includes('driverPayableMinor'),false);
+    assert.equal(raw.includes('merchantCommissionMinor'),false);
+    assert.equal(raw.includes('Calle QA 456'),false);
+  }finally{await f.close();}
+});
+
+test('P0 read: merchant detail can load an old order outside first 100 list',{
+  skip:!enabled,timeout:20000
+},async()=>{
+  const f=await fixture();
+  try{
+    const shop=await f.createStore();
+    const merchant=await f.createAccount('merchant',shop.store);
+    const buyer=await f.createAccount('customer');
+    const old=await f.createOrder(buyer,shop.store,shop.product);
+    await f.pool.query(`
+      INSERT INTO tala_core_v2.orders(
+        buyer_id,restaurant_id,fulfillment,status,payment_method,payment_status,
+        total_minor,pricing_policy_version,price_snapshot,idempotency_key,
+        request_hash,created_at)
+      SELECT $1::uuid,$2::uuid,'pickup','received','cash','pending',100,
+        'lab-index-test','{}'::jsonb,'older-list-'+gen_random_uuid()::text,
+        repeat('b',64),now()+interval '1 hour'
+      FROM generate_series(1,101)`,[buyer.id,shop.store]);
+    const recent=await f.request('GET','/api/v2/merchant/orders',undefined,merchant.cookie);
+    assert.equal(recent.status,200);
+    assert.equal(recent.body.length,100);
+    assert.equal(recent.body.some(x=>x.id===old.id),false);
+    const detail=await f.request('GET','/api/v2/merchant/orders/'+old.id,undefined,merchant.cookie);
+    assert.equal(detail.status,200);
+    assert.equal(detail.body.id,old.id);
+    assert.equal(detail.body.lines.length,1);
+    assert.equal(detail.body.lines[0].quantity,2);
+  }finally{await f.close();}
+});
