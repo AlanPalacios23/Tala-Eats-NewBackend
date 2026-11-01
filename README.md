@@ -35,6 +35,8 @@ migrations/
   002_order_permissions.sql # membresías restaurante desactivadas por defecto
   003_orders_http_lab.sql # cuentas, sesiones, catálogo (solo LAB)
   004_order_handoffs_lab.sql # repartidores, PIN y custodia de efectivo
+  005_orders_integrity_lab.sql # snapshots/custodia inmutables y FK del SKU
+  006_order_pin_rate_lab.sql # cuota SQL de PIN por pedido
 tests/
   orders.test.mjs        # reglas de estados y precios
   postgres-schema.test.mjs # restricciones PostgreSQL, CI aislada
@@ -54,7 +56,7 @@ docs/
 2. `npm install`; después `npm test` y `npm run build`.
 3. Copiar `.env.example` a `.env` y apuntar exclusivamente a una DB nueva
    de laboratorio (jamás `tala_node_live` ni `tala_node_stage`).
-4. Aplicar las migraciones `001`, `002`, `003`, `004` **solo en una DB llamada `tala_core_v2_lab`**.
+4. Aplicar las migraciones `001`–`006` en orden **solo en una DB llamada `tala_core_v2_lab`**.
 5. Arranque normal: `CORE_V2_WRITES_ENABLED=false` y `npm run dev`.
 6. Para activar **únicamente el laboratorio**, usar `CORE_V2_RUNTIME=isolated-lab`,
    `CORE_V2_WRITES_ENABLED=true`, host `127.0.0.1`, DB local `tala_core_v2_lab`.
@@ -112,3 +114,8 @@ aceptar/cancelar, dirección pickup, rate limiting y timeout SQL.
 
 Lee [ARQUITECTURA_Y_MIGRACION.md](docs/ARQUITECTURA_Y_MIGRACION.md)
 para conocer la estrategia de convivencia y retiro del backend anterior.
+
+## Criterio de cierre del Módulo 1
+
+Consulta [MODULO1-CIERRE-TECNICO.md](docs/MODULO1-CIERRE-TECNICO.md) para
+alcance congelado, riesgos comerciales y decisión GO/NO-GO.
