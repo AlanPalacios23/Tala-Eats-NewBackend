@@ -23,7 +23,7 @@ No hay migración para ninguna base LIVE; `tala_node_live` y `tala_node_stage` e
 | Cliente | `POST /api/v2/orders/:id/cancel` | Cancelación restringida |
 | Comercio | `GET /api/v2/merchant/orders` | Pedidos autorizados |
 | Comercio | `PATCH /api/v2/merchant/orders/:id/status` | confirmed/preparing/ready |
-| Repartidor | `GET /api/v2/driver/available` | Delivery listos para reclamar, sin exponer dirección |
+| Repartidor | `GET /api/v2/driver/available` | Delivery listos con `version` para `expectedVersion`, sin exponer dirección |
 | Repartidor | `GET /api/v2/driver/orders` | Pedidos asignados, con dirección |
 | Repartidor | `POST /api/v2/driver/orders/:id/claim` | Reclamar entrega, status=assigned |
 | Repartidor | `PATCH /api/v2/driver/orders/:id/status` | picked_up, on_the_way |
@@ -34,7 +34,7 @@ No hay migración para ninguna base LIVE; `tala_node_live` y `tala_node_stage` e
 | Comercio | `POST /api/v2/merchant/orders/:id/complete` | Pickup entregado con PIN |
 | Repartidor | `POST /api/v2/driver/orders/:id/complete` | Delivery entregado con PIN |
 
-Todos los POST/PATCH envían `Content-Type:application/json`, `X-Talaeats-Client:core-v2-lab`, cookie de sesión HttpOnly del mismo origen. Comandos de estado usan `{expectedVersion:"4",commandKey:"cmd-<UUID>"}`, completion añade `pin:"12345678"`. Los números de versión se leen de la respuesta previa; nunca se inventan. El backend deriva actor, precios y total de DB, no del cuerpo JSON.
+Cada `commandKey` se utiliza para **una única intención**; reintentos conservan clave, estado y versión. Un cambio de objetivo con la misma clave del repartidor produce `409`. El retry de un claim previamente confirmado funciona aunque el conductor después quede fuera de línea; una reclamación nueva sigue exigiendo conductor aprobado/en línea.\n\nTodos los POST/PATCH envían `Content-Type:application/json`, `X-Talaeats-Client:core-v2-lab`, cookie de sesión HttpOnly del mismo origen. Comandos de estado usan `{expectedVersion:"4",commandKey:"cmd-<UUID>"}`, completion añade `pin:"12345678"`. Los números de versión se leen de la respuesta previa; nunca se inventan. El backend deriva actor, precios y total de DB, no del cuerpo JSON.
 
 ## Activación solo para prueba
 Seguir `docs/MODULO1-PEDIDOS-HTTP-LAB.md`, con migración 004 añadida. Crear perfiles:
