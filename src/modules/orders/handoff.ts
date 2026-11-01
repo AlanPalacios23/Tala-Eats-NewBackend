@@ -297,6 +297,17 @@ export async function finishCashOrder(pool:Pool,cmd:Command,role:'merchant'|'dri
     await authorized(client,order,cmd.actorId,role);
     const k=codeKey('order.finalize.'+role,cmd);
     if(await checkReplay(client,order,k,cmd,'delivered')){
+      // Idempotent replay must match the original PIN proof. Never accept a
+      // different PIN with the same commandKey even after completion.
+      const original=await client.query<{pin_salt:string|null;pin_hash:string|null}>(`
+        SELECT pin_salt,pin_hash FROM tala_core_v2.order_handoffs
+        WHERE order_id=$1::uuid`,[order.id]);
+      const proof=original.rows[0];
+      if(!proof?.pin_salt||!proof.pin_hash)
+        throw new OrderServiceError('IDEMPOTENCY_CONFLICT');
+      const digest=await scrypt(pin,proof.pin_salt,64) as Buffer;
+      if(!timingSafeEqual(digest,Buffer.from(proof.pin_hash,'hex')))
+        throw new OrderServiceError('IDEMPOTENCY_CONFLICT');
       await client.query('COMMIT');committed=true;
       return {orderId:order.id,status:order.status,version:BigInt(order.version),replayed:true};
     }
