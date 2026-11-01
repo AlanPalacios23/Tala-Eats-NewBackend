@@ -89,7 +89,7 @@ async function checkReplay(client:PoolClient,order:Row,k:string,
   if(!r.rows[0])return null;
   if(r.rows[0].actor_id!==cmd.actorId||r.rows[0].new_status!==target||
      r.rows[0].data?.expectedVersion!==String(cmd.expectedVersion)||
-     !r.rows[0].data.version||!/^[1-9]\\d*$/.test(r.rows[0].data.version))
+     !r.rows[0].data.version||!/^[1-9]\d*$/.test(r.rows[0].data.version))
     throw new OrderServiceError('IDEMPOTENCY_CONFLICT');
   return {status:r.rows[0].new_status,version:BigInt(r.rows[0].data.version)};
 }
