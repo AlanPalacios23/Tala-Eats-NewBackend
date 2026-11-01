@@ -133,6 +133,10 @@ test('P0 pickup completa con PIN de comprador, doble acuse de efectivo y custodi
       command,merchant.cookie);
     assert.equal(retried.status,200);
     assert.equal(retried.data.replayed,true);
+    const tamperedReplay=await request('POST','/api/v2/merchant/orders/'+order.id+'/complete',
+      {...command,pin:command.pin==='99999999'?'11111111':'99999999'},merchant.cookie);
+    assert.equal(tamperedReplay.status,409);
+    assert.equal(tamperedReplay.data.code,'IDEMPOTENCY_CONFLICT');
     const rotate=await request('POST','/api/v2/orders/'+order.id+'/handoff-pin',{},buyer.cookie);
     assert.equal(rotate.status,409);
     const row=await pool.query(`
