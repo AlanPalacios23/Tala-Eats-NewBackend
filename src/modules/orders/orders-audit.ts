@@ -49,7 +49,7 @@ function tally(row:Row,count:OrderAuditCounters){
   if(row.status==='delivered'&&row.payment_method==='cash'&&
     (row.payment_status!=='paid'||!row.has_cash_proof))count.missingDeliveryProof++;
 }
-async function page(client:PoolClient,afterId:string|null,limit:number):Promise<Row[]>{
+async function page(client:PoolClient,afterId:string|null,limit:number,orderId:string|null):Promise<Row[]>{
   const result=await client.query<Row>(`
     SELECT o.id,o.version,o.status,o.fulfillment,o.payment_method,
       o.payment_status,o.total_minor,o.price_snapshot,
@@ -76,17 +76,19 @@ async function page(client:PoolClient,afterId:string|null,limit:number):Promise<
           THEN 'merchant' ELSE 'driver' END) AS has_cash_proof
     FROM tala_core_v2.orders o
     WHERE ($1::uuid IS NULL OR o.id>$1::uuid)
-    ORDER BY o.id LIMIT $2`,[afterId,limit]);
+      AND ($3::uuid IS NULL OR o.id=$3::uuid)
+    ORDER BY o.id LIMIT $2`,[afterId,limit,orderId]);
   return result.rows;
 }
 
 /** Scan all orders up to an explicit bounded max; incomplete never looks green. */
 export async function auditOrdersReadOnly(
-  pool:Pool,opts:{maxOrders?:number;pageSize?:number}={}
+  pool:Pool,opts:{maxOrders?:number;pageSize?:number;orderId?:string}={}
 ):Promise<OrderAuditReport>{
   const max=opts.maxOrders??10000,size=opts.pageSize??100;
   if(!Number.isSafeInteger(max)||max<1||max>100000||
-    !Number.isSafeInteger(size)||size<1||size>500)
+    !Number.isSafeInteger(size)||size<1||size>500||
+    (opts.orderId!==undefined&&!uuid.test(opts.orderId)))
     throw Error('ORDERS_AUDIT_OPTIONS_INVALID');
   const client=await pool.connect();
   let transaction=false;
@@ -101,7 +103,7 @@ export async function auditOrdersReadOnly(
     let last:string|null=null,more=false;
     while(counters.scanned<max){
       const requested=Math.min(size,max-counters.scanned);
-      const rows=await page(client,last,requested);
+      const rows=await page(client,last,requested,opts.orderId??null);
       for(const row of rows){
         tally(row,counters);
         last=row.id;
@@ -109,7 +111,7 @@ export async function auditOrdersReadOnly(
       if(rows.length<requested)break;
     }
     // Distinguish an exact-size scan from a partial scan at the upper bound.
-    if(counters.scanned===max)more=(await page(client,last,1)).length!==0;
+    if(counters.scanned===max)more=(await page(client,last,1,opts.orderId??null)).length!==0;
     await client.query('COMMIT');transaction=false;
     const issues=Object.entries(counters)
       .filter(([key])=>key!=='scanned')
