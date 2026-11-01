@@ -1,7 +1,4 @@
-/**
- * Read-only boot shell for the new isolated backend.
- * Deliberately contains NO checkout, order write, payment or payout routes.
- */
+/** CORE v2: fail-closed boot shell. Order writes ONLY inside isolated LAB. */
 import express from 'express';
 import { Pool } from 'pg';
 import {createOrderApp} from './modules/orders/lab-http.ts';
@@ -10,7 +7,7 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({limit:'16kb'}));
 app.get('/health', (_req, res) => res.json({
-  service:'tala-eats-core-v2',version:'0.1.0',status:'ok',
+  service:'tala-eats-core-v2',version:'0.2.0-lab.1',status:'ok',
   commercialReady:false
 }));
 
@@ -94,4 +91,4 @@ if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
 }
 const host = process.env.CORE_V2_HOST ?? '127.0.0.1';
 if (host !== '127.0.0.1') throw Error('LOCALHOST_ONLY_UNTIL_GATE_APPROVED');
-app.listen(port,host,() => console.log('TALA_EATS_CORE_V2_READONLY_READY',port));
+app.listen(port,host,() => console.log(writesFlag==='true'?'TALA_EATS_CORE_V2_LAB_READY':'TALA_EATS_CORE_V2_READONLY_READY',port));
