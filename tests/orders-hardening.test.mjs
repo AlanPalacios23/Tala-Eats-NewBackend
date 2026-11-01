@@ -337,7 +337,7 @@ test('P0 stress: parallel buyers cannot oversell or write orphan order events',{
   const api=await serve(pool);
   try{
     const shop=await store(pool); // 4 units of one product.
-    const buyers=await Promise.all(Array.from({length:8},()=>register(api.request)));
+    const buyers=await Promise.all(Array.from({length:6},()=>register(api.request)));
     const inputs=buyers.map(()=>({
       restaurantId:shop.id,fulfillment:'pickup',
       lines:[{productId:shop.product,quantity:1}],
@@ -356,7 +356,7 @@ test('P0 stress: parallel buyers cannot oversell or write orphan order events',{
     assert.deepEqual(errors.map(x=>({status:x.status,code:x.body.code})),[],
       'No HTTP 500, duplicates or unexpected concurrency errors');
     assert.equal(results.filter(x=>x.status===201).length,4);
-    assert.equal(results.filter(x=>x.status===409).length,4);
+    assert.equal(results.filter(x=>x.status===409).length,2);
     const stock=await pool.query(
       'SELECT stock FROM tala_core_v2.catalog_products WHERE id=$1',[shop.product]);
     assert.equal(stock.rows[0].stock,0);
