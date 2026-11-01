@@ -196,13 +196,29 @@ test('P0 domicilio completo: driver aprobado reclama, recoge, va en ruta y entre
       {},other.cookie);
     assert.equal(invalidCustody.status,404);
     let version='5';
+    let pickedUpCommand;
     for(const status of ['picked_up','on_the_way']){
+      const cmd={status,expectedVersion:version,commandKey:key()};
+      if(status==='picked_up')pickedUpCommand=cmd;
       const step=await request('PATCH','/api/v2/driver/orders/'+order.id+'/status',
-        {status,expectedVersion:version,commandKey:key()},driver.cookie);
+        cmd,driver.cookie);
       assert.equal(step.status,200,JSON.stringify(step.data));
       version=step.data.version;
     }
     assert.equal(version,'7');
+    // Replays must not report the newest state/version. Return original receipt.
+    const claimAfterProgress=await request(
+      'POST','/api/v2/driver/orders/'+order.id+'/claim',claimCmd,driver.cookie);
+    assert.equal(claimAfterProgress.status,200);
+    assert.deepEqual(claimAfterProgress.data,{
+      orderId:order.id,status:'assigned',version:'5',replayed:true
+    });
+    const pickupAfterProgress=await request(
+      'PATCH','/api/v2/driver/orders/'+order.id+'/status',pickedUpCommand,driver.cookie);
+    assert.equal(pickupAfterProgress.status,200);
+    assert.deepEqual(pickupAfterProgress.data,{
+      orderId:order.id,status:'picked_up',version:'6',replayed:true
+    });
     const pin=await request('POST','/api/v2/orders/'+order.id+'/handoff-pin',{},buyer.cookie);
     assert.equal(pin.status,200);
     const cashByBuyer=await request('POST','/api/v2/orders/'+order.id+'/cash-paid',{},buyer.cookie);
