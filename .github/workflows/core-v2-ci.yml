@@ -44,6 +44,24 @@ jobs:
         run: npm test
       - name: Strict TypeScript build
         run: npm run build
+      - name: Verify isolated HTTP startup and deployment safety
+        run: |
+          set -Eeuo pipefail
+          if CORE_V2_WRITES_ENABLED=true CORE_V2_RUNTIME=disabled CORE_V2_DATABASE_URL="$PG_CI_URL" node dist/server.js > /tmp/unsafe-core.log 2>&1; then
+            echo "UNSAFE_SERVER_STARTED"; exit 1
+          fi
+          grep -q "CORE_V2_WRITES_MUST_REMAIN_DISABLED" /tmp/unsafe-core.log
+          CORE_V2_WRITES_ENABLED=true CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_PORT=18210 node dist/server.js > /tmp/lab-core.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18210/ready > /tmp/core-ready.json; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1 || { cat /tmp/lab-core.log; exit 1; }
+          grep -q '"ready":true' /tmp/core-ready.json
+          curl --fail --silent http://127.0.0.1:18210/api/v2/health | grep -q '"commercialReady":false'
       - name: Verify read-only admission gate
         run: |
           grep -q 'CORE_V2_WRITES_MUST_REMAIN_DISABLED' src/server.ts
