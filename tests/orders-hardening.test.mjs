@@ -329,3 +329,51 @@ test('P0: oversized cart total rejects quote and checkout without stock mutation
     assert.equal(state.rows[0].orders,0);
   }finally{await api.close();await pool.end();}
 });
+
+test('P0 stress: parallel buyers cannot oversell or write orphan order events',{
+  skip:!enabled,timeout:60000
+},async()=>{
+  const pool=new Pool({connectionString:db,max:12});
+  const api=await serve(pool);
+  try{
+    const shop=await store(pool); // 4 units of one product.
+    const buyers=await Promise.all(Array.from({length:8},()=>register(api.request)));
+    const inputs=buyers.map(()=>({
+      restaurantId:shop.id,fulfillment:'pickup',
+      lines:[{productId:shop.product,quantity:1}],
+      paymentMethod:'cash',idempotencyKey:key()
+    }));
+    const results=await Promise.all(buyers.map(async(buyer,index)=>{
+      let result;
+      for(let retry=0;retry<3;retry++){
+        result=await api.request('POST','/api/v2/orders',inputs[index],buyer.cookie);
+        if(result.status!==503)break;
+      }
+      return result;
+    }));
+    const errors=results.filter(x=>x.status!==201&&
+      !(x.status===409&&x.body.code==='OUT_OF_STOCK'));
+    assert.deepEqual(errors.map(x=>({status:x.status,code:x.body.code})),[],
+      'No HTTP 500, duplicates or unexpected concurrency errors');
+    assert.equal(results.filter(x=>x.status===201).length,4);
+    assert.equal(results.filter(x=>x.status===409).length,4);
+    const stock=await pool.query(
+      'SELECT stock FROM tala_core_v2.catalog_products WHERE id=$1',[shop.product]);
+    assert.equal(stock.rows[0].stock,0);
+    const evidence=await pool.query(`
+      SELECT COUNT(*)::int AS orders,
+        (SELECT COUNT(*)::int FROM tala_core_v2.order_events e
+          JOIN tala_core_v2.orders o ON o.id=e.order_id
+          WHERE o.restaurant_id=$1::uuid) AS events,
+        (SELECT COUNT(*)::int FROM tala_core_v2.outbox b
+          JOIN tala_core_v2.orders o ON o.id=b.aggregate_id
+          WHERE o.restaurant_id=$1::uuid) AS outbox,
+        (SELECT SUM(total_minor)::text FROM tala_core_v2.orders
+          WHERE restaurant_id=$1::uuid) AS total
+      FROM tala_core_v2.orders WHERE restaurant_id=$1::uuid`,[shop.id]);
+    assert.equal(evidence.rows[0].orders,4);
+    assert.equal(evidence.rows[0].events,4);
+    assert.equal(evidence.rows[0].outbox,4);
+    assert.equal(evidence.rows[0].total,'64200');
+  }finally{await api.close();await pool.end();}
+});
