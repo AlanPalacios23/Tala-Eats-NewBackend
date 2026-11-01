@@ -197,6 +197,18 @@ test('P0 domicilio completo: driver aprobado reclama, recoge, va en ruta y entre
     assert.equal(notMine.data.some(o=>o.id===order.id),false);
     const mine=await request('GET','/api/v2/driver/orders',undefined,driver.cookie);
     assert.equal(mine.data.some(o=>o.id===order.id&&o.delivery_address==='Calle Lab 100, Tala'),true);
+    // Revocation after claim must immediately remove visibility and reject
+    // further actions, without mutating the order or its version.
+    await pool.query('UPDATE tala_core_v2.driver_profiles SET approved=false WHERE account_id=$1::uuid',
+      [driver.id]);
+    const revokedList=await request('GET','/api/v2/driver/orders',undefined,driver.cookie);
+    assert.equal(revokedList.status,200);
+    assert.equal(revokedList.data.some(o=>o.id===order.id),false);
+    const revokedAction=await request('PATCH','/api/v2/driver/orders/'+order.id+'/status',
+      {status:'picked_up',expectedVersion:'5',commandKey:key()},driver.cookie);
+    assert.equal(revokedAction.status,404);
+    await pool.query('UPDATE tala_core_v2.driver_profiles SET approved=true WHERE account_id=$1::uuid',
+      [driver.id]);
     const invalidCustody=await request('POST','/api/v2/driver/orders/'+order.id+'/cash-received',
       {},other.cookie);
     assert.equal(invalidCustody.status,404);
