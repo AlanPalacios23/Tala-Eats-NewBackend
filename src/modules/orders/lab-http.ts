@@ -13,6 +13,8 @@ import {OrderServiceError,previewCart,createCashOrder,listBuyerOrders,
   findBuyerOrder,listMerchantOrders} from './checkout.ts';
 import {cancelCashOrder} from './cancel.ts';
 import {advanceMerchantOrder,MerchantOrderError} from './merchant-orders.ts';
+import {claimDelivery,advanceDelivery,availableDriverOrders,myDriverOrders,
+  issueBuyerHandoffPin,attestCash,finishCashOrder} from './handoff.ts';
 
 type Handler=(req:Request,res:Response)=>Promise<void>;
 const wrap=(fn:Handler)=>(req:Request,res:Response,next:NextFunction)=>{
@@ -39,6 +41,11 @@ const command=z.object({
 const stateCommand=command.extend({
   status:z.enum(['confirmed','preparing','ready'])
 }).strict();
+const driverState=command.extend({
+  status:z.enum(['picked_up','on_the_way'])
+}).strict();
+const finishCommand=command.extend({pin:z.string().regex(/^\\d{8}$/)}).strict();
+const noInput=z.object({}).strict();
 const signup=z.object({
   email:z.string().email().max(254).transform(s=>s.toLowerCase().trim()),
   password:z.string().min(12).max(128),
@@ -46,7 +53,7 @@ const signup=z.object({
 }).strict();
 const signin=z.object({email:z.string().email(),password:z.string()}).strict();
 const cookies=(req:Request)=>getSessionToken(req.headers.cookie);
-async function requireAuth(pool:Pool,req:Request,role?:'customer'|'merchant'):Promise<Identity>{
+async function requireAuth(pool:Pool,req:Request,role?:'customer'|'merchant'|'driver'):Promise<Identity>{
   const identity=await resolveSession(pool,cookies(req));
   if(!identity)throw new AuthError('AUTH_REQUIRED');
   if(role&&identity.role!==role)throw new AuthError('ROLE_FORBIDDEN');
@@ -228,6 +235,75 @@ export function createOrderApp(pool:Pool){
     const orderId=uuid.parse(req.params.id);
     const result=await cancelCashOrder(pool,{...cmd,expectedVersion:BigInt(cmd.expectedVersion),
       actor:'merchant',actorId:user.id,orderId});
+    res.json({...result,version:result.version.toString()});
+  }));
+
+  // LAB handoff: PIN is returned only to the authenticated order buyer.
+  app.post('/api/v2/orders/:id/handoff-pin',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'customer');
+    parse(noInput,req.body);
+    const result=await issueBuyerHandoffPin(pool,user.id,uuid.parse(req.params.id));
+    res.json(result);
+  }));
+  app.post('/api/v2/orders/:id/cash-paid',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'customer');
+    parse(noInput,req.body);
+    res.json(await attestCash(pool,uuid.parse(req.params.id),user.id,'customer'));
+  }));
+  app.post('/api/v2/merchant/orders/:id/cash-received',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'merchant');
+    parse(noInput,req.body);
+    res.json(await attestCash(pool,uuid.parse(req.params.id),user.id,'merchant'));
+  }));
+  app.post('/api/v2/merchant/orders/:id/complete',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'merchant');
+    const data=parse(finishCommand,req.body);
+    const result=await finishCashOrder(pool,{
+      orderId:uuid.parse(req.params.id),actorId:user.id,
+      commandKey:data.commandKey,expectedVersion:BigInt(data.expectedVersion)
+    },'merchant',data.pin);
+    res.json({...result,version:result.version.toString()});
+  }));
+  // Driver accounts are created only by a trusted lab bootstrap and require
+  // approved, online profiles to claim orders. No public role promotion.
+  app.get('/api/v2/driver/available',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    res.json(await availableDriverOrders(pool,user.id));
+  }));
+  app.get('/api/v2/driver/orders',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    res.json(await myDriverOrders(pool,user.id));
+  }));
+  app.post('/api/v2/driver/orders/:id/claim',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    const cmd=parse(command,req.body);
+    const result=await claimDelivery(pool,{
+      orderId:uuid.parse(req.params.id),actorId:user.id,
+      commandKey:cmd.commandKey,expectedVersion:BigInt(cmd.expectedVersion)
+    });
+    res.json({...result,version:result.version.toString()});
+  }));
+  app.patch('/api/v2/driver/orders/:id/status',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    const cmd=parse(driverState,req.body);
+    const result=await advanceDelivery(pool,{
+      orderId:uuid.parse(req.params.id),actorId:user.id,
+      commandKey:cmd.commandKey,expectedVersion:BigInt(cmd.expectedVersion)
+    },cmd.status);
+    res.json({...result,version:result.version.toString()});
+  }));
+  app.post('/api/v2/driver/orders/:id/cash-received',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    parse(noInput,req.body);
+    res.json(await attestCash(pool,uuid.parse(req.params.id),user.id,'driver'));
+  }));
+  app.post('/api/v2/driver/orders/:id/complete',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    const data=parse(finishCommand,req.body);
+    const result=await finishCashOrder(pool,{
+      orderId:uuid.parse(req.params.id),actorId:user.id,
+      commandKey:data.commandKey,expectedVersion:BigInt(data.expectedVersion)
+    },'driver',data.pin);
     res.json({...result,version:result.version.toString()});
   }));
   app.use((error:unknown,_req:Request,res:Response,_next:NextFunction)=>{
