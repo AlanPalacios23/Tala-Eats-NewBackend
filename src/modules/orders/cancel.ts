@@ -13,7 +13,7 @@ export async function cancelCashOrder(pool:Pool,cmd:CancelCommand):Promise<Cance
     ||typeof cmd.expectedVersion!=='bigint'||cmd.expectedVersion<1n)
     throw new OrderServiceError('COMMAND_INVALID');
   const key=createHash('sha256').update(
-    ['order.cancel.v1',cmd.orderId,cmd.actor,cmd.actorId,cmd.commandKey].join('|')).digest('hex');
+    ['order.cancel.v1',cmd.orderId.toLowerCase(),cmd.actor,cmd.actorId.toLowerCase(),cmd.commandKey].join('|')).digest('hex');
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
