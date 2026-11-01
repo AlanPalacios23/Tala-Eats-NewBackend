@@ -75,7 +75,7 @@ try{
   }
   let applied=0;
   for(const name of files){
-    const source=await readFile(new URL('../migrations/'+name,import.meta.url),'utf8');
+    const source=await readFile(new URL('../src/modules/modulo-1-pedidos/migrations/'+name,import.meta.url),'utf8');
     if(!/^BEGIN;/m.test(source)||!/COMMIT;\s*$/.test(source))
       fail('ORDERS_STAGING_MIGRATION_TRANSACTION_MISSING');
     const checksum=createHash('sha256').update(source).digest('hex');

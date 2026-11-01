@@ -9,7 +9,7 @@
  */
 import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
-import {hashPassword} from '../src/modules/orders/lab-auth.ts';
+import {hashPassword} from '../src/modules/modulo-1-pedidos/lab-auth.ts';
 
 const urlText=process.env.CORE_V2_DATABASE_URL;
 if(!urlText||process.env.CORE_V2_RUNTIME!=='isolated-lab')
