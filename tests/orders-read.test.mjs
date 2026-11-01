@@ -104,6 +104,15 @@ test('P0 read: buyer receipt is immutable, exact and never exposes platform marg
       'platformGrossMinor','driverPayableMinor','price_snapshot','request_hash']){
       assert.equal(printed.includes(privateKey),false,privateKey);
     }
+    // Once purchased, even a drastic catalog price change cannot alter
+    // a buyer's receipt or the immutable amount they owe.
+    await f.pool.query(
+      'UPDATE tala_core_v2.catalog_products SET price_minor=27000 WHERE id=$1::uuid',
+      [shop.product]
+    );
+    const stillOriginal=await f.request('GET','/api/v2/orders/'+id+'/receipt',undefined,buyer.cookie);
+    assert.equal(stillOriginal.status,200);
+    assert.deepEqual(stillOriginal.body,receipt.body);
     assert.equal((await f.request('GET','/api/v2/orders/'+id+'/receipt',undefined,stranger.cookie)).status,404);
     assert.equal((await f.request('GET','/api/v2/orders/'+id+'/receipt',undefined,merchant.cookie)).status,403);
     assert.equal((await f.request('GET','/api/v2/merchant/orders/'+id,undefined,outsider.cookie)).status,404);
