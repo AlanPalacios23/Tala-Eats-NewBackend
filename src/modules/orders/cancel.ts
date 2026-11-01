@@ -15,6 +15,11 @@ export async function cancelCashOrder(pool:Pool,cmd:CancelCommand):Promise<Cance
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
+    // Bound lock waits and queries; never leave a checkout/cancellation hanging.
+    // SET LOCAL is automatically rolled back or reset at COMMIT.
+    await client.query("SET LOCAL lock_timeout = '3000ms'");
+    await client.query("SET LOCAL statement_timeout = '10000ms'");
+    await client.query("SET LOCAL idle_in_transaction_session_timeout = '15000ms'");
     const r=await client.query<{id:string;status:string;buyer_id:string;restaurant_id:string;
       payment_method:string;payment_status:string;version:string}>(`
       SELECT * FROM tala_core_v2.orders WHERE id=$1::uuid FOR UPDATE`,[cmd.orderId]);
