@@ -46,9 +46,22 @@ test('P0 order snapshots, lines, SKU references and handoff amount are immutable
     await reject('immutable_buyer',`UPDATE tala_core_v2.orders
       SET buyer_id=$2::uuid WHERE id=$1`,[id,randomUUID()],
       {code:'23514',message:'ORDER_SNAPSHOT_IMMUTABLE'});
+    await reject('immutable_address',`UPDATE tala_core_v2.orders
+      SET delivery_address='Calle distinta 567' WHERE id=$1`,[id],
+      {code:'23514',message:'ORDER_SNAPSHOT_IMMUTABLE'});
     await reject('immutable_handoff',`UPDATE tala_core_v2.order_handoffs
       SET cash_amount_minor=1 WHERE order_id=$1`,[id],
       {code:'23514',message:'HANDOFF_AMOUNT_IMMUTABLE'});
+    await db.query(`UPDATE tala_core_v2.order_handoffs
+      SET buyer_cash_ack_at=now() WHERE order_id=$1`,[id]);
+    await reject('immutable_cash_ack',`UPDATE tala_core_v2.order_handoffs
+      SET buyer_cash_ack_at=NULL WHERE order_id=$1`,[id],
+      {code:'23514',message:'ORDER_HANDOFF_PROOF_IMMUTABLE'});
+    await db.query(`UPDATE tala_core_v2.order_handoffs
+      SET pin_consumed_at=now() WHERE order_id=$1`,[id]);
+    await reject('immutable_consumed_pin',`UPDATE tala_core_v2.order_handoffs
+      SET pin_consumed_at=NULL WHERE order_id=$1`,[id],
+      {code:'23514',message:'ORDER_HANDOFF_PROOF_IMMUTABLE'});
     await reject('catalog_fk',`DELETE FROM tala_core_v2.catalog_products
       WHERE id=$1::uuid`,[product],{code:'23503'});
     const progress=await db.query(`UPDATE tala_core_v2.orders
