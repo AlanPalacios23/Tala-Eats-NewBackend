@@ -26,9 +26,18 @@ app.get('/ready', async (_req,res) => {
   }
   try {
     const result = await pool.query(
-      "SELECT to_regclass('tala_core_v2.orders') IS NOT NULL AS orders_ready"
+      `SELECT
+        to_regclass('tala_core_v2.orders') IS NOT NULL AS orders_ready,
+        to_regclass('tala_core_v2.accounts') IS NOT NULL AS accounts_ready,
+        to_regclass('tala_core_v2.sessions') IS NOT NULL AS sessions_ready,
+        to_regclass('tala_core_v2.restaurants') IS NOT NULL AS restaurants_ready,
+        to_regclass('tala_core_v2.catalog_products') IS NOT NULL AS catalog_ready,
+        to_regclass('tala_core_v2.restaurant_memberships') IS NOT NULL AS members_ready`
     );
-    const schemaReady = result.rows[0]?.orders_ready === true;
+    const schemaReady = result.rows[0]?.orders_ready === true &&
+      (process.env.CORE_V2_WRITES_ENABLED!=='true'||
+        ['accounts_ready','sessions_ready','restaurants_ready','catalog_ready','members_ready']
+          .every(k=>result.rows[0]?.[k]===true));
     res.status(schemaReady?200:503).json({
       ready:schemaReady,
       database:schemaReady?'ok':'SCHEMA_MISSING',
