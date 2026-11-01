@@ -12,7 +12,7 @@ El Módulo 1 opera con un único origen de verdad transaccional:
 - Ningún comprador puede registrar un restaurante o un repartidor. Las cuentas comerciales y de flota se crean solamente mediante semilla administrativa de LAB.
 
 ## Migraciones (solo DB local `tala_core_v2_lab`)
-Aplicar **en este orden**: `001_orders.sql` → `002_order_permissions.sql` → `003_orders_http_lab.sql` → `004_order_handoffs_lab.sql`.
+Aplicar **en este orden**: `001_orders.sql` → `002_order_permissions.sql` → `003_orders_http_lab.sql` → `004_order_handoffs_lab.sql` → `005_orders_integrity_lab.sql` → `006_order_pin_rate_lab.sql`.
 No hay migración para ninguna base LIVE; `tala_node_live` y `tala_node_stage` están fuera de alcance.
 
 ## Rutas HTTP en LAB
@@ -46,6 +46,7 @@ Seguir `docs/MODULO1-PEDIDOS-HTTP-LAB.md`, con migración 004 añadida. Crear pe
 ## Seguridad y límites críticos
 - Locks transaccionales, `expectedVersion`, idempotencia, eventos append-only y outbox; nunca dos conductores aceptan el mismo pedido.
 - PIN aleatorio, hash scrypt+sal, duración 10 minutos, 5 fallos máximo, consumido en la misma transacción que la entrega; no se almacena ni registra en claro.
+- Emisión o rotación: máximo 6 PIN por pedido cada 10 minutos, con cuota persistente y HTTP 429 al excederla.
 - El comprador debe acreditar el efectivo pagado y el custodio debe confirmar físicamente haberlo recibido. Sin ambos acuses y PIN correcto, la entrega es rechazada. Reutilizar la misma clave con otro PIN produce conflicto.
 - Conductor exige rol `driver`, cuenta activa, aprobación, estado en línea para reclamar, asignación propia para operar.
 - La cola de disponibles no incluye dirección ni identidad del cliente.
