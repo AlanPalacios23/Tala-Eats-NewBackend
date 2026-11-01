@@ -155,8 +155,8 @@ test('P0 pickup completa con PIN de comprador, doble acuse de efectivo y custodi
     assert.equal(x.custody_settled_at,null);
     assert.ok(x.pin_consumed_at);
     assert.equal(x.cash_amount_minor,order.totalMinor);
-    assert.equal(x.events,7);
-    assert.equal(x.outbox_count,7);
+    assert.equal(x.events,8); // includes PIN issuance audit with no secret
+    assert.equal(x.outbox_count,8);
   }finally{await close();}
 });
 test('P0 domicilio completo: driver aprobado reclama, recoge, va en ruta y entrega por PIN',{
