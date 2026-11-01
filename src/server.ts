@@ -38,11 +38,15 @@ app.get('/ready', async (_req,res) => {
         EXISTS(SELECT 1 FROM pg_trigger
           WHERE tgrelid=to_regclass('tala_core_v2.orders')
             AND tgname='trg_order_snapshot_immutable' AND NOT tgisinternal
-        ) AS snapshot_ready`
+        ) AS snapshot_ready,
+        EXISTS(SELECT 1 FROM pg_trigger
+          WHERE tgrelid=to_regclass('tala_core_v2.order_handoffs')
+            AND tgname='trg_order_handoff_proof_immutable' AND NOT tgisinternal
+        ) AS handoff_proof_ready`
     );
     const schemaReady = result.rows[0]?.orders_ready === true &&
       (process.env.CORE_V2_WRITES_ENABLED!=='true'||
-        ['accounts_ready','sessions_ready','restaurants_ready','catalog_ready','members_ready','handoff_ready','drivers_ready','pin_budget_ready','snapshot_ready']
+        ['accounts_ready','sessions_ready','restaurants_ready','catalog_ready','members_ready','handoff_ready','drivers_ready','pin_budget_ready','snapshot_ready','handoff_proof_ready']
           .every(k=>result.rows[0]?.[k]===true));
     res.status(schemaReady?200:503).json({
       ready:schemaReady,
@@ -88,10 +92,14 @@ if (writesFlag==='true') {
         EXISTS(SELECT 1 FROM pg_trigger
           WHERE tgrelid=to_regclass('tala_core_v2.orders')
             AND tgname='trg_order_snapshot_immutable' AND NOT tgisinternal
-        ) AS snapshot_ready`);
+        ) AS snapshot_ready,
+        EXISTS(SELECT 1 FROM pg_trigger
+          WHERE tgrelid=to_regclass('tala_core_v2.order_handoffs')
+            AND tgname='trg_order_handoff_proof_immutable' AND NOT tgisinternal
+        ) AS handoff_proof_ready`);
     const row=result.rows[0];
     if(row?.db_name!==dbName||
-      !['orders_ready','accounts_ready','sessions_ready','products_ready','members_ready','handoff_ready','drivers_ready','pin_budget_ready','snapshot_ready'].every(k=>row?.[k]===true)){
+      !['orders_ready','accounts_ready','sessions_ready','products_ready','members_ready','handoff_ready','drivers_ready','pin_budget_ready','snapshot_ready','handoff_proof_ready'].every(k=>row?.[k]===true)){
       throw Error('LAB_SCHEMA_NOT_READY');
     }
   }catch{
