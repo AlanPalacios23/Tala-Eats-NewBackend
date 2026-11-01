@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 1 PEDIDOS · Cierre técnico
 
-**Versión:** `0.2.0-lab.2`. **Fecha:** 2026-11-01.
+**Versión:** `0.2.0-lab.3`. **Fecha:** 2026-11-01.
 **Decisión:** GO para continuar desarrollando los siguientes módulos **solo después de CI verde y revisión del PR**; NO-GO para cambiar el backend comercial ni procesar pagos reales.
 
 ## Alcance congelado del módulo
@@ -33,7 +33,7 @@ Redis/workers y los otros módulos del diagrama quedan intactos.
   reintentos de entrega deben presentar el PIN original.
 - Pertenencia a pedido o comercio verificada al mutar, sin elevación pública
   de roles. Dirección de entrega oculta hasta la asignación.
-- Arranque fail-closed: lab local y migraciones 001–006 completas;
+- Arranque fail-closed: lab local y migraciones 001–007 completas;
   sin Stripe LIVE, ni conexión a la DB de producción.
 
 ## Evidencia de cierre de laboratorio
