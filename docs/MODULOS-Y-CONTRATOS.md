@@ -36,8 +36,13 @@ pública. La política pura sigue separada en `assignment-policy.ts`.
 La reserva únicamente toma como entrada el estado `ready` comunicado por un
 adaptador de confianza todavía no implementado; **no verifica por sí sola**
 si el pedido existe en Módulo 1, así que esta etapa es solo de LAB.
-Faltan conexión transaccional/compensación con Pedidos, identidad del repartidor,
-GPS/ETA y operaciones reales.
+Existe ahora `geo.ts` y `location-service.ts` para registrar la última
+ubicación GPS y consultar candidatos próximos al restaurante, junto con la
+migración `002_courier_position_lab.sql` en el esquema exclusivo de Logística.
+Estos servicios todavía no tienen endpoint autenticado ni se integran a
+`reserveDelivery`; el cálculo es de distancia recta y **no es ETA vial**.
+Faltan conexión transaccional/compensación con Pedidos, autenticación
+de identidad del repartidor, GPS real desde PWA, ETA vial y operaciones reales.
 
 ### Contrato entre módulos
 `DeliveryAssignmentRequest` contiene únicamente `orderId`,

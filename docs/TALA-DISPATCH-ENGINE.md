@@ -66,3 +66,34 @@ idempotencia, y no expone endpoints HTTP.
 **NO-GO comercial.** Sin cambios a Kali, Stripe, wallets o módulo de Pedidos.
 Las pruebas usan PostgreSQL 16 descartable de CI. El motor no fue
 desplegado en Render ni conectado a las PWAs.
+
+## LAB 2 — ubicación GPS y proximidad (versión 2.0.0-lab)
+
+La metodología T–A–L–A v1 y la selección transaccional original permanecen
+sin cambios para conservar la regresión. Se agregó una **capacidad separada
+de propuesta geográfica**, no una asignación comercial:
+
+- \`geo.ts\`: Haversine, validación de coordenadas y orden de candidatos
+  por distancia recta al restaurante, luego carga y UUID.
+- \`location-service.ts\`: \`recordCourierPosition\` y
+  \`listNearbyCouriers\`. Solo acceso interno; no hay rutas HTTP públicas.
+- \`migrations/002_courier_position_lab.sql\`: almacena **un único último
+  punto GPS por conductor**, sin historial de recorridos. La base borra ese
+  punto al pasar a offline o revocar aprobación.
+- Un reporte solo se acepta con precisión 0–100 metros y conductor aprobado,
+  online y presencia no mayor a 120 segundos.
+- La consulta excluye posiciones antiguas, conductores sin capacidad, de
+  otra zona o no aprobados; devuelve solo identificador, carga, edad de
+  posición y **distancia aproximada**, nunca coordenadas GPS.
+- No se mantiene coordenada ni dirección de compradores en este módulo.
+
+**Limitaciones:** la hora de recepción es del servidor; todavía NO existe
+verificación de autenticidad de GPS del dispositivo ni vinculación de identidad
+del conductor a las llamadas de ubicación. La distancia Haversine no equivale
+a ruta vial ni ETA. El orden geográfico es una propuesta; no se conecta aún
+al bloqueador transaccional de asignación ni modifica Pedidos.
+
+**Pendiente para la siguiente fase:** autenticar las actualizaciones desde
+la PWA Repartidores, consentimiento y privacidad GPS, verificación de eventos
+de Pedidos, reserva más próxima con revalidación SQL, ruteo vial con proveedor
+real y reasignación segura. Comercial sigue **NO-GO**.
