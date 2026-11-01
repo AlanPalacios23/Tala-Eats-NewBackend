@@ -168,7 +168,7 @@ test('Logística: la misma orden concurrente nunca obtiene dos asignaciones',{
 },async()=>{
   const p=pool();
   try{
-    await setup(p,'tala',2);await setup(p,'tala',2);
+    await setup(p,testZone,2);await setup(p,testZone,2);
     const r=input(),cmd=k();
     const results=await Promise.allSettled([
       reserveDelivery(p,r,cmd),reserveDelivery(p,r,cmd)
@@ -187,7 +187,7 @@ test('Logística: release devuelve capacidad, guarda eventos y no permite reabri
 },async()=>{
   const p=pool();
   try{
-    const id=await setup(p,'tala',1),r=input();
+    const id=await setup(p,testZone,1),r=input();
     const created=await reserveDelivery(p,r,k());
     assert.equal(created.decision,'RESERVED');
     await assert.rejects(finalizeDispatch(p,r.orderId,'2',k(),'released'),
@@ -251,8 +251,8 @@ test('Logística: si repartidor A está lleno, asigna B con capacidad disponible
 },async()=>{
   const p=pool();
   try{
-    const a=await setup(p,'tala',1);
-    const b=await setup(p,'tala',1);
+    const a=await setup(p,testZone,1);
+    const b=await setup(p,testZone,1);
     const [first,second]=await Promise.all([
       reserveDelivery(p,input(),k()),
       reserveDelivery(p,input(),k())
