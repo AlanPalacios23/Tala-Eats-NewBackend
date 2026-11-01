@@ -61,7 +61,8 @@ async function authorized(client:PoolClient,order:Row,id:string,role:Role){
       JOIN tala_core_v2.driver_profiles p ON p.account_id=d.driver_id
       JOIN tala_core_v2.accounts a ON a.id=d.driver_id
       WHERE d.order_id=$1::uuid AND d.driver_id=$2::uuid
-        AND p.approved=true AND a.is_active=true AND a.role='driver'`,
+        AND p.approved=true AND a.is_active=true AND a.role='driver'
+      FOR SHARE OF d,p,a`,
       [order.id,id]);
     if(!m.rowCount)throw new OrderServiceError('ORDER_NOT_FOUND');
   }
@@ -148,7 +149,9 @@ export async function myDriverOrders(pool:Pool,driverId:string){
     FROM tala_core_v2.orders o
     JOIN tala_core_v2.order_driver_assignments d ON d.order_id=o.id
     JOIN tala_core_v2.driver_profiles p ON p.account_id=d.driver_id
+    JOIN tala_core_v2.accounts a ON a.id=d.driver_id
     WHERE d.driver_id=$1::uuid AND p.approved=true
+      AND a.is_active=true AND a.role='driver'
     ORDER BY o.created_at DESC LIMIT 100`,[driverId]);
   return r.rows;
 }
