@@ -4,6 +4,7 @@
  */
 import express from 'express';
 import { Pool } from 'pg';
+import {createOrderApp} from './modules/orders/lab-http.ts';
 
 const app = express();
 app.disable('x-powered-by');
@@ -38,8 +39,21 @@ app.get('/ready', async (_req,res) => {
   }
 });
 
-if (process.env.CORE_V2_WRITES_ENABLED !== 'false') {
+// Fail closed. HTTP order writes are *only* permitted on loopback with
+// a disposable, separately named lab database. Production remains read-only.
+const writesFlag=process.env.CORE_V2_WRITES_ENABLED;
+if (writesFlag!=='false' && writesFlag!=='true') {
   throw Error('CORE_V2_WRITES_MUST_REMAIN_DISABLED');
+}
+if (writesFlag==='true') {
+  const url=databaseUrl?new URL(databaseUrl):null;
+  const dbName=url?.pathname.slice(1);
+  if(process.env.CORE_V2_RUNTIME!=='isolated-lab'||!pool||!url||
+    !['127.0.0.1','localhost'].includes(url.hostname)||
+    !['tala_core_v2_lab','tala_core_v2_test'].includes(dbName??'')){
+    throw Error('CORE_V2_WRITES_MUST_REMAIN_DISABLED');
+  }
+  app.use(createOrderApp(pool));
 }
 const port = Number(process.env.CORE_V2_PORT ?? '18210');
 if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
