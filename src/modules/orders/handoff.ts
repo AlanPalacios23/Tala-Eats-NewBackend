@@ -161,18 +161,21 @@ export async function claimDelivery(pool:Pool,cmd:Command):Promise<Result>{
   try{
     await begin(client);
     const order=await lockedOrder(client,cmd.orderId);
-    const p=await client.query(`
-      SELECT 1 FROM tala_core_v2.driver_profiles p
+    const p=await client.query<{is_online:boolean}>(`
+      SELECT p.is_online FROM tala_core_v2.driver_profiles p
       JOIN tala_core_v2.accounts a ON a.id=p.account_id
-      WHERE p.account_id=$1::uuid AND p.approved=true AND p.is_online=true
+      WHERE p.account_id=$1::uuid AND p.approved=true
         AND a.is_active=true AND a.role='driver' FOR SHARE OF p,a`,[cmd.actorId]);
-    if(!p.rowCount)throw new OrderServiceError('DRIVER_NOT_AVAILABLE');
+    if(!p.rows[0])throw new OrderServiceError('DRIVER_NOT_AVAILABLE');
     const k=codeKey('driver.claim.v1',cmd);
     const replay=await checkReplay(client,order,k,cmd,'assigned');
     if(replay){
+      // Already committed claims must be repeatable even if the driver
+      // subsequently went offline (but still remains approved/active).
       await client.query('COMMIT');
       return {orderId:order.id,...replay,replayed:true};
     }
+    if(!p.rows[0].is_online)throw new OrderServiceError('DRIVER_NOT_AVAILABLE');
     checkVersion(order,cmd);
     if(order.payment_method!=='cash'||order.payment_status!=='pending')
       throw new OrderServiceError('PAYMENT_NOT_ALLOWED');
