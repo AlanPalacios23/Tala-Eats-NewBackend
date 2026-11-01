@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 1 PEDIDOS · Cierre técnico
 
-**Versión:** `0.2.0-lab.3`. **Fecha:** 2026-11-01.
+**Versión:** `0.2.0-lab.4`. **Fecha:** 2026-11-01.
 **Decisión:** GO para continuar desarrollando los siguientes módulos **solo después de CI verde y revisión del PR**; NO-GO para cambiar el backend comercial ni procesar pagos reales.
 
 ## Alcance congelado del módulo
