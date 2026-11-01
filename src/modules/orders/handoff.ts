@@ -81,16 +81,17 @@ async function event(client:PoolClient,order:Row,eventKey:string,kind:string,
     })]);
 }
 async function checkReplay(client:PoolClient,order:Row,k:string,
-  cmd:Command,target:OrderStatus):Promise<boolean>{
+  cmd:Command,target:OrderStatus):Promise<{status:OrderStatus;version:bigint}|null>{
   const r=await client.query<{actor_id:string;new_status:OrderStatus;
-    data:{expectedVersion?:string}}>(`
+    data:{expectedVersion?:string;version?:string}}>(`
     SELECT actor_id,new_status,data FROM tala_core_v2.order_events
     WHERE order_id=$1::uuid AND event_key=$2`,[order.id,k]);
-  if(!r.rows[0])return false;
+  if(!r.rows[0])return null;
   if(r.rows[0].actor_id!==cmd.actorId||r.rows[0].new_status!==target||
-     r.rows[0].data?.expectedVersion!==String(cmd.expectedVersion))
+     r.rows[0].data?.expectedVersion!==String(cmd.expectedVersion)||
+     !r.rows[0].data.version||!/^[1-9]\\d*$/.test(r.rows[0].data.version))
     throw new OrderServiceError('IDEMPOTENCY_CONFLICT');
-  return true;
+  return {status:r.rows[0].new_status,version:BigInt(r.rows[0].data.version)};
 }
 function checkVersion(order:Row,cmd:Command){
   if(BigInt(order.version)!==cmd.expectedVersion)
@@ -164,9 +165,10 @@ export async function claimDelivery(pool:Pool,cmd:Command):Promise<Result>{
         AND a.is_active=true AND a.role='driver' FOR SHARE OF p,a`,[cmd.actorId]);
     if(!p.rowCount)throw new OrderServiceError('DRIVER_NOT_AVAILABLE');
     const k=codeKey('driver.claim.v1',cmd);
-    if(await checkReplay(client,order,k,cmd,'assigned')){
+    const replay=await checkReplay(client,order,k,cmd,'assigned');
+    if(replay){
       await client.query('COMMIT');
-      return {orderId:order.id,status:order.status,version:BigInt(order.version),replayed:true};
+      return {orderId:order.id,...replay,replayed:true};
     }
     checkVersion(order,cmd);
     if(order.payment_method!=='cash'||order.payment_status!=='pending')
@@ -199,9 +201,10 @@ export async function advanceDelivery(pool:Pool,cmd:Command,
     const order=await lockedOrder(client,cmd.orderId);
     await authorized(client,order,cmd.actorId,'driver');
     const k=codeKey('driver.advance.'+target,cmd);
-    if(await checkReplay(client,order,k,cmd,target)){
+    const replay=await checkReplay(client,order,k,cmd,target);
+    if(replay){
       await client.query('COMMIT');
-      return {orderId:order.id,status:order.status,version:BigInt(order.version),replayed:true};
+      return {orderId:order.id,...replay,replayed:true};
     }
     checkVersion(order,cmd);
     transit(order,target,'driver');
@@ -303,7 +306,8 @@ export async function finishCashOrder(pool:Pool,cmd:Command,role:'merchant'|'dri
     const order=await lockedOrder(client,cmd.orderId);
     await authorized(client,order,cmd.actorId,role);
     const k=codeKey('order.finalize.'+role,cmd);
-    if(await checkReplay(client,order,k,cmd,'delivered')){
+    const replay=await checkReplay(client,order,k,cmd,'delivered');
+    if(replay){
       // Idempotent replay must match the original PIN proof. Never accept a
       // different PIN with the same commandKey even after completion.
       const original=await client.query<{pin_salt:string|null;pin_hash:string|null}>(`
@@ -316,7 +320,7 @@ export async function finishCashOrder(pool:Pool,cmd:Command,role:'merchant'|'dri
       if(!timingSafeEqual(digest,Buffer.from(proof.pin_hash,'hex')))
         throw new OrderServiceError('IDEMPOTENCY_CONFLICT');
       await client.query('COMMIT');committed=true;
-      return {orderId:order.id,status:order.status,version:BigInt(order.version),replayed:true};
+      return {orderId:order.id,...replay,replayed:true};
     }
     checkVersion(order,cmd);
     if(!handoffState(order)||order.payment_method!=='cash'||order.payment_status!=='pending')
