@@ -45,3 +45,10 @@ como si ya existiera el flujo comercial de las PWA.
 Las pruebas SQL se ejecutan exclusivamente con `PG_CI_URL` apuntando a
 `tala_core_v2_test` en CI (PostgreSQL 16 desechable). La migración Logística
 se aplica después de 001–007 Pedidos, sin tocar sus tablas.
+
+## GPS y proximidad — LAB 2
+- Migración `002_courier_position_lab.sql`: **solo la última posición** del conductor, con restricciones de coordenadas y precisión. Se elimina al ponerse offline o perder aprobación.
+- `recordCourierPosition`: entrada interna y validada; se exige aprobado, online y presencia reciente. Sello temporal del servidor, sin endpoint público. Falta verificar identidad del conductor y origen auténtico del GPS.
+- `listNearbyCouriers`: sugiere candidatos elegibles por zona y posición de hace máximo 120 segundos, con capacidad libre; **devuelve distancia recta aproximada, nunca coordenadas privadas**.
+- `straightLineMeters`: Haversine. **No** conoce calles, rutas reales, tráfico ni ETA. No sustituye la selección SQL v1 que ya está probada; la proximidad será integrada a la reserva solo después de un adaptador de identidad y pedido verificado.
+- Se aplicó el cambio solo al backend de LAB y CI, no a Render ni a Kali.
