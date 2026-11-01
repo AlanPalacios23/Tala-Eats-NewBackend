@@ -10,7 +10,8 @@ import {hashPassword,verifyPassword,issueSession,resolveSession,getSessionToken,
   tokenHash,sessionCookie,clearedSessionCookie} from './lab-auth.ts';
 import type {Identity} from './lab-auth.ts';
 import {OrderServiceError,previewCart,createCashOrder,listBuyerOrders,
-  findBuyerOrder,listMerchantOrders} from './checkout.ts';
+  findBuyerOrder,findMerchantOrder,listMerchantOrders} from './checkout.ts';
+import {readOrderTimeline,readBuyerReceipt} from './orders-read.ts';
 import {cancelCashOrder} from './cancel.ts';
 import {advanceMerchantOrder,MerchantOrderError} from './merchant-orders.ts';
 import {claimDelivery,advanceDelivery,availableDriverOrders,myDriverOrders,
@@ -210,6 +211,14 @@ export function createOrderApp(pool:Pool){
     if(!order)throw new OrderServiceError('ORDER_NOT_FOUND');
     res.json(order);
   }));
+  app.get('/api/v2/orders/:id/timeline',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'customer');
+    res.json(await readOrderTimeline(pool,user.id,'customer',uuid.parse(req.params.id)));
+  }));
+  app.get('/api/v2/orders/:id/receipt',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'customer');
+    res.json(await readBuyerReceipt(pool,user.id,uuid.parse(req.params.id)));
+  }));
   app.post('/api/v2/orders/:id/cancel',wrap(async(req,res)=>{
     const user=await requireAuth(pool,req,'customer');
     const cmd=parse(command,req.body);
@@ -221,6 +230,16 @@ export function createOrderApp(pool:Pool){
   app.get('/api/v2/merchant/orders',wrap(async(req,res)=>{
     const user=await requireAuth(pool,req,'merchant');
     res.json(await listMerchantOrders(pool,user.id));
+  }));
+  app.get('/api/v2/merchant/orders/:id',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'merchant');
+    const order=await findMerchantOrder(pool,user.id,uuid.parse(req.params.id));
+    if(!order)throw new OrderServiceError('ORDER_NOT_FOUND');
+    res.json(order);
+  }));
+  app.get('/api/v2/merchant/orders/:id/timeline',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'merchant');
+    res.json(await readOrderTimeline(pool,user.id,'merchant',uuid.parse(req.params.id)));
   }));
   app.patch('/api/v2/merchant/orders/:id/status',wrap(async(req,res)=>{
     const user=await requireAuth(pool,req,'merchant');
@@ -276,6 +295,10 @@ export function createOrderApp(pool:Pool){
   app.get('/api/v2/driver/orders',wrap(async(req,res)=>{
     const user=await requireAuth(pool,req,'driver');
     res.json(await myDriverOrders(pool,user.id));
+  }));
+  app.get('/api/v2/driver/orders/:id/timeline',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    res.json(await readOrderTimeline(pool,user.id,'driver',uuid.parse(req.params.id)));
   }));
   app.post('/api/v2/driver/orders/:id/claim',wrap(async(req,res)=>{
     const user=await requireAuth(pool,req,'driver');
