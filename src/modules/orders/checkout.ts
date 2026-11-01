@@ -97,13 +97,13 @@ export async function findBuyerOrder(pool:Pool,buyerId:string,id:string):Promise
     SELECT * FROM tala_core_v2.orders
     WHERE id=$1::uuid AND buyer_id=$2::uuid`,[id,buyerId]);
   if(!result.rows[0])return null;
-  return loadOrder(pool,result.rows[0]);
+  return (await loadOrders(pool,[result.rows[0]]))[0]??null;
 }
 export async function listBuyerOrders(pool:Pool,buyerId:string):Promise<OrderView[]>{
   const result=await pool.query<DbOrder>(`
     SELECT * FROM tala_core_v2.orders WHERE buyer_id=$1::uuid
     ORDER BY created_at DESC,id DESC LIMIT 100`,[buyerId]);
-  return Promise.all(result.rows.map(row=>loadOrder(pool,row)));
+  return loadOrders(pool,result.rows);
 }
 export async function listMerchantOrders(pool:Pool,memberId:string):Promise<OrderView[]>{
   const result=await pool.query<DbOrder>(`
@@ -111,18 +111,34 @@ export async function listMerchantOrders(pool:Pool,memberId:string):Promise<Orde
     JOIN tala_core_v2.restaurant_memberships m ON m.restaurant_id=o.restaurant_id
     WHERE m.member_id=$1::uuid AND m.is_active=true
     ORDER BY o.created_at DESC,o.id DESC LIMIT 100`,[memberId]);
-  return Promise.all(result.rows.map(row=>loadOrder(pool,row)));
+  return loadOrders(pool,result.rows);
 }
-async function loadOrder(client:Pick<Pool,'query'>,row:DbOrder):Promise<OrderView>{
-  const lines=await client.query<{product_name_snapshot:string;quantity:number;unit_minor:string}>(`
-    SELECT product_name_snapshot,quantity,unit_minor
-    FROM tala_core_v2.order_lines WHERE order_id=$1::uuid ORDER BY line_number`,[row.id]);
-  return {id:row.id,restaurantId:row.restaurant_id,buyerId:row.buyer_id,
+type DbLine={order_id:string;product_name_snapshot:string;quantity:number;unit_minor:string};
+async function loadOrders(client:Pick<Pool,'query'>,rows:DbOrder[]):Promise<OrderView[]>{
+  if(!rows.length)return [];
+  // One batched query instead of one DB request per order (N+1).
+  const result=await client.query<DbLine>(`
+    SELECT order_id,product_name_snapshot,quantity,unit_minor
+    FROM tala_core_v2.order_lines
+    WHERE order_id=ANY($1::uuid[])
+    ORDER BY order_id,line_number`,[rows.map(row=>row.id)]);
+  const linesByOrder=new Map<string,OrderView['lines']>();
+  for(const line of result.rows){
+    const group=linesByOrder.get(line.order_id)??[];
+    group.push({name:line.product_name_snapshot,quantity:line.quantity,unitMinor:line.unit_minor});
+    linesByOrder.set(line.order_id,group);
+  }
+  return rows.map(row=>({
+    id:row.id,restaurantId:row.restaurant_id,buyerId:row.buyer_id,
     status:row.status,fulfillment:row.fulfillment,paymentMethod:row.payment_method,
     paymentStatus:row.payment_status,totalMinor:row.total_minor,version:row.version,
     deliveryAddress:row.delivery_address,
     createdAt:new Date(row.created_at).toISOString(),
-    lines:lines.rows.map(l=>({name:l.product_name_snapshot,quantity:l.quantity,unitMinor:l.unit_minor}))};
+    lines:linesByOrder.get(row.id)??[]
+  }));
+}
+async function loadOrder(client:Pick<Pool,'query'>,row:DbOrder):Promise<OrderView>{
+  return (await loadOrders(client,[row]))[0]!;
 }
 export async function createCashOrder(pool:Pool,buyerId:string,input:CreateInput):Promise<{order:OrderView;replayed:boolean}>{
   validateCart(input);
@@ -162,7 +178,7 @@ export async function createCashOrder(pool:Pool,buyerId:string,input:CreateInput
       VALUES($1::uuid,$2::uuid,$3,'received','cash','pending',$4,$5,$6::jsonb,
         $7,$8,$9) RETURNING *`,[
           buyerId,input.restaurantId,input.fulfillment,quote.totalMinor,quote.policyVersion,
-          JSON.stringify(snapshot),input.idempotencyKey,requestHash,input.deliveryAddress?.trim()??null
+          JSON.stringify(snapshot),input.idempotencyKey,requestHash,input.fulfillment==='delivery'?input.deliveryAddress!.trim():null
         ]);
     const order=created.rows[0]!;
     for(let i=0;i<input.lines.length;i++){
