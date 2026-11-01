@@ -2,6 +2,17 @@
 
 Motor **independiente** de Pedidos, bajo `src/modules/modulo-2-logistica/`.
 
+## Metodología TALA Dispatch Engine
+
+**T**rigger (pedido listo para delivery) → **A**vailability (repartidor
+aprobado, online y reciente) → **L**oad (zona, capacidad y carga) →
+**A**tomic assignment (reserva SQL idempotente).
+
+`evaluateTalaDispatch` produce una propuesta y una traza de etapas;
+`reserveDelivery` verifica nuevamente bajo bloqueo y confirma la reserva.
+El cálculo de distancia GPS, ETA y optimización real de rutas **no** se han
+implementado. Ver [documentación de metodología](../../../docs/TALA-DISPATCH-ENGINE.md).
+
 ## Funciones ya desarrolladas
 - `enrollCourier`: alta interna, sin autoaprobar conductores
 - `approveCourier`: aprobación o revocación; revocar obliga quedar offline
