@@ -22,8 +22,22 @@ despacho ni se abrirá como endpoint de Logística en Render.
 Responsable de elegibilidad de repartidores, presencia, capacidad,
 zonas, selección de candidatos y, en fases siguientes, despacho
 transaccional, reasignaciones, geolocalización, ETA y seguimiento de rutas.
-Su política inicial es pura y determinista, sin importaciones de Pedidos,
-sin conexiones de base ni rutas públicas.
+Su política inicial es pura y determinista. Además, el módulo ya contiene
+un servicio PostgreSQL transaccional independiente (alta interna de repartidores,
+aprobación, presencia, reservas de entrega, finalización y liberación de
+capacidad) en `tala_logistics_v2`, con eventos inmutables y outbox propio.
+
+La migración del laboratorio es
+`src/modules/modulo-2-logistica/migrations/001_logistics_lab.sql`. El servicio
+`dispatch-service.ts` sí utiliza PostgreSQL, pero **no consulta ni modifica
+las tablas o el código de Pedidos**. Sigue sin rutas HTTP ni permisos de ejecución
+pública. La política pura sigue separada en `assignment-policy.ts`.
+
+La reserva únicamente toma como entrada el estado `ready` comunicado por un
+adaptador de confianza todavía no implementado; **no verifica por sí sola**
+si el pedido existe en Módulo 1, así que esta etapa es solo de LAB.
+Faltan conexión transaccional/compensación con Pedidos, identidad del repartidor,
+GPS/ETA y operaciones reales.
 
 ### Contrato entre módulos
 `DeliveryAssignmentRequest` contiene únicamente `orderId`,

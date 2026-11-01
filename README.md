@@ -36,6 +36,8 @@ src/
       contracts.ts           # contrato independiente
       assignment-policy.ts   # selección elegible de repartidor
       index.ts               # API pública del módulo
+      dispatch-service.ts    # presencia y reservas SQL transaccionales
+      migrations/001_logistics_lab.sql # tablas/logs/outbox propios
       README.md              # alcance, interfaces y estado real
   server.ts                  # composición /health, /ready, gates
 tests/
@@ -49,9 +51,11 @@ scripts/
 cierre del pedido. Logística aporta disponibilidad, capacidad, zonas y selección
 de repartidores, sin importar código de Pedidos, modificar dinero ni abrir rutas.
 El endpoint heredado de `claim` dentro del LAB de Pedidos es parte de la
-transición del pedido y seguirá funcionando; la extracción de despacho operativo
-será una integración posterior con su propia prueba E2E. **Módulo 2 aún no
-está integrado al servidor, PWA o BD**.
+transición del pedido y seguirá funcionando. **Módulo 2 tiene su propia
+persistencia PostgreSQL probada en CI**, pero no está integrado al servidor,
+PWA ni a la base de Render. Su motor no reemplaza todavía la asignación
+de Pedidos: falta un adaptador autenticado y la confirmación transaccional
+del pedido para evitar asignaciones comerciales sin respaldo.
 
 Arquitectura y contratos: [MODULOS-Y-CONTRATOS.md](docs/MODULOS-Y-CONTRATOS.md).
 
