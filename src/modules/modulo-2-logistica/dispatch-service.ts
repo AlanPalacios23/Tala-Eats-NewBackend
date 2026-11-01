@@ -143,6 +143,8 @@ export async function reserveDelivery(pool:Pool,
        WHERE c.approved=true AND c.online=true AND c.zone=$1
          AND c.last_seen_at>=clock_timestamp()-interval '120 seconds'
          AND c.last_seen_at<=clock_timestamp()
+         AND (SELECT count(*) FROM tala_logistics_v2.dispatch_reservations d
+              WHERE d.courier_id=c.id AND d.status='reserved') < c.capacity
        ORDER BY (SELECT count(*) FROM tala_logistics_v2.dispatch_reservations d
                   WHERE d.courier_id=c.id AND d.status='reserved'),c.id
        FOR UPDATE OF c SKIP LOCKED LIMIT 1`,[request.deliveryZone]
