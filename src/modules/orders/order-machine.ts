@@ -11,7 +11,7 @@ export type OrderStatus =
 
 export type Fulfillment = 'pickup' | 'delivery';
 export type PaymentMethod = 'cash' | 'stripe';
-export type ActorRole = 'system' | 'merchant' | 'driver' | 'admin';
+export type ActorRole = 'system' | 'customer' | 'merchant' | 'driver' | 'admin';
 
 export type TransitionInput = {
   current: OrderStatus;
@@ -41,8 +41,8 @@ export class OrderTransitionError extends Error {
 
 const rules: Record<OrderStatus, Partial<Record<OrderStatus, readonly ActorRole[]>>> = {
   awaiting_payment: { received: ['system'], cancelled: ['system', 'admin'] },
-  received: { confirmed: ['merchant'], cancelled: ['merchant', 'system', 'admin'] },
-  confirmed: { preparing: ['merchant'], cancelled: ['system', 'admin'] },
+  received: { confirmed: ['merchant'], cancelled: ['customer', 'merchant', 'system', 'admin'] },
+  confirmed: { preparing: ['merchant'], cancelled: ['merchant', 'system', 'admin'] },
   preparing: { ready: ['merchant'], cancelled: ['system', 'admin'] },
   ready: { assigned: ['system'], delivered: ['merchant'], cancelled: ['system', 'admin'] },
   assigned: { picked_up: ['driver'], ready: ['system'] },
