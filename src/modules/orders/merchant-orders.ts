@@ -53,7 +53,7 @@ const COMMAND_RE=/^[a-zA-Z0-9_.:-]{16,128}$/;
 
 export function merchantEventKey(command:MerchantOrderCommand):string {
   return createHash('sha256').update(
-    'merchant-order-v1|'+command.orderId+'|'+command.actorId+'|'+command.commandKey
+    'merchant-order-v1|'+command.orderId.toLowerCase()+'|'+command.actorId.toLowerCase()+'|'+command.commandKey
   ).digest('hex');
 }
 export async function advanceMerchantOrder(pool:Pool,command:MerchantOrderCommand):Promise<MerchantOrderResult> {
