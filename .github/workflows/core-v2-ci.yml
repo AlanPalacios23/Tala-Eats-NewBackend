@@ -1,0 +1,46 @@
+name: TALA EATS CORE v2 - Pedidos
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orders-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: tala_core_v2_test
+          POSTGRES_USER: core_v2_ci
+          POSTGRES_PASSWORD: ci_password_not_for_production
+        ports:
+          - 15450:5432
+        options: >-
+          --health-cmd "pg_isready -U core_v2_ci -d tala_core_v2_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PG_CI_URL: postgresql://core_v2_ci:ci_password_not_for_production@127.0.0.1:15450/tala_core_v2_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies (isolated, no production secrets)
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Apply isolated PostgreSQL migration
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/001_orders.sql
+      - name: Run unit and schema tests
+        run: npm test
+      - name: Strict TypeScript build
+        run: npm run build
+      - name: Verify read-only admission gate
+        run: |
+          grep -q 'CORE_V2_WRITES_MUST_REMAIN_DISABLED' src/server.ts
+          grep -q 'commercialReady:false' src/server.ts
