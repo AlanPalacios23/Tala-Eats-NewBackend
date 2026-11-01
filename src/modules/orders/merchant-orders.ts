@@ -67,18 +67,18 @@ export async function advanceMerchantOrder(pool:Pool,command:MerchantOrderComman
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
-    // Owner/merchant authorization is checked in the SAME transaction.
-    // A missing or inactive membership intentionally looks like NOT_FOUND.
-    const result=await client.query<LockedOrder>(`
-      SELECT o.id,o.status,o.fulfillment,o.payment_method,o.payment_status,o.version
-      FROM tala_core_v2.orders o
-      JOIN tala_core_v2.restaurant_memberships m
-        ON m.restaurant_id=o.restaurant_id
-       AND m.member_id=$2::uuid AND m.is_active=true
-      WHERE o.id=$1::uuid
-      FOR UPDATE OF o,m`,[command.orderId,command.actorId]);
+    // Acquire locks in consistent order (order first, membership second).
+    // Cancellation uses the same order, avoiding lock inversions/deadlocks.
+    const result=await client.query<LockedOrder & {restaurant_id:string}>(`
+      SELECT id,restaurant_id,status,fulfillment,payment_method,payment_status,version
+      FROM tala_core_v2.orders WHERE id=$1::uuid FOR UPDATE`,[command.orderId]);
     const order=result.rows[0];
     if(!order)throw new MerchantOrderError('ORDER_NOT_FOUND_OR_FORBIDDEN');
+    const membership=await client.query(`
+      SELECT 1 FROM tala_core_v2.restaurant_memberships
+      WHERE restaurant_id=$1::uuid AND member_id=$2::uuid AND is_active=true
+      FOR SHARE`,[order.restaurant_id,command.actorId]);
+    if(!membership.rowCount)throw new MerchantOrderError('ORDER_NOT_FOUND_OR_FORBIDDEN');
 
     const previous=await client.query<StoredEvent>(`
       SELECT new_status,actor_id,data
@@ -102,10 +102,6 @@ export async function advanceMerchantOrder(pool:Pool,command:MerchantOrderComman
       throw new MerchantOrderError('PAYMENT_NOT_VERIFIED');
     }
     if(order.payment_method==='cash'&&!['pending','paid'].includes(order.payment_status)){
-      throw new MerchantOrderError('PAYMENT_NOT_ALLOWED');
-    }
-    if(order.payment_method==='cash'&&
-      !['pending','paid'].includes(order.payment_status)){
       throw new MerchantOrderError('PAYMENT_NOT_ALLOWED');
     }
     try {
