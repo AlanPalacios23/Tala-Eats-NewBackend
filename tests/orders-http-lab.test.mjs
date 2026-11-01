@@ -133,6 +133,13 @@ test('HTTP LAB: buyer → catálogo → checkout → restaurante → cocina → 
       cancelBody,buyerCookie);
     assert.equal(cancelAgain.status,200);
     assert.equal(cancelAgain.data.replayed,true);
+    const cancellationAudit=await pool.query(`
+      SELECT actor_role,actor_id,data->>'restocked' AS restocked
+      FROM tala_core_v2.order_events
+      WHERE order_id=$1::uuid AND new_status='cancelled'`,[second.data.order.id]);
+    assert.equal(cancellationAudit.rows[0].actor_role,'customer');
+    assert.equal(cancellationAudit.rows[0].actor_id,registered.data.id);
+    assert.equal(cancellationAudit.rows[0].restocked,'true');
     const end=await pool.query('SELECT stock FROM tala_core_v2.catalog_products WHERE id=$1',[product]);
     assert.equal(end.rows[0].stock,3);
 
