@@ -57,6 +57,32 @@ test('CORE v2 merchant transaction updates state, evidence and outbox atomically
   }finally{await pool.end();}
 });
 
+test('CORE v2 retry of confirmed preserves original version after preparing',{
+  skip:!enabled
+},async()=>{
+  const pool=new Pool({connectionString:pgUrl,max:2});
+  try{
+    const confirmed=await fixture(pool);
+    const first=await advanceMerchantOrder(pool,confirmed);
+    assert.equal(first.version,2n);
+    const preparing=await advanceMerchantOrder(pool,{
+      ...confirmed,target:'preparing',expectedVersion:2n,commandKey:key()
+    });
+    assert.equal(preparing.status,'preparing');
+    assert.equal(preparing.version,3n);
+    const replay=await advanceMerchantOrder(pool,confirmed);
+    assert.deepEqual(replay,{
+      orderId:confirmed.orderId,status:'confirmed',version:2n,replayed:true
+    });
+    const current=await pool.query(
+      'SELECT status,version FROM tala_core_v2.orders WHERE id=$1::uuid',
+      [confirmed.orderId]
+    );
+    assert.equal(current.rows[0].status,'preparing');
+    assert.equal(current.rows[0].version,'3');
+  }finally{await pool.end();}
+});
+
 test('CORE v2 rejects unauthorized, inactive and stale merchant commands',{
   skip:!enabled
 },async()=>{
