@@ -29,6 +29,7 @@ src/
       handoff.ts         # PIN, efectivo dual, conductor y entrega
       lab-http.ts        # API HTTP de laboratorio
       lab-auth.ts        # autenticación temporal de LAB
+      orders-read.ts     # timeline por actor y recibo inmutable del comprador
   server.ts              # GET /health y /ready; API solo con gate LAB
 migrations/
   001_orders.sql         # orders, items, eventos inmutables, outbox
@@ -45,6 +46,7 @@ tests/
   orders-http-lab.test.mjs # E2E HTTP checkout, cocina y cancelaciones
   orders-hardening.test.mjs # permisos, bloqueos SQL y seguridad HTTP
   orders-handoff.test.mjs # E2E pickup/delivery con PIN y efectivo
+  orders-read.test.mjs # timeline multirrol, recibos, privacidad y detalle histórico
 docs/
   ARQUITECTURA_Y_MIGRACION.md
 .github/workflows/
@@ -107,6 +109,9 @@ sigue siendo una referencia de controles P0.
 
 Versión candidata del flujo cash completo:
 [MODULO1-RC-FLUJO-COMPLETO-LAB.md](docs/MODULO1-RC-FLUJO-COMPLETO-LAB.md).
+
+Seguimiento, recibos y detalle individual de Pedidos (LAB5):
+[MODULO1-SEGUIMIENTO-Y-RECIBOS-LAB5.md](docs/MODULO1-SEGUIMIENTO-Y-RECIBOS-LAB5.md).
 
 Auditoría adicional de seguridad y contratos (LAB4):
 [MODULO1-AUDITORIA-LAB4.md](docs/MODULO1-AUDITORIA-LAB4.md).
