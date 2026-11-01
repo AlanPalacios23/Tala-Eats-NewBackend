@@ -236,6 +236,13 @@ export async function issueBuyerHandoffPin(pool:Pool,buyerId:string,orderId:stri
       SET pin_hash=$2,pin_salt=$3,pin_expires_at=now()+interval '10 minutes',
         pin_failures=0,pin_consumed_at=NULL
       WHERE order_id=$1::uuid`,[order.id,digest,salt]);
+    // Audit PIN issuance/rotation without ever storing or publishing the PIN.
+    const auditKey=createHash('sha256').update(
+      'pin.issued.v1|'+order.id+'|'+randomBytes(16).toString('hex')).digest('hex');
+    await event(client,order,auditKey,'order.pin.issued',
+      order.status,order.status,'customer',buyerId,{
+        expiresInSeconds:600,failedAttemptsReset:true
+      });
     await client.query('COMMIT');
     // PIN is only ever returned to authenticated buyer, never persisted plain.
     return {orderId:order.id,pin,expiresInSeconds:600};
