@@ -7,6 +7,8 @@
 import {createHash} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 import type {DeliveryAssignmentRequest} from './contracts.ts';
+import {TALA_DISPATCH_ENGINE_VERSION,evaluateTalaDispatch,isDispatchTriggerReady}
+  from './tala-dispatch-engine.ts';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const zone=/^[a-z0-9][a-z0-9_-]{1,63}$/;
@@ -88,7 +90,8 @@ async function logEvent(client:PoolClient,row:ReservationRow,commandKey:string,
   type:'dispatch.reserved'|'dispatch.released'|'dispatch.completed'){
   const k=eventKey(row.order_id,commandKey,type);
   const payload={orderId:row.order_id,courierId:row.courier_id,
-    status:row.status,version:row.version};
+    status:row.status,version:row.version,
+    dispatchEngine:'TALA Dispatch Engine',dispatchEngineVersion:TALA_DISPATCH_ENGINE_VERSION};
   await client.query(
     `INSERT INTO tala_logistics_v2.dispatch_events
       (order_id,command_key,event_type,courier_id,event_key,details)
@@ -108,7 +111,7 @@ export async function reserveDelivery(pool:Pool,
   if(!request)return bad('LOGISTICS_REQUEST_INVALID');
   const orderId=requireId(request.orderId),restaurantId=requireId(request.restaurantId);
   requireZone(request.deliveryZone);requireKey(commandKey);
-  if(request.fulfillment!=='delivery'||request.orderStatus!=='ready')
+  if(!isDispatchTriggerReady(request))
     return {decision:'NOT_ELIGIBLE',orderId};
   const client=await pool.connect();
   try{
@@ -138,8 +141,12 @@ export async function reserveDelivery(pool:Pool,
     }
     // SKIP LOCKED prevents competing orders from simultaneously claiming
     // a courier. Capacity is rechecked AFTER acquiring the courier lock.
-    const candidate=await client.query<{id:string;capacity:number}>(
-      `SELECT c.id,c.capacity FROM tala_logistics_v2.couriers c
+    const candidate=await client.query<{
+      id:string;capacity:number;zone:string;approved:boolean;
+      online:boolean;last_seen_at:Date|null;
+    }>(
+      `SELECT c.id,c.capacity,c.zone,c.approved,c.online,c.last_seen_at
+       FROM tala_logistics_v2.couriers c
        WHERE c.approved=true AND c.online=true AND c.zone=$1
          AND c.last_seen_at>=clock_timestamp()-interval '120 seconds'
          AND c.last_seen_at<=clock_timestamp()
@@ -158,7 +165,15 @@ export async function reserveDelivery(pool:Pool,
       `SELECT count(*)::text AS count FROM tala_logistics_v2.dispatch_reservations
        WHERE courier_id=$1::uuid AND status='reserved'`,[courier.id]
     );
-    if(Number(load.rows[0]!.count)>=courier.capacity){
+    // TALA: re-evaluate availability and capacity under the acquired
+    // courier row lock. The pure engine only PROPOSES; SQL is authoritative.
+    const verdict=evaluateTalaDispatch(request,[{
+      courierId:courier.id,approved:courier.approved,online:courier.online,
+      serviceZones:[courier.zone],activeDeliveries:Number(load.rows[0]!.count),
+      maxConcurrentDeliveries:courier.capacity,
+      lastSeenAtMs:courier.last_seen_at?.getTime()??0
+    }],Date.now());
+    if(verdict.decision!=='PROPOSE'||verdict.courierId!==courier.id){
       await client.query('COMMIT');
       return {decision:'NO_AVAILABLE_COURIER',orderId};
     }
