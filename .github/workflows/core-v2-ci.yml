@@ -73,6 +73,18 @@ jobs:
           test "$ready" -eq 1 || { cat /tmp/lab-core.log; exit 1; }
           grep -q '"ready":true' /tmp/core-ready.json
           curl --fail --silent http://127.0.0.1:18210/api/v2/health | grep -q '"commercialReady":false'
+      - name: Verify incomplete order migration refuses startup (disposable DB)
+        run: |
+          set -Eeuo pipefail
+          # This deliberately mutates ONLY the disposable PostgreSQL CI database.
+          psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -c \
+            "ALTER TABLE tala_core_v2.order_handoffs DROP COLUMN pin_generation_count"
+          if CORE_V2_WRITES_ENABLED=true CORE_V2_RUNTIME=isolated-lab \
+            CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_PORT=18210 \
+            node dist/server.js > /tmp/incomplete-core.log 2>&1; then
+            echo "INCOMPLETE_SCHEMA_WAS_ALLOWED"; exit 1
+          fi
+          grep -q "CORE_V2_LAB_DATABASE_ADMISSION_FAILED" /tmp/incomplete-core.log
       - name: Verify read-only admission gate
         run: |
           grep -q 'CORE_V2_WRITES_MUST_REMAIN_DISABLED' src/server.ts
