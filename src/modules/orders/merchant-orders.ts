@@ -46,7 +46,7 @@ type LockedOrder = {
 type StoredEvent = {
   new_status: OrderStatus;
   actor_id: string|null;
-  data: {target?:string;expectedVersion?:string}|null;
+  data: {target?:string;expectedVersion?:string;resultVersion?:string}|null;
 };
 const UUID_RE=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COMMAND_RE=/^[a-zA-Z0-9_.:-]{16,128}$/;
@@ -94,11 +94,15 @@ export async function advanceMerchantOrder(pool:Pool,command:MerchantOrderComman
       if(prior.actor_id!==command.actorId
         ||prior.new_status!==command.target
         ||prior.data?.target!==command.target
-        ||prior.data.expectedVersion!==String(command.expectedVersion)) {
+        ||prior.data.expectedVersion!==String(command.expectedVersion)
+        ||!prior.data.resultVersion||!/^[1-9]\d*$/.test(prior.data.resultVersion)) {
         throw new MerchantOrderError('IDEMPOTENCY_CONFLICT');
       }
       await client.query('COMMIT');
-      return {orderId:order.id,status:order.status,version:BigInt(order.version),replayed:true};
+      // A retry reports the original committed transition, not the order's
+      // newer status after another legitimate actor advanced it.
+      return {orderId:order.id,status:prior.new_status,
+        version:BigInt(prior.data.resultVersion),replayed:true};
     }
     if(BigInt(order.version)!==command.expectedVersion){
       throw new MerchantOrderError('ORDER_VERSION_CONFLICT');
