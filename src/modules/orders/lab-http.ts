@@ -25,7 +25,8 @@ const lines=z.array(z.object({
 }).strict()).min(1).max(50);
 const cart=z.object({
   restaurantId:uuid,fulfillment:z.enum(['pickup','delivery']),
-  lines,deliveryAddress:z.string().min(5).max(240).optional()
+  // Empty address is valid for pickup; delivery is validated by validateCart.
+  lines,deliveryAddress:z.string().max(240).optional()
 }).strict();
 const checkout=cart.extend({
   paymentMethod:z.literal('cash'),
