@@ -18,7 +18,7 @@ type Handler=(req:Request,res:Response)=>Promise<void>;
 const wrap=(fn:Handler)=>(req:Request,res:Response,next:NextFunction)=>{
   Promise.resolve().then(()=>fn(req,res)).catch(next);
 };
-class AuthError extends Error{constructor(readonly code:string){super(code);}}
+class AuthError extends Error{readonly code:string;constructor(code:string){super(code);this.code=code;}}
 const uuid=z.string().uuid();
 const lines=z.array(z.object({
   productId:uuid,quantity:z.number().int().min(1).max(100)
