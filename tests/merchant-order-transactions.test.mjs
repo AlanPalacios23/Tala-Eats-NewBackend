@@ -70,7 +70,9 @@ test('CORE v2 retry of confirmed preserves original version after preparing',{
     });
     assert.equal(preparing.status,'preparing');
     assert.equal(preparing.version,3n);
-    const replay=await advanceMerchantOrder(pool,confirmed);
+    const replay=await advanceMerchantOrder(pool,{
+      ...confirmed,orderId:confirmed.orderId.toUpperCase()
+    });
     assert.deepEqual(replay,{
       orderId:confirmed.orderId,status:'confirmed',version:2n,replayed:true
     });
