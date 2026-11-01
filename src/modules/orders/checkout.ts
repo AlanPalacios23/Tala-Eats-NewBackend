@@ -25,7 +25,8 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const money=(x:bigint)=>x.toString();
 const checkoutHash=(input:CreateInput)=>createHash('sha256').update(JSON.stringify({
   restaurantId:input.restaurantId,fulfillment:input.fulfillment,
-  lines:[...input.lines].sort((a,b)=>a.productId.localeCompare(b.productId)),
+  lines:[...input.lines].map(l=>({productId:l.productId.toLowerCase(),quantity:l.quantity}))
+    .sort((a,b)=>a.productId.localeCompare(b.productId)),
   deliveryAddress:input.deliveryAddress?.trim()??'',paymentMethod:input.paymentMethod
 })).digest('hex');
 
@@ -36,9 +37,9 @@ export function validateCart(input:CartInput):void{
   const ids=new Set<string>();
   for(const line of input.lines){
     if(!uuid.test(line.productId)||!Number.isSafeInteger(line.quantity)||line.quantity<1
-      ||line.quantity>100||ids.has(line.productId))
+      ||line.quantity>100||ids.has(line.productId.toLowerCase()))
       throw new OrderServiceError('CART_INVALID');
-    ids.add(line.productId);
+    ids.add(line.productId.toLowerCase());
   }
   if(input.fulfillment==='delivery'&&
     (!input.deliveryAddress||input.deliveryAddress.trim().length<5||
@@ -60,7 +61,7 @@ async function catalog(client:PoolClient,input:CartInput,lock:boolean):Promise<P
     throw new OrderServiceError('PRODUCT_UNAVAILABLE');
   const lookup=new Map(products.rows.map(p=>[p.id,p]));
   for(const line of input.lines){
-    const product=lookup.get(line.productId);
+    const product=lookup.get(line.productId.toLowerCase());
     if(!product?.is_available||product.stock<line.quantity)
       throw new OrderServiceError('OUT_OF_STOCK');
   }
@@ -70,7 +71,7 @@ function buildQuote(input:CartInput,products:Product[]){
   const lookup=new Map(products.map(p=>[p.id,p]));
   const q=quoteOrder({
     lines:input.lines.map(l=>({
-      unitMinor:BigInt(lookup.get(l.productId)!.price_minor),quantity:l.quantity
+      unitMinor:BigInt(lookup.get(l.productId.toLowerCase())!.price_minor),quantity:l.quantity
     })),
     fulfillment:input.fulfillment,deliveryFeeMinor:input.fulfillment==='delivery'?3900n:0n,
     driverBaseMinor:input.fulfillment==='delivery'?3200n:0n,tipMinor:0n
@@ -81,8 +82,8 @@ function buildQuote(input:CartInput,products:Product[]){
     merchantPayableMinor:money(q.merchantPayableMinor),driverPayableMinor:money(q.driverPayableMinor),
     platformGrossMinor:money(q.platformGrossMinor),
     lines:input.lines.map(l=>({
-      productId:l.productId,name:lookup.get(l.productId)!.name,
-      quantity:l.quantity,unitMinor:lookup.get(l.productId)!.price_minor
+      productId:l.productId.toLowerCase(),name:lookup.get(l.productId.toLowerCase())!.name,
+      quantity:l.quantity,unitMinor:lookup.get(l.productId.toLowerCase())!.price_minor
     }))};
 }
 export async function previewCart(pool:Pool,input:CartInput){
