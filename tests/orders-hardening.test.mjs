@@ -287,7 +287,7 @@ test('P0: cancellation policy matches machine after merchant confirmation',{
       cancelBody,seller.cookie);
     assert.equal(cancel.status,200,JSON.stringify(cancel.body));
     assert.equal(cancel.body.status,'cancelled');
-    const replay=await api.request('POST','/api/v2/merchant/orders/'+id+'/cancel',
+    const replay=await api.request('POST','/api/v2/merchant/orders/'+id.toUpperCase()+'/cancel',
       cancelBody,seller.cookie);
     assert.equal(replay.status,200);
     assert.equal(replay.body.replayed,true);
