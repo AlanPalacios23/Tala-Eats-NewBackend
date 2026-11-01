@@ -1,26 +1,36 @@
-# Módulo 2 — Logística
+# TALA EATS CORE v2 — Módulo 2 Logística · LAB 1
 
-Módulo **independiente** dentro de Tala Eats CORE v2.
+Motor **independiente** de Pedidos, bajo `src/modules/modulo-2-logistica/`.
 
-## Responsabilidades exclusivas
-- Disponibilidad y capacidad de repartidores
-- Elegibilidad y selección determinista para asignaciones de entrega
-- Futuros: presencia distribuida, despacho con bloqueo transaccional, ruta y ETA, GPS, reasignación y recuperación
+## Funciones ya desarrolladas
+- `enrollCourier`: alta interna, sin autoaprobar conductores
+- `approveCourier`: aprobación o revocación; revocar obliga quedar offline
+- `setCourierOnline`: presencia validada con hora del servidor
+- `planCourierAssignment`: política pura de zona, aprobación, actividad y capacidad
+- `reserveDelivery`: reserva SQL atómica para órdenes de domicilio declaradas `ready` por un **adaptador interno confiable**, nunca por un cliente público
+- `finalizeDispatch`: cierre/release de la reserva; devuelve capacidad y mantiene historia
+- Eventos inmutables + outbox propio de Logística
+- PostgreSQL 16: migración `migrations/001_logistics_lab.sql` en esquema `tala_logistics_v2`
 
-## Contrato de entrada
-Consume **solo los datos necesarios** de una orden lista para entregar:
-`orderId`, `restaurantId`, `fulfillment`, `orderStatus`, `deliveryZone`.
+## Barreras
+- No modifica `tala_core_v2.orders`, el estado del pedido, inventario, efectivo,
+  Stripe, PIN ni los eventos de Módulo 1.
+- No hay rutas HTTP de Logística públicas o privadas en el servidor.
+- **No hay aún adaptador de identidad** ni verificación transaccional del estado
+  del pedido con Módulo 1; solo código interno probado con datos sintéticos.
+- No entrega a repartidores ningún dato personal del comprador.
+- No integra GPS, ETA ni rutas de vehículos todavía.
+- Los nombres de comandos no son credenciales de autorización: el llamador
+  de este servicio debe ser un backend confiable y autenticado.
 
-No conoce ni modifica precios, pagos, propinas, PIN, cuentas del cliente, inventario ni conciliaciones.
+## Integración planificada
+El módulo de Pedidos emitirá un evento `order.ready`; un adaptador autenticado
+consultará elegibilidad, invocará `reserveDelivery` y confirmará la asignación
+en la transacción propietaria de Pedidos. Si esa confirmación falla, revertirá
+la reserva logística mediante compensación idempotente. No usar el motor directo
+como si ya existiera el flujo comercial de las PWA.
 
-## Estado real
-**Fase de fundación de Módulo 2.** Implementado `planCourierAssignment` puro,
-con filtros de aprobación, conexión reciente, capacidad y zona, y selección reproducible.
-**No** está integrado a rutas HTTP ni PostgreSQL, ni sustituye todavía el claim de repartidor
-existente en Módulo 1. No equivale a despacho comercial.
-
-## Interacción futura
-Módulo 1 conserva la propiedad de `orders`, estados, PIN y entrega.
-Módulo 2 propondrá un repartidor mediante contrato; Módulo 1 comprobará y registrará
-el claim atómicamente dentro de la misma transacción.
-No habrá importaciones circulares entre módulos ni tablas duplicadas.
+## Validación
+Las pruebas SQL se ejecutan exclusivamente con `PG_CI_URL` apuntando a
+`tala_core_v2_test` en CI (PostgreSQL 16 desechable). La migración Logística
+se aplica después de 001–007 Pedidos, sin tocar sus tablas.
