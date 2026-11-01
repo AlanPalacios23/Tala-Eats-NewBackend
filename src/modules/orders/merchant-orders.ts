@@ -67,6 +67,11 @@ export async function advanceMerchantOrder(pool:Pool,command:MerchantOrderComman
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
+    // Bound lock waits and queries; never leave a checkout/cancellation hanging.
+    // SET LOCAL is automatically rolled back or reset at COMMIT.
+    await client.query("SET LOCAL lock_timeout = '3000ms'");
+    await client.query("SET LOCAL statement_timeout = '10000ms'");
+    await client.query("SET LOCAL idle_in_transaction_session_timeout = '15000ms'");
     // Acquire locks in consistent order (order first, membership second).
     // Cancellation uses the same order, avoiding lock inversions/deadlocks.
     const result=await client.query<LockedOrder & {restaurant_id:string}>(`
