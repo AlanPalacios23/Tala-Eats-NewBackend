@@ -73,6 +73,7 @@ const statusOf=(error:Error):number=>{
   if(error instanceof z.ZodError)return 400;
   if(error instanceof OrderServiceError||error instanceof MerchantOrderError){
     const code=error.code;
+    if(code==='PIN_INVALID')return 409; // correct PIN format, wrong proof
     if(code.includes('NOT_FOUND'))return 404;
     if(code.includes('NOT_AUTHORIZED'))return 403;
     if(code.includes('INVALID')||code==='ADDRESS_REQUIRED'||code==='PICKUP_HAS_NO_ADDRESS')
