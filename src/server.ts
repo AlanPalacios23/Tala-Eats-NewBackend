@@ -7,7 +7,7 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({limit:'16kb'}));
 app.get('/health', (_req, res) => res.json({
-  service:'tala-eats-core-v2',version:'0.2.0-lab.2',status:'ok',
+  service:'tala-eats-core-v2',version:'0.2.0-lab.3',status:'ok',
   commercialReady:false
 }));
 
