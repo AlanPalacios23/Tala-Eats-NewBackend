@@ -116,7 +116,9 @@ export async function auditOrdersReadOnly(
     const issues=Object.entries(counters)
       .filter(([key])=>key!=='scanned')
       .some(([,value])=>value>0);
-    return {status:more?'INCOMPLETE':issues?'FAIL':'PASS',
+    // No matching orders provides no evidence of correctness and must not
+    // produce a green post-deployment gate.
+    return {status:more||counters.scanned===0?'INCOMPLETE':issues?'FAIL':'PASS',
       scanned:counters.scanned,hasMore:more,counters};
   }catch(error){
     if(transaction)await client.query('ROLLBACK');
