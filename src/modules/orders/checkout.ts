@@ -69,13 +69,22 @@ async function catalog(client:PoolClient,input:CartInput,lock:boolean):Promise<P
 }
 function buildQuote(input:CartInput,products:Product[]){
   const lookup=new Map(products.map(p=>[p.id,p]));
-  const q=quoteOrder({
-    lines:input.lines.map(l=>({
-      unitMinor:BigInt(lookup.get(l.productId.toLowerCase())!.price_minor),quantity:l.quantity
-    })),
-    fulfillment:input.fulfillment,deliveryFeeMinor:input.fulfillment==='delivery'?3900n:0n,
-    driverBaseMinor:input.fulfillment==='delivery'?3200n:0n,tipMinor:0n
-  });
+  let q:ReturnType<typeof quoteOrder>;
+  try{
+    q=quoteOrder({
+      lines:input.lines.map(l=>({
+        unitMinor:BigInt(lookup.get(l.productId.toLowerCase())!.price_minor),quantity:l.quantity
+      })),
+      fulfillment:input.fulfillment,deliveryFeeMinor:input.fulfillment==='delivery'?3900n:0n,
+      driverBaseMinor:input.fulfillment==='delivery'?3200n:0n,tipMinor:0n
+    });
+  }catch(error){
+    // An oversized but otherwise valid cart must be a client validation error,
+    // not an opaque HTTP 500. No stock has been decremented yet.
+    if(error instanceof Error && ['MONEY_INVALID','TOTAL_INVALID','LINE_INVALID','LINES_INVALID'].includes(error.message))
+      throw new OrderServiceError('CART_TOTAL_OUT_OF_RANGE');
+    throw error;
+  }
   return {policyVersion:q.policyVersion,itemsMinor:money(q.itemsMinor),
     serviceFeeMinor:money(q.serviceFeeMinor),deliveryFeeMinor:money(q.deliveryFeeMinor),
     totalMinor:money(q.totalMinor),merchantCommissionMinor:money(q.merchantCommissionMinor),
