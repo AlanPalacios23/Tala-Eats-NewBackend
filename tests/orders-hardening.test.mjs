@@ -218,3 +218,83 @@ test('P0 lab: malformed JSON is 400, oversized body 413, lock timeout 503 and sa
     await api.close();await pool.end();
   }
 });
+
+test('P0: uppercase UUID cart is equivalent to lowercase for quote, checkout and replay',{
+  skip:!enabled,timeout:25000
+},async()=>{
+  const pool=new Pool({connectionString:db,max:4});
+  const api=await serve(pool);
+  try{
+    const shop=await store(pool);
+    const buyer=await register(api.request);
+    const input={restaurantId:shop.id.toUpperCase(),fulfillment:'pickup',
+      lines:[{productId:shop.product.toUpperCase(),quantity:1}],
+      paymentMethod:'cash',idempotencyKey:key()};
+    const quote=await api.request('POST','/api/v2/orders/quote',{
+      restaurantId:input.restaurantId,fulfillment:'pickup',lines:input.lines
+    },buyer.cookie);
+    assert.equal(quote.status,200,JSON.stringify(quote.body));
+    const first=await api.request('POST','/api/v2/orders',input,buyer.cookie);
+    assert.equal(first.status,201,JSON.stringify(first.body));
+    assert.equal(first.body.order.lines[0].name,'Producto pruebas');
+    const replay=await api.request('POST','/api/v2/orders',{
+      ...input,restaurantId:shop.id,
+      lines:[{productId:shop.product,quantity:1}]
+    },buyer.cookie);
+    assert.equal(replay.status,200,JSON.stringify(replay.body));
+    assert.equal(replay.body.replayed,true);
+    assert.equal(replay.body.order.id,first.body.order.id);
+    const duplicate=await api.request('POST','/api/v2/orders',{
+      ...input,idempotencyKey:key(),lines:[
+        {productId:shop.product,quantity:1},
+        {productId:shop.product.toUpperCase(),quantity:1}
+      ]
+    },buyer.cookie);
+    assert.equal(duplicate.status,400);
+    assert.equal(duplicate.body.code,'CART_INVALID');
+    const remaining=await pool.query(
+      'SELECT stock FROM tala_core_v2.catalog_products WHERE id=$1',[shop.product]);
+    assert.equal(remaining.rows[0].stock,3);
+  }finally{await api.close();await pool.end();}
+});
+
+test('P0: cancellation policy matches machine after merchant confirmation',{
+  skip:!enabled,timeout:25000
+},async()=>{
+  const pool=new Pool({connectionString:db,max:4});
+  const api=await serve(pool);
+  try{
+    const shop=await store(pool);
+    const buyer=await register(api.request);
+    const seller=await merchant(pool,api.request,shop.id);
+    const input={restaurantId:shop.id,fulfillment:'pickup',
+      lines:[{productId:shop.product,quantity:1}],
+      paymentMethod:'cash',idempotencyKey:key()};
+    const created=await api.request('POST','/api/v2/orders',input,buyer.cookie);
+    assert.equal(created.status,201);
+    const id=created.body.order.id;
+    const confirm=await api.request('PATCH','/api/v2/merchant/orders/'+id+'/status',{
+      status:'confirmed',expectedVersion:'1',commandKey:key()
+    },seller.cookie);
+    assert.equal(confirm.status,200,JSON.stringify(confirm.body));
+    const buyerCannot=await api.request('POST','/api/v2/orders/'+id+'/cancel',{
+      expectedVersion:'2',commandKey:key()
+    },buyer.cookie);
+    assert.equal(buyerCannot.status,409);
+    assert.equal(buyerCannot.body.code,'CANCELLATION_NOT_ALLOWED');
+    const cancelBody={expectedVersion:'2',commandKey:key()};
+    const cancel=await api.request('POST','/api/v2/merchant/orders/'+id+'/cancel',
+      cancelBody,seller.cookie);
+    assert.equal(cancel.status,200,JSON.stringify(cancel.body));
+    assert.equal(cancel.body.status,'cancelled');
+    const replay=await api.request('POST','/api/v2/merchant/orders/'+id+'/cancel',
+      cancelBody,seller.cookie);
+    assert.equal(replay.status,200);
+    assert.equal(replay.body.replayed,true);
+    const stock=await pool.query('SELECT stock FROM tala_core_v2.catalog_products WHERE id=$1',
+      [shop.product]);
+    assert.equal(stock.rows[0].stock,4);
+    const evidence=await pool.query('SELECT COUNT(*)::int AS n FROM tala_core_v2.order_events WHERE order_id=$1',[id]);
+    assert.equal(evidence.rows[0].n,3);
+  }finally{await api.close();await pool.end();}
+});
