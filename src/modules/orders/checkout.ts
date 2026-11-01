@@ -24,7 +24,7 @@ type DbOrder={id:string;restaurant_id:string;buyer_id:string;status:string;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const money=(x:bigint)=>x.toString();
 const checkoutHash=(input:CreateInput)=>createHash('sha256').update(JSON.stringify({
-  restaurantId:input.restaurantId,fulfillment:input.fulfillment,
+  restaurantId:input.restaurantId.toLowerCase(),fulfillment:input.fulfillment,
   lines:[...input.lines].map(l=>({productId:l.productId.toLowerCase(),quantity:l.quantity}))
     .sort((a,b)=>a.productId.localeCompare(b.productId)),
   deliveryAddress:input.deliveryAddress?.trim()??'',paymentMethod:input.paymentMethod
