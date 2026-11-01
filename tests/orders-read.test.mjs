@@ -280,7 +280,7 @@ test('P0 read: merchant detail can load an old order outside first 100 list',{
         total_minor,pricing_policy_version,price_snapshot,idempotency_key,
         request_hash,created_at)
       SELECT $1::uuid,$2::uuid,'pickup','received','cash','pending',100,
-        'lab-index-test','{}'::jsonb,'older-list-'+gen_random_uuid()::text,
+        'lab-index-test','{}'::jsonb,'older-list-' || gen_random_uuid()::text,
         repeat('b',64),now()+interval '1 hour'
       FROM generate_series(1,101)`,[buyer.id,shop.store]);
     const recent=await f.request('GET','/api/v2/merchant/orders',undefined,merchant.cookie);
