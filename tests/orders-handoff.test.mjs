@@ -189,6 +189,15 @@ test('P0 domicilio completo: driver aprobado reclama, recoge, va en ruta y entre
     assert.equal(claimedAgain.data.replayed,true);
     assert.equal(claimedAgain.data.status,'assigned');
     assert.equal(claimedAgain.data.version,'5');
+    await pool.query('UPDATE tala_core_v2.driver_profiles SET is_online=false WHERE account_id=$1::uuid',
+      [driver.id]);
+    const offlineReplay=await request('POST','/api/v2/driver/orders/'+order.id+'/claim',
+      claimCmd,driver.cookie);
+    assert.equal(offlineReplay.status,200,'network retry must survive driver going offline');
+    assert.equal(offlineReplay.data.replayed,true);
+    assert.equal(offlineReplay.data.version,'5');
+    await pool.query('UPDATE tala_core_v2.driver_profiles SET is_online=true WHERE account_id=$1::uuid',
+      [driver.id]);
     const steal=await request('POST','/api/v2/driver/orders/'+order.id+'/claim',{
       expectedVersion:'5',commandKey:key()
     },other.cookie);
