@@ -12,12 +12,15 @@ const enabled=(()=>{
   catch{return false;}
 })();
 const k=()=> 'command-'+randomUUID();
-const input=(orderId=randomUUID(),zone='tala')=>({
+// Isolate every test from other persistent fixtures inside the shared disposable CI database.
+let testZone='tala';
+test.beforeEach(()=>{testZone='z_'+randomUUID().slice(0,12);});
+const input=(orderId=randomUUID(),zone=testZone)=>({
   orderId,restaurantId:randomUUID(),
   orderStatus:'ready',fulfillment:'delivery',deliveryZone:zone
 });
 const pool=()=>new Pool({connectionString:raw,max:10,connectionTimeoutMillis:3000});
-const setup=async(p,zone='tala',capacity=1)=>{
+const setup=async(p,zone=testZone,capacity=1)=>{
   const id=randomUUID();
   await enrollCourier(p,id,zone,capacity);
   await approveCourier(p,id,true);
@@ -127,16 +130,17 @@ test('Logística: rechaza conductor en zona incorrecta, desconectado o presencia
 },async()=>{
   const p=pool();
   try{
-    const id=await setup(p,'tequila');
+    const secondary='tequila_'+randomUUID().slice(0,12);
+    const id=await setup(p,secondary);
     assert.equal((await reserveDelivery(p,input(),k())).decision,'NO_AVAILABLE_COURIER');
     await setCourierOnline(p,id,false);
-    assert.equal((await reserveDelivery(p,input(randomUUID(),'tequila'),k())).decision,
+    assert.equal((await reserveDelivery(p,input(randomUUID(),secondary),k())).decision,
       'NO_AVAILABLE_COURIER');
     await setCourierOnline(p,id,true);
     await p.query(`
       UPDATE tala_logistics_v2.couriers
       SET last_seen_at=clock_timestamp()-interval '3 minutes' WHERE id=$1`,[id]);
-    assert.equal((await reserveDelivery(p,input(randomUUID(),'tequila'),k())).decision,
+    assert.equal((await reserveDelivery(p,input(randomUUID(),secondary),k())).decision,
       'NO_AVAILABLE_COURIER');
   }finally{await p.end();}
 });
