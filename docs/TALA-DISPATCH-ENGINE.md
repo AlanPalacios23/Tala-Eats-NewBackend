@@ -73,11 +73,11 @@ La metodología T–A–L–A v1 y la selección transaccional original permanec
 sin cambios para conservar la regresión. Se agregó una **capacidad separada
 de propuesta geográfica**, no una asignación comercial:
 
-- \`geo.ts\`: Haversine, validación de coordenadas y orden de candidatos
+- `geo.ts`: Haversine, validación de coordenadas y orden de candidatos
   por distancia recta al restaurante, luego carga y UUID.
-- \`location-service.ts\`: \`recordCourierPosition\` y
-  \`listNearbyCouriers\`. Solo acceso interno; no hay rutas HTTP públicas.
-- \`migrations/002_courier_position_lab.sql\`: almacena **un único último
+- `location-service.ts`: `recordCourierPosition` y
+  `listNearbyCouriers`. Solo acceso interno; no hay rutas HTTP públicas.
+- `migrations/002_courier_position_lab.sql`: almacena **un único último
   punto GPS por conductor**, sin historial de recorridos. La base borra ese
   punto al pasar a offline o revocar aprobación.
 - Un reporte solo se acepta con precisión 0–100 metros y conductor aprobado,
