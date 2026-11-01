@@ -265,3 +265,34 @@ test('Logística: si repartidor A está lleno, asigna B con capacidad disponible
     }
   }finally{await p.end();}
 });
+
+test('TALA Dispatch Engine: cada reserva SQL deja identificador y versión en evento y outbox',{
+  skip:!enabled
+},async()=>{
+  const p=pool();
+  try{
+    const id=await setup(p),r=input(),cmd=k();
+    const result=await reserveDelivery(p,r,cmd);
+    assert.equal(result.decision,'RESERVED');
+    const q=await p.query(`
+      SELECT e.details AS event_data,b.payload AS outbox_data
+      FROM tala_logistics_v2.dispatch_events e
+      JOIN tala_logistics_v2.outbox b ON b.event_key=e.event_key
+      WHERE e.order_id=$1::uuid AND e.command_key=$2`,[r.orderId,cmd]);
+    assert.equal(q.rowCount,1);
+    for(const payload of [q.rows[0].event_data,q.rows[0].outbox_data]){
+      assert.equal(payload.dispatchEngine,'TALA Dispatch Engine');
+      assert.equal(payload.dispatchEngineVersion,'1.0.0-lab');
+      assert.equal(payload.orderId,r.orderId);
+      assert.equal(payload.courierId,id);
+      assert.equal(payload.status,'reserved');
+    }
+    const retry=await reserveDelivery(p,r,cmd);
+    assert.equal(retry.decision,'RESERVED');
+    assert.equal(retry.replayed,true);
+    const e=await p.query(
+      'SELECT count(*)::int AS n FROM tala_logistics_v2.dispatch_events WHERE order_id=$1::uuid',
+      [r.orderId]);
+    assert.equal(e.rows[0].n,1);
+  }finally{await p.end();}
+});
