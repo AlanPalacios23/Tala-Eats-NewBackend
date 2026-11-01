@@ -40,6 +40,8 @@ jobs:
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/002_order_permissions.sql
       - name: Apply isolated HTTP lab migration
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/003_orders_http_lab.sql
+      - name: Apply isolated order handoff migration
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/004_order_handoffs_lab.sql
       - name: Run unit and schema tests
         run: npm test
       - name: Strict TypeScript build
