@@ -27,7 +27,7 @@ type Handoff={pin_salt:string|null;pin_hash:string|null;pin_expires_at:Date|null
 type Command={orderId:string;actorId:string;commandKey:string;expectedVersion:bigint};
 type Result={orderId:string;status:OrderStatus;version:bigint;replayed:boolean};
 const codeKey=(kind:string,cmd:Command)=>createHash('sha256')
-  .update([kind,cmd.orderId,cmd.actorId,cmd.commandKey].join('|')).digest('hex');
+  .update([kind,cmd.orderId.toLowerCase(),cmd.actorId.toLowerCase(),cmd.commandKey].join('|')).digest('hex');
 function validateCommand(cmd:Command):void{
   if(!uuid.test(cmd.orderId)||!uuid.test(cmd.actorId)||
     !keyPattern.test(cmd.commandKey)||typeof cmd.expectedVersion!=='bigint'||
@@ -128,7 +128,7 @@ const handoffState=(order:Row)=>
 
 export async function availableDriverOrders(pool:Pool,driverId:string){
   const r=await pool.query(`
-    SELECT o.id,r.name AS restaurant_name,o.total_minor,o.created_at
+    SELECT o.id,o.version,r.name AS restaurant_name,o.total_minor,o.created_at
     FROM tala_core_v2.orders o
     JOIN tala_core_v2.restaurants r ON r.id=o.restaurant_id
     WHERE o.status='ready' AND o.fulfillment='delivery'
