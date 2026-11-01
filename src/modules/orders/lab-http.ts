@@ -73,6 +73,7 @@ const statusOf=(error:Error):number=>{
   if(error instanceof z.ZodError)return 400;
   if(error instanceof OrderServiceError||error instanceof MerchantOrderError){
     const code=error.code;
+    if(code==='PIN_GENERATION_RATE_LIMITED')return 429;
     if(code==='PIN_INVALID')return 409; // correct PIN format, wrong proof
     if(code.includes('NOT_FOUND'))return 404;
     if(code.includes('NOT_AUTHORIZED'))return 403;
@@ -312,6 +313,8 @@ export function createOrderApp(pool:Pool){
     const status=statusOf(err);
     // Never return raw SQL/stack traces or customer details.
     if(status===503)res.setHeader('Retry-After','2');
+    if(status===429&&err instanceof OrderServiceError&&
+      err.code==='PIN_GENERATION_RATE_LIMITED')res.setHeader('Retry-After','600');
     res.status(status).json({code:status===500?'INTERNAL_ERROR':
       status===503?'ORDER_TEMPORARILY_BUSY':
       status===413?'BODY_TOO_LARGE':
