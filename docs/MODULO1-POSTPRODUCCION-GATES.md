@@ -33,7 +33,7 @@ node --experimental-strip-types scripts/orders-postdeploy-audit.mjs
 La salida tiene `module:"orders"`, `mode:"read-only"`, `scanned`, `hasMore`, `counters` y `status`:
 - **PASS**, código 0: no se detectaron anomalías en el conjunto completo revisado.
 - **FAIL**, código 2: se encontraron inconsistencias. **No promocionar**.
-- **INCOMPLETE**, código 2: excedió el límite de 10 000 órdenes; aumenta el límite de manera controlada hasta 100 000 como máximo, o analiza un subconjunto puntual. **No promocionar con análisis parcial.**
+- **INCOMPLETE**, código 2: no hay órdenes para comprobar o excedió el límite de 10 000 órdenes; aumenta el límite de manera controlada hasta 100 000 como máximo, o analiza un subconjunto puntual. **No promocionar con análisis parcial.**
 - Error de conexión, permisos o SQL: **NO-GO**, sin cambios en base de datos.
 
 El límite garantiza un máximo operativo; no constituye un diagnóstico permanente y no sustituye alertas. Los tests de CI comprueban el funcionamiento con PostgreSQL de pruebas descartable.
