@@ -57,10 +57,30 @@ if (writesFlag!=='false' && writesFlag!=='true') {
 if (writesFlag==='true') {
   const url=databaseUrl?new URL(databaseUrl):null;
   const dbName=url?.pathname.slice(1);
-  if(process.env.CORE_V2_RUNTIME!=='isolated-lab'||!pool||!url||
+  if(process.env.CORE_V2_RUNTIME!=='isolated-lab'||
+    process.env.NODE_ENV==='production'||!pool||!url||
+    !['postgres:','postgresql:'].includes(url.protocol)||
+    url.search!==''||url.hash!==''||
     !['127.0.0.1','localhost'].includes(url.hostname)||
     !['tala_core_v2_lab','tala_core_v2_test'].includes(dbName??'')){
     throw Error('CORE_V2_WRITES_MUST_REMAIN_DISABLED');
+  }
+  // URL validation is insufficient by itself; inspect the ACTIVE DB before
+  // listening. A missing schema must fail startup, not silently expose routes.
+  try{
+    const result=await pool.query(`SELECT current_database() AS db_name,
+      to_regclass('tala_core_v2.orders') IS NOT NULL AS orders_ready,
+      to_regclass('tala_core_v2.accounts') IS NOT NULL AS accounts_ready,
+      to_regclass('tala_core_v2.sessions') IS NOT NULL AS sessions_ready,
+      to_regclass('tala_core_v2.catalog_products') IS NOT NULL AS products_ready,
+      to_regclass('tala_core_v2.restaurant_memberships') IS NOT NULL AS members_ready`);
+    const row=result.rows[0];
+    if(row?.db_name!==dbName||
+      !['orders_ready','accounts_ready','sessions_ready','products_ready','members_ready'].every(k=>row?.[k]===true)){
+      throw Error('LAB_SCHEMA_NOT_READY');
+    }
+  }catch{
+    throw Error('CORE_V2_LAB_DATABASE_ADMISSION_FAILED');
   }
   app.use(createOrderApp(pool));
 }
