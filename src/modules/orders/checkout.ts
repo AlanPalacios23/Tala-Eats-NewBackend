@@ -149,6 +149,11 @@ export async function createCashOrder(pool:Pool,buyerId:string,input:CreateInput
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
+    // Bound lock waits and queries; never leave a checkout/cancellation hanging.
+    // SET LOCAL is automatically rolled back or reset at COMMIT.
+    await client.query("SET LOCAL lock_timeout = '3000ms'");
+    await client.query("SET LOCAL statement_timeout = '10000ms'");
+    await client.query("SET LOCAL idle_in_transaction_session_timeout = '15000ms'");
     // Serialize requests from the same buyer BEFORE reading idempotency state.
     const buyer=await client.query('SELECT id FROM tala_core_v2.accounts WHERE id=$1::uuid AND is_active=true AND role=\'customer\' FOR UPDATE',[buyerId]);
     if(!buyer.rows[0])throw new OrderServiceError('BUYER_NOT_AUTHORIZED');
