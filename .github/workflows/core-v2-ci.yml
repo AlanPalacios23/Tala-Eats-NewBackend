@@ -55,6 +55,29 @@ jobs:
           CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_LAB_MERCHANT_EMAIL=merchant-ci@example.test CORE_V2_LAB_MERCHANT_PASSWORD='CI-Only-Strong-Pass-2026!' node --experimental-strip-types scripts/seed-lab.mjs
           CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_LAB_DRIVER_EMAIL=driver-ci@example.test CORE_V2_LAB_DRIVER_PASSWORD='CI-Only-Strong-Pass-2026!' node --experimental-strip-types scripts/seed-driver-lab.mjs
           test "$(psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM tala_core_v2.driver_profiles p JOIN tala_core_v2.accounts a ON a.id=p.account_id WHERE p.approved AND p.is_online AND a.email='driver-ci@example.test'")" = "1"
+      - name: Verify Orders postdeploy audit works with SELECT-only account
+        run: |
+          set -Eeuo pipefail
+          psql "$PG_CI_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE orders_readonly_ci LOGIN PASSWORD 'ci_orders_readonly_only';
+          GRANT CONNECT ON DATABASE tala_core_v2_test TO orders_readonly_ci;
+          GRANT USAGE ON SCHEMA tala_core_v2 TO orders_readonly_ci;
+          GRANT SELECT ON ALL TABLES IN SCHEMA tala_core_v2 TO orders_readonly_ci;
+          SQL
+          if CORE_V2_AUDIT_DATABASE_URL="$PG_CI_URL" ORDER_AUDIT_MAX_ORDERS=1 \
+            node --experimental-strip-types scripts/orders-postdeploy-audit.mjs > /tmp/orders-unsafe-audit.txt 2>&1; then
+            echo "AUDIT_WRITER_ACCEPTED"; exit 1
+          fi
+          grep -q 'ORDERS_AUDIT_REQUIRES_SELECT_ONLY_ROLE' /tmp/orders-unsafe-audit.txt
+          set +e
+          CORE_V2_AUDIT_DATABASE_URL='postgresql://orders_readonly_ci:ci_orders_readonly_only@127.0.0.1:15450/tala_core_v2_test' \
+            ORDER_AUDIT_MAX_ORDERS=1 \
+            node --experimental-strip-types scripts/orders-postdeploy-audit.mjs > /tmp/orders-audit-report.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q '"mode":"read-only"' /tmp/orders-audit-report.json
+          grep -q '"status":"INCOMPLETE"' /tmp/orders-audit-report.json
       - name: Strict TypeScript build
         run: npm run build
       - name: Verify source and compiled JavaScript syntax
@@ -80,6 +103,13 @@ jobs:
           test "$ready" -eq 1 || { cat /tmp/lab-core.log; exit 1; }
           grep -q '"ready":true' /tmp/core-ready.json
           curl --fail --silent http://127.0.0.1:18210/api/v2/health | grep -q '"commercialReady":false'
+          set +e
+          CORE_V2_POSTDEPLOY_BASE_URL=http://127.0.0.1:18210 \
+            node scripts/orders-postdeploy-http.mjs > /tmp/orders-http-report.json
+          result=$?
+          set -e
+          test "$result" -eq 2
+          grep -q '"decision":"NO_GO"' /tmp/orders-http-report.json
       - name: Verify incomplete order migration refuses startup (disposable DB)
         run: |
           set -Eeuo pipefail
