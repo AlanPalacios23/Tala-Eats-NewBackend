@@ -57,7 +57,7 @@ function parse<T>(schema:z.ZodType<T>,body:unknown):T{
   return result.data;
 }
 const statusOf=(error:Error):number=>{
-  if(error instanceof AuthError)return error.code==='AUTH_REQUIRED'?401:403;
+  if(error instanceof AuthError)return ['AUTH_REQUIRED','INVALID_CREDENTIALS'].includes(error.code)?401:403;
   if(error instanceof z.ZodError)return 400;
   if(error instanceof OrderServiceError||error instanceof MerchantOrderError){
     const code=error.code;
@@ -72,12 +72,43 @@ const statusOf=(error:Error):number=>{
 export function createOrderApp(pool:Pool){
   const app=express();
   app.disable('x-powered-by');
+  // Limited LAB-process throttling, not a substitute for shared/distributed
+  // rate limits and bot protection before commercial launch.
+  const attempts=new Map<string,{count:number;expires:number}>();
+  const attemptWindowMs=60_000;
+  function limitAuth(req:Request,res:Response,next:NextFunction){
+    const now=Date.now();
+    // Never use untrusted X-Forwarded-For: trust proxy stays disabled.
+    const source=req.socket.remoteAddress??'unknown';
+    const route=req.path;
+    const key=route+'|'+source;
+    let current=attempts.get(key);
+    if(!current||current.expires<=now)current={count:0,expires:now+attemptWindowMs};
+    if(current.count >= (route.endsWith('/login')?12:6)){
+      res.setHeader('Retry-After',String(Math.max(1,Math.ceil((current.expires-now)/1000))));
+      res.status(429).json({code:'AUTH_RATE_LIMITED'});return;
+    }
+    current.count++;
+    if(attempts.size>=1024){
+      for(const [stored,value] of attempts){if(value.expires<=now)attempts.delete(stored);}
+      if(attempts.size>=1024)attempts.delete(attempts.keys().next().value!);
+    }
+    attempts.set(key,current);
+    next();
+  }
+  app.use((_,res,next)=>{
+    res.setHeader('Cache-Control','no-store');
+    res.setHeader('X-Content-Type-Options','nosniff');
+    next();
+  });
   app.use(express.json({limit:'20kb'}));
   app.use((req,res,next)=>{
     // All mutations are JSON, explicitly same-origin and carry a CSRF guard.
     if(['POST','PUT','PATCH','DELETE'].includes(req.method)){
       const origin=req.get('origin');
-      if(origin&&origin!==req.protocol+'://'+req.get('host')){
+      const fetchSite=req.get('sec-fetch-site');
+      if((origin&&origin!==req.protocol+'://'+req.get('host'))||
+        (fetchSite&&!['same-origin','none'].includes(fetchSite))){
         res.status(403).json({code:'ORIGIN_FORBIDDEN'});return;
       }
       if(req.get('X-Talaeats-Client')!=='core-v2-lab'){
@@ -105,7 +136,7 @@ export function createOrderApp(pool:Pool){
       WHERE restaurant_id=$1::uuid AND is_available=true ORDER BY name LIMIT 200`,[id]);
     res.json(products.rows);
   }));
-  app.post('/api/v2/auth/register',wrap(async(req,res)=>{
+  app.post('/api/v2/auth/register',limitAuth,wrap(async(req,res)=>{
     const data=parse(signup,req.body);
     const digest=await hashPassword(data.password);
     try {
@@ -120,7 +151,7 @@ export function createOrderApp(pool:Pool){
       throw error;
     }
   }));
-  app.post('/api/v2/auth/login',wrap(async(req,res)=>{
+  app.post('/api/v2/auth/login',limitAuth,wrap(async(req,res)=>{
     const {email,password}=parse(signin,req.body);
     const {rows}=await pool.query<{id:string;password_hash:string}>(`
       SELECT id,password_hash FROM tala_core_v2.accounts
