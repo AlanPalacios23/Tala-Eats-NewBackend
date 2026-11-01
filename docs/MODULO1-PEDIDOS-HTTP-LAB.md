@@ -19,7 +19,7 @@ Toda mutación necesita `Content-Type: application/json`, `X-Talaeats-Client: co
 ## Activación aislada
 1. Crear una DB PostgreSQL **nueva** llamada `tala_core_v2_lab` en loopback, con usuario propio sin acceso a `tala_node_live` ni `tala_node_stage`. Nunca reutilizar DB del backend en producción.
 2. `npm install --ignore-scripts`, `npm test` y `npm run build`.
-3. Aplicar, en orden, `migrations/001_orders.sql`, `002_order_permissions.sql`, `003_orders_http_lab.sql`, `004_order_handoffs_lab.sql`, `005_orders_integrity_lab.sql`, `006_order_pin_rate_lab.sql` exclusivamente con la URL de LAB.
+3. Aplicar, en orden, `migrations/001_orders.sql`, `002_order_permissions.sql`, `003_orders_http_lab.sql`, `004_order_handoffs_lab.sql`, `005_orders_integrity_lab.sql`, `006_order_pin_rate_lab.sql`, `007_orders_address_handoff_integrity_lab.sql` exclusivamente con la URL de LAB.
 4. Preparar `.env`: `CORE_V2_DATABASE_URL` con hostname `127.0.0.1` y DB `tala_core_v2_lab`, `CORE_V2_HOST=127.0.0.1`, `CORE_V2_PORT=18210`, `CORE_V2_RUNTIME=isolated-lab`, `CORE_V2_WRITES_ENABLED=true`. **Todo otro entorno rechaza escrituras al arrancar.**
 5. Proveer `CORE_V2_LAB_MERCHANT_EMAIL` y `CORE_V2_LAB_MERCHANT_PASSWORD` por entorno, ejecutar `node --experimental-strip-types scripts/seed-lab.mjs`. Proveer `CORE_V2_LAB_DRIVER_EMAIL` y `CORE_V2_LAB_DRIVER_PASSWORD` para `node --experimental-strip-types scripts/seed-driver-lab.mjs`. No subir credenciales a Git.
 6. `npm run dev`, solicitar `GET http://127.0.0.1:18210/ready` y luego `GET /api/v2/health`. `ready=true` comprueba migraciones esenciales, **no certifica finanzas**.
