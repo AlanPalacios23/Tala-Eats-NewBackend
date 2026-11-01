@@ -30,6 +30,7 @@ src/
       lab-http.ts        # API HTTP de laboratorio
       lab-auth.ts        # autenticación temporal de LAB
       orders-read.ts     # timeline por actor y recibo inmutable del comprador
+      orders-audit.ts    # auditoría read-only de integridad y eventos
   server.ts              # GET /health y /ready; API solo con gate LAB
 migrations/
   001_orders.sql         # orders, items, eventos inmutables, outbox
@@ -47,6 +48,7 @@ tests/
   orders-hardening.test.mjs # permisos, bloqueos SQL y seguridad HTTP
   orders-handoff.test.mjs # E2E pickup/delivery con PIN y efectivo
   orders-read.test.mjs # timeline multirrol, recibos, privacidad y detalle histórico
+  orders-postdeploy.test.mjs # auditoría read-only de postdespliegue
 docs/
   ARQUITECTURA_Y_MIGRACION.md
 .github/workflows/
@@ -123,6 +125,10 @@ aceptar/cancelar, dirección pickup, rate limiting y timeout SQL.
 
 Lee [ARQUITECTURA_Y_MIGRACION.md](docs/ARQUITECTURA_Y_MIGRACION.md)
 para conocer la estrategia de convivencia y retiro del backend anterior.
+
+## Auditoría posterior al despliegue
+
+Dos herramientas **sin escrituras**: `scripts/orders-postdeploy-audit.mjs` (requiere cuenta de solo lectura) y `scripts/orders-postdeploy-http.mjs` (solo solicitudes GET). Revisar [MODULO1-POSTPRODUCCION-GATES.md](docs/MODULO1-POSTPRODUCCION-GATES.md). El estado comercial actual continúa **NO-GO**: no habilitar LIVE solo por tener pruebas verdes.
 
 ## Criterio de cierre del Módulo 1
 
