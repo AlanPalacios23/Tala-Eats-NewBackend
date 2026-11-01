@@ -77,7 +77,16 @@ test('HTTP LAB: buyer → catálogo → checkout → restaurante → cocina → 
     const quote=await request('POST','/api/v2/orders/quote',base,buyerCookie);
     assert.equal(quote.status,200);
     assert.equal(quote.data.totalMinor,'21400');
-    assert.equal(quote.data.merchantCommissionMinor,'3400');
+    // Buyer gets only purchase totals and its own lines; no merchant margin.
+    for(const field of ['merchantCommissionMinor','merchantPayableMinor',
+      'driverPayableMinor','platformGrossMinor']){
+      assert.equal(Object.hasOwn(quote.data,field),false,
+        'Private financial field exposed to buyer: '+field);
+    }
+    assert.deepEqual(Object.keys(quote.data).sort(),[
+      'policyVersion','itemsMinor','serviceFeeMinor','deliveryFeeMinor',
+      'tipMinor','totalMinor','lines'
+    ].sort());
     assert.equal(quote.data.serviceFeeMinor,'1400');
     const checkout={...base,paymentMethod:'cash',idempotencyKey:key()};
     const created=await request('POST','/api/v2/orders',checkout,buyerCookie);
