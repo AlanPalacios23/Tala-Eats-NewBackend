@@ -110,6 +110,37 @@ jobs:
           set -e
           test "$result" -eq 2
           grep -q '"decision":"NO_GO"' /tmp/orders-http-report.json
+      - name: Verify Render staging exposes health only and no Orders writes
+        run: |
+          set -Eeuo pipefail
+          NODE_ENV=production CORE_V2_RUNTIME=render-staging \
+            CORE_V2_WRITES_ENABLED=false CORE_V2_HOST=0.0.0.0 PORT=18217 \
+            node dist/server.js > /tmp/render-staging-core.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          healthy=0
+          for i in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:18217/health >/tmp/render-staging-health.json; then healthy=1; break; fi
+            sleep 1
+          done
+          test "$healthy" -eq 1 || { cat /tmp/render-staging-core.log; exit 1; }
+          grep -q '"commercialReady":false' /tmp/render-staging-health.json
+          test "$(curl -s -o /tmp/render-staging-orders.json -w '%{http_code}' \
+            http://127.0.0.1:18217/api/v2/orders/mine)" = "404"
+          test "$(curl -s -o /tmp/render-staging-post.json -w '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' -d '{}' \
+            http://127.0.0.1:18217/api/v2/orders)" = "404"
+          test "$(curl -s -o /tmp/render-staging-ready.json -w '%{http_code}' \
+            http://127.0.0.1:18217/ready)" = "503"
+          kill "$pid"; wait "$pid" || true
+          trap - EXIT
+          # A public bind must fail if any flag tries to enable live writes.
+          if NODE_ENV=production CORE_V2_RUNTIME=render-staging \
+            CORE_V2_WRITES_ENABLED=true CORE_V2_HOST=0.0.0.0 PORT=18217 \
+            node dist/server.js >/tmp/render-staging-bad.log 2>&1; then
+            echo "STAGING_WRITER_UNEXPECTEDLY_STARTED"; exit 1
+          fi
+          grep -q "CORE_V2_WRITES_MUST_REMAIN_DISABLED" /tmp/render-staging-bad.log
       - name: Verify incomplete order migration refuses startup (disposable DB)
         run: |
           set -Eeuo pipefail
