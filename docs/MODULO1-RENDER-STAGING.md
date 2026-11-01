@@ -5,21 +5,23 @@
 ## Modalidad actualmente habilitada
 - Fuente: rama `feat/core-v2-pedidos-foundation`, PR #1 permanece DRAFT.
 - Tipo: Render Web Service (Node.js 24, plan **Free**, región Oregon).
-- Build: `npm install --ignore-scripts --no-audit --no-fund && npm run build`.
-- Start: `npm start`.
+- Build configurado en Blueprint: `npm install --include=dev --ignore-scripts --no-audit --no-fund && npm run build`.
+- Start luego de aplicar Blueprint: `node scripts/render-staging-init.mjs && npm start` (migraciones 001–007 idempotentes en DB exclusiva de pruebas).
 - Variables: `NODE_ENV=production`, `CORE_V2_RUNTIME=render-staging`,
   `CORE_V2_WRITES_ENABLED=false`, `CORE_V2_HOST=0.0.0.0`.
 - `PORT`: proporcionado por Render; no configurar un puerto fijo ni `CORE_V2_PORT`.
 - Auto-deploy **OFF**: promover solamente SHA probado y de forma manual.
-- No introducir `CORE_V2_DATABASE_URL` ni credenciales hasta completar control de acceso,
-  aprovisionamiento de PostgreSQL de pruebas y migraciones seguras.
+- PostgreSQL Free existente: `tala-eats-core-staging-db`, base lógica `tala_eats_core_staging_db`, Oregon, acceso externo cerrado.
+- `CORE_V2_DATABASE_URL` solo desde `fromDatabase.connectionString` de Render; nunca copiar contraseñas a GitHub.
+- **No se aplica automáticamente:** el usuario debe revisar y aplicar `render.yaml` en Render > New > Blueprint, escogiendo la rama indicada.
+- El inicializador exige ID exacto de servicio, DB y región privada por hostname; registro de checksums, ejecuta exclusivamente 001–007 y rechaza esquemas ajenos o parcialmente migrados.
 
 ## Superficie publicada
 
 | Ruta | Esperado | Motivo |
 |---|---|---|
 | `GET /health` | `200`, `commercialReady:false` | proceso vivo |
-| `GET /ready` | `503`, razón de DB no configurada | no anunciar listo el módulo |
+| `GET /ready` | Antes de aplicar: `503` sin DB; después de conectar y migrar: `200` y `commercialReady:false` | esquema operativo sin autorización comercial |
 | `GET /api/v2/orders/mine` | `404` | rutas comerciales no montadas |
 | `POST /api/v2/orders` | `404` | no se puede crear pedidos reales |
 | Otras rutas `/api/v2/*` | `404` | no exponer LAB público |
@@ -32,12 +34,9 @@ debe eliminar ni cambiar a `isolated-lab` en Render.
 ## Antes de implementar staging funcional con datos sintéticos
 1. Diseñar autenticación específica y protección de un entorno compartido de QA,
    sin credenciales embebidas en apps móviles ni clientes del público.
-2. Aprovisionar PostgreSQL exclusivo de pruebas, con migraciones versionadas y
-   datos ficticios; jamás reutilizar `tala_node_live` o Stripe LIVE.
-3. Preparar prueba de migraciones y scripts con límites de espera, idempotencia y
-   rollback. Render Free no admite shell interactivo ni comando pre-deploy de pago.
-4. Configurar conexión a PostgreSQL en la misma región, secretos en Render y
-   alertas de límite de uso. Verificar respuesta `/ready` de la API real.
+2. PostgreSQL Free de pruebas ya fue creado y aislado. Aplicar el Blueprint de Render para conectar y ejecutar el inicializador por red privada; nunca reutilizar `tala_node_live` o Stripe LIVE.
+3. Validar los checksums e integridad de las siete migraciones; Render Free no incluye el comando pre-deploy de web services pagos, así que el arranque de staging tiene un inicializador separado y restringido.
+4. Confirmar que `/ready` devuelve `200` tras la inicialización y que `commercialReady` continúa `false`; revisar alertas de uso de Render.
 5. Habilitar solo después las rutas del Módulo Pedidos bajo el gate de staging,
    ejecutando pruebas E2E en los tres roles.
 6. Asegurar que todas las capacidades comerciales y financieras continúen en
@@ -45,14 +44,13 @@ debe eliminar ni cambiar a `isolated-lab` en Render.
 
 ## Límites económicos y operativos
 Los servicios gratuitos se suspenden por inactividad. Las horas y minutos de
-compilación se comparten a nivel de workspace. Render Postgres Free tiene un
-plazo de 30 días, sin copias de seguridad, por lo que la base se aprovisionará
-solo cuando se pueda comenzar a probar su flujo real; nunca guardar datos de clientes.
+compilación se comparten a nivel de workspace. La DB Render Postgres Free se creó el 2026-11-01 y expira el 2026-12-01
+(sin respaldos gestionados). Nunca guardar datos de clientes.
 
 ## Comprobaciones manuales
 Después de que Render marque una versión como Live, revisar:
 - Que el SHA de GitHub desplegado sea el SHA aprobado.
 - Que `GET /health` retorne HTTP 200 y `commercialReady:false`.
-- Que `GET /ready` retorne 503 antes de aprovisionar DB.
+- Que `GET /ready` retorne 503 antes de aplicar la conexión y 200 tras ejecutar las migraciones de staging.
 - Que `/api/v2/orders` y `/api/v2/orders/mine` sigan inaccesibles (404).
 - Que no se hayan creado servicios pagos ni se hayan desplegado otros repositorios.
