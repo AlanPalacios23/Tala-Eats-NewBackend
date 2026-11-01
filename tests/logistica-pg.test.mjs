@@ -241,3 +241,23 @@ test('Logística: no se confunden roles ni se admiten tamaños y zonas inválido
       rejectCode('LOGISTICS_COMMAND_KEY_INVALID'));
   }finally{await p.end();}
 });
+
+test('Logística: si repartidor A está lleno, asigna B con capacidad disponible',{
+  skip:!enabled
+},async()=>{
+  const p=pool();
+  try{
+    const a=await setup(p,'tala',1);
+    const b=await setup(p,'tala',1);
+    const [first,second]=await Promise.all([
+      reserveDelivery(p,input(),k()),
+      reserveDelivery(p,input(),k())
+    ]);
+    assert.equal(first.decision,'RESERVED');
+    assert.equal(second.decision,'RESERVED');
+    if(first.decision==='RESERVED'&&second.decision==='RESERVED'){
+      assert.notEqual(first.courierId,second.courierId);
+      assert.deepEqual([first.courierId,second.courierId].sort(),[a,b].sort());
+    }
+  }finally{await p.end();}
+});
