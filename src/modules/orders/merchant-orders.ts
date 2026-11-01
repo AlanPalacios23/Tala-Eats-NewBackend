@@ -101,6 +101,9 @@ export async function advanceMerchantOrder(pool:Pool,command:MerchantOrderComman
     if(order.payment_method==='stripe'&&order.payment_status!=='paid'){
       throw new MerchantOrderError('PAYMENT_NOT_VERIFIED');
     }
+    if(order.payment_method==='cash'&&!['pending','paid'].includes(order.payment_status)){
+      throw new MerchantOrderError('PAYMENT_NOT_ALLOWED');
+    }
     if(order.payment_method==='cash'&&
       !['pending','paid'].includes(order.payment_status)){
       throw new MerchantOrderError('PAYMENT_NOT_ALLOWED');
