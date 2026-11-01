@@ -231,6 +231,25 @@ export async function issueBuyerHandoffPin(pool:Pool,buyerId:string,orderId:stri
       order.payment_status!=='pending')
       throw new OrderServiceError('HANDOFF_NOT_READY');
     await ensureHandoff(client,order);
+    // Prevent an authenticated buyer from repeatedly burning CPU on scrypt,
+    // invalidating a handoff indefinitely or spamming the immutable outbox.
+    // Order row lock makes the per-order budget safe under concurrency.
+    const allowance=await client.query(`
+      UPDATE tala_core_v2.order_handoffs
+      SET pin_generation_count=CASE
+            WHEN pin_window_started_at IS NULL OR
+                 pin_window_started_at<=now()-interval '10 minutes'
+              THEN 1 ELSE pin_generation_count+1 END,
+          pin_window_started_at=CASE
+            WHEN pin_window_started_at IS NULL OR
+                 pin_window_started_at<=now()-interval '10 minutes'
+              THEN now() ELSE pin_window_started_at END
+      WHERE order_id=$1::uuid
+        AND (pin_window_started_at IS NULL OR
+             pin_window_started_at<=now()-interval '10 minutes'
+             OR pin_generation_count<6)
+      RETURNING pin_generation_count`,[order.id]);
+    if(!allowance.rowCount)throw new OrderServiceError('PIN_GENERATION_RATE_LIMITED');
     const pin=String(randomInt(10000000,100000000));
     const salt=randomBytes(16).toString('hex');
     const digest=(await scrypt(pin,salt,64) as Buffer).toString('hex');
