@@ -200,7 +200,9 @@ export async function advanceDelivery(pool:Pool,cmd:Command,
     await begin(client);
     const order=await lockedOrder(client,cmd.orderId);
     await authorized(client,order,cmd.actorId,'driver');
-    const k=codeKey('driver.advance.'+target,cmd);
+    // Idempotency key scope is the driver's state-change command, not the
+    // target. Reusing a key for a different target is a conflict, not a new write.
+    const k=codeKey('driver.advance.v1',cmd);
     const replay=await checkReplay(client,order,k,cmd,target);
     if(replay){
       await client.query('COMMIT');
