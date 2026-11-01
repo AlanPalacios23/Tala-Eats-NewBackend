@@ -173,17 +173,22 @@ test('P0 domicilio completo: driver aprobado reclama, recoge, va en ruta y entre
     await ready(request,merchant,order);
     const available=await request('GET','/api/v2/driver/available',undefined,driver.cookie);
     assert.equal(available.status,200);
-    assert.equal(available.data.some(o=>o.id===order.id),true);
-    const claimCmd={expectedVersion:'4',commandKey:key()};
+    const availableOrder=available.data.find(o=>o.id===order.id);
+    assert.ok(availableOrder);
+    assert.equal(availableOrder.version,'4','driver must not guess expectedVersion');
+    assert.equal('delivery_address' in availableOrder,false,'no address before assignment');
+    const claimCmd={expectedVersion:availableOrder.version,commandKey:key()};
     const claimed=await request('POST','/api/v2/driver/orders/'+order.id+'/claim',
       claimCmd,driver.cookie);
     assert.equal(claimed.status,200,JSON.stringify(claimed.data));
     assert.equal(claimed.data.status,'assigned');
     assert.equal(claimed.data.version,'5');
-    const claimedAgain=await request('POST','/api/v2/driver/orders/'+order.id+'/claim',
+    const claimedAgain=await request('POST','/api/v2/driver/orders/'+order.id.toUpperCase()+'/claim',
       claimCmd,driver.cookie);
     assert.equal(claimedAgain.status,200);
     assert.equal(claimedAgain.data.replayed,true);
+    assert.equal(claimedAgain.data.status,'assigned');
+    assert.equal(claimedAgain.data.version,'5');
     const steal=await request('POST','/api/v2/driver/orders/'+order.id+'/claim',{
       expectedVersion:'5',commandKey:key()
     },other.cookie);
