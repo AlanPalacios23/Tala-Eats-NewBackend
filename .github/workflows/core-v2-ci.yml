@@ -36,6 +36,8 @@ jobs:
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Apply isolated PostgreSQL migration
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/001_orders.sql
+      - name: Apply isolated permissions migration
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/002_order_permissions.sql
       - name: Run unit and schema tests
         run: npm test
       - name: Strict TypeScript build
