@@ -7,7 +7,7 @@
  */
 import {createHash} from 'node:crypto';
 import type {Pool} from 'pg';
-import {OrderTransitionError, transitionOrder} from './order-machine.js';
+import {OrderTransitionError, transitionOrder} from './order-machine.ts';
 import type {Fulfillment, OrderStatus, PaymentMethod} from './order-machine.js';
 
 export type MerchantOrderAction = 'confirmed' | 'preparing' | 'ready';
