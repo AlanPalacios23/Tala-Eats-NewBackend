@@ -42,44 +42,13 @@ jobs:
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/003_orders_http_lab.sql
       - name: Apply isolated order handoff migration
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/004_order_handoffs_lab.sql
-      - name: Run unit and schema tests
+      - name: Run unit, schema and E2E HTTP tests
         run: npm test
       - name: Smoke isolated merchant and driver seed tools
         run: |
-          CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" \
-            CORE_V2_LAB_MERCHANT_EMAIL=merchant-ci@example.test \
-            CORE_V2_LAB_MERCHANT_PASSWORD='CI-Only-Strong-Pass-2026!' \
-            node --experimental-strip-types scripts/seed-lab.mjs
-          CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" \
-            CORE_V2_LAB_DRIVER_EMAIL=driver-ci@example.test \
-            CORE_V2_LAB_DRIVER_PASSWORD='CI-Only-Strong-Pass-2026!' \
-            node --experimental-strip-types scripts/seed-driver-lab.mjs
-          psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -Atc \
-            "SELECT count(*) FROM tala_core_v2.driver_profiles WHERE approved AND is_online" | grep -q '^1
-        run: npm run build
-      - name: Verify isolated HTTP startup and deployment safety
-        run: |
-          set -Eeuo pipefail
-          if CORE_V2_WRITES_ENABLED=true CORE_V2_RUNTIME=disabled CORE_V2_DATABASE_URL="$PG_CI_URL" node dist/server.js > /tmp/unsafe-core.log 2>&1; then
-            echo "UNSAFE_SERVER_STARTED"; exit 1
-          fi
-          grep -q "CORE_V2_WRITES_MUST_REMAIN_DISABLED" /tmp/unsafe-core.log
-          CORE_V2_WRITES_ENABLED=true CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_PORT=18210 node dist/server.js > /tmp/lab-core.log 2>&1 &
-          pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
-          ready=0
-          for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:18210/ready > /tmp/core-ready.json; then ready=1; break; fi
-            sleep 1
-          done
-          test "$ready" -eq 1 || { cat /tmp/lab-core.log; exit 1; }
-          grep -q '"ready":true' /tmp/core-ready.json
-          curl --fail --silent http://127.0.0.1:18210/api/v2/health | grep -q '"commercialReady":false'
-      - name: Verify read-only admission gate
-        run: |
-          grep -q 'CORE_V2_WRITES_MUST_REMAIN_DISABLED' src/server.ts
-          grep -q 'commercialReady:false' src/server.ts
-
+          CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_LAB_MERCHANT_EMAIL=merchant-ci@example.test CORE_V2_LAB_MERCHANT_PASSWORD='CI-Only-Strong-Pass-2026!' node --experimental-strip-types scripts/seed-lab.mjs
+          CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_LAB_DRIVER_EMAIL=driver-ci@example.test CORE_V2_LAB_DRIVER_PASSWORD='CI-Only-Strong-Pass-2026!' node --experimental-strip-types scripts/seed-driver-lab.mjs
+          test "$(psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM tala_core_v2.driver_profiles WHERE approved AND is_online")" = "1"
       - name: Strict TypeScript build
         run: npm run build
       - name: Verify isolated HTTP startup and deployment safety
