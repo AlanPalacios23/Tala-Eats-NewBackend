@@ -298,3 +298,34 @@ test('P0: cancellation policy matches machine after merchant confirmation',{
     assert.equal(evidence.rows[0].n,3);
   }finally{await api.close();await pool.end();}
 });
+
+test('P0: oversized cart total rejects quote and checkout without stock mutation',{
+  skip:!enabled,timeout:20000
+},async()=>{
+  const pool=new Pool({connectionString:db,max:4});
+  const api=await serve(pool);
+  try{
+    const shop=await store(pool);
+    const buyer=await register(api.request);
+    await pool.query(`
+      UPDATE tala_core_v2.catalog_products SET price_minor=1000000000,stock=101
+      WHERE id=$1::uuid`,[shop.product]);
+    const cart={restaurantId:shop.id,fulfillment:'pickup',
+      lines:[{productId:shop.product,quantity:100}]};
+    const quote=await api.request('POST','/api/v2/orders/quote',cart,buyer.cookie);
+    assert.equal(quote.status,400,JSON.stringify(quote.body));
+    assert.equal(quote.body.code,'CART_TOTAL_OUT_OF_RANGE');
+    const checkout=await api.request('POST','/api/v2/orders',{
+      ...cart,paymentMethod:'cash',idempotencyKey:key()
+    },buyer.cookie);
+    assert.equal(checkout.status,400,JSON.stringify(checkout.body));
+    assert.equal(checkout.body.code,'CART_TOTAL_OUT_OF_RANGE');
+    const state=await pool.query(`
+      SELECT p.stock,(SELECT count(*)::int FROM tala_core_v2.orders
+        WHERE restaurant_id=$2::uuid) AS orders
+      FROM tala_core_v2.catalog_products p WHERE p.id=$1::uuid`,
+      [shop.product,shop.id]);
+    assert.equal(state.rows[0].stock,101);
+    assert.equal(state.rows[0].orders,0);
+  }finally{await api.close();await pool.end();}
+});
