@@ -96,11 +96,20 @@ function buildQuote(input:CartInput,products:Product[]){
       quantity:l.quantity,unitMinor:lookup.get(l.productId.toLowerCase())!.price_minor
     }))};
 }
+/** Buyer-facing quote. Internal platform margins and settlement estimates
+ * stay in the persisted internal pricing snapshot, never in the public API. */
 export async function previewCart(pool:Pool,input:CartInput){
   validateCart(input);
   const client=await pool.connect();
-  try{const products=await catalog(client,input,false);return buildQuote(input,products);}
-  finally{client.release();}
+  try{
+    const products=await catalog(client,input,false);
+    const quote=buildQuote(input,products);
+    return {
+      policyVersion:quote.policyVersion,itemsMinor:quote.itemsMinor,
+      serviceFeeMinor:quote.serviceFeeMinor,deliveryFeeMinor:quote.deliveryFeeMinor,
+      tipMinor:quote.tipMinor,totalMinor:quote.totalMinor,lines:quote.lines
+    };
+  }finally{client.release();}
 }
 export async function findBuyerOrder(pool:Pool,buyerId:string,id:string):Promise<OrderView|null>{
   if(!uuid.test(id))throw new OrderServiceError('ORDER_INVALID');
