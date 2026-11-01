@@ -22,12 +22,15 @@ src/
     orders/
       order-machine.ts   # maquina de estados determinista
       pricing.ts         # calculadora 17% + servicio, centavos bigint
+      merchant-orders.ts # acciones restaurante transaccionales (SIN HTTP)
   server.ts              # GET /health y GET /ready, SOLO LECTURA
 migrations/
   001_orders.sql         # orders, items, eventos inmutables, outbox
+  002_order_permissions.sql # membresías restaurante desactivadas por defecto
 tests/
   orders.test.mjs        # reglas de estados y precios
   postgres-schema.test.mjs # restricciones PostgreSQL, CI aislada
+  merchant-order-transactions.test.mjs # concurrencia, authz, rollback en PG aislado
 docs/
   ARQUITECTURA_Y_MIGRACION.md
 .github/workflows/
@@ -40,7 +43,7 @@ docs/
 2. `npm install`; después `npm test` y `npm run build`.
 3. Copiar `.env.example` a `.env` y apuntar exclusivamente a una DB nueva
    de laboratorio (jamás `tala_node_live` ni `tala_node_stage`).
-4. Aplicar `migrations/001_orders.sql` **sólo en esa DB**.
+4. Aplicar `migrations/001_orders.sql` y luego `migrations/002_order_permissions.sql` **sólo en esa DB**.
 5. Ejecutar `npm run dev`, con `CORE_V2_WRITES_ENABLED=false`.
 6. Consultar `http://127.0.0.1:18210/health` y `/ready`.
 
@@ -54,12 +57,18 @@ completamente reproducibles.
 - Cotización pura con importes en centavos y comisión **objetivo 17%**,
   más 7% de servicio (tope $25), envío y pago driver parametrizados.
 - Tablas de pedidos, líneas, eventos inmutables y outbox.
+- Comandos **internos** de aceptar, preparar y marcar listo: membership activo, versión,
+  idempotencia y actualización conjunta del pedido, evento de auditoría y outbox.
+  No hay ruta HTTP ni habilitación de operaciones comerciales. Las membresías
+  únicamente podrán ser gestionadas por un futuro servicio de identidad confiable.
 - Pruebas unitarias y de esquema; no hay pruebas comerciales E2E todavía.
 
 ## Qué falta antes de cerrar PEDIDOS
-- Autorización y ownership de usuarios/comercios.
+- Autenticación real y provisión verificada de identidades y miembros autorizados
+  (la autorización transaccional por membership ya está implementada).
 - Checkout y persistencia transaccional de precio, stock y orden.
-- Aplicación real de idempotencia, versiones y eventos/outbox.
+- Idempotencia en creación y checkout, integración de eventos/outbox con trabajadores.
+  Las transiciones internas de restaurante ya son transaccionales y probadas en CI.
 - Endpoints autenticados para crear, leer, aceptar y cancelar.
 - Pruebas de reversión de inventario/pagos, concurrencia, E2E multirrol.
 - Stripe TEST con webhook auténtico y conciliación de dinero, sin LIVE.
