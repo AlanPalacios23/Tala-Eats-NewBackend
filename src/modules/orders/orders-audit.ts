@@ -100,20 +100,16 @@ export async function auditOrdersReadOnly(
     const counters=zero();
     let last:string|null=null,more=false;
     while(counters.scanned<max){
-      const rows=await page(client,last,Math.min(size,max-counters.scanned+1));
-      for(const row of rows.slice(0,max-counters.scanned)){
+      const requested=Math.min(size,max-counters.scanned);
+      const rows=await page(client,last,requested);
+      for(const row of rows){
         tally(row,counters);
         last=row.id;
       }
-      if(rows.length>max-counters.scanned && counters.scanned===max){more=true;break;}
-      if(rows.length<Math.min(size,max-counters.scanned+1)){
-        more=false;break;
-      }
-      if(counters.scanned===max){
-        // Include a one-row probe to distinguish exact count from truncated.
-        more=(await page(client,last,1)).length!==0;break;
-      }
+      if(rows.length<requested)break;
     }
+    // Distinguish an exact-size scan from a partial scan at the upper bound.
+    if(counters.scanned===max)more=(await page(client,last,1)).length!==0;
     await client.query('COMMIT');transaction=false;
     const issues=Object.entries(counters)
       .filter(([key])=>key!=='scanned')
