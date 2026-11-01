@@ -281,3 +281,51 @@ test('P0 PIN no puede reutilizarse, bloquea 5 intentos, comprador puede rotarlo'
     assert.equal(cashAgain.status,409);
   }finally{await close();}
 });
+
+test('P0 PIN generation rate limit is atomic and recoverable after ten minutes',{
+  skip:!isolated,timeout:40000
+},async()=>{
+  const {pool,request,close}=await start();
+  try{
+    const {store,product}=await seedStore(pool);
+    const buyer=await signupBuyer(request);
+    const seller=await seedRole(pool,request,'merchant',store);
+    const order=await newOrder(request,buyer,store,product,'pickup');
+    await ready(request,seller,order);
+    for(let n=0;n<6;n++){
+      const result=await request('POST','/api/v2/orders/'+order.id+'/handoff-pin',
+        {},buyer.cookie);
+      assert.equal(result.status,200,JSON.stringify(result.data));
+      assert.match(result.data.pin,/^\d{8}$/);
+    }
+    const extra=await request('POST','/api/v2/orders/'+order.id+'/handoff-pin',
+      {},buyer.cookie);
+    assert.equal(extra.status,429);
+    assert.equal(extra.data.code,'PIN_GENERATION_RATE_LIMITED');
+    const blocked=await pool.query(`
+      SELECT pin_generation_count FROM tala_core_v2.order_handoffs
+      WHERE order_id=$1::uuid`,[order.id]);
+    assert.equal(blocked.rows[0].pin_generation_count,6);
+    await pool.query(`
+      UPDATE tala_core_v2.order_handoffs
+      SET pin_window_started_at=now()-interval '11 minutes'
+      WHERE order_id=$1::uuid`,[order.id]);
+    const recovered=await request('POST','/api/v2/orders/'+order.id+'/handoff-pin',
+      {},buyer.cookie);
+    assert.equal(recovered.status,200);
+    const reset=await pool.query(`
+      SELECT pin_generation_count FROM tala_core_v2.order_handoffs
+      WHERE order_id=$1::uuid`,[order.id]);
+    assert.equal(reset.rows[0].pin_generation_count,1);
+    const events=await pool.query(`
+      SELECT e.data,b.payload
+      FROM tala_core_v2.order_events e
+      JOIN tala_core_v2.outbox b ON b.event_key=e.event_key
+      WHERE e.order_id=$1::uuid AND b.event_type='order.pin.issued'`,[order.id]);
+    assert.equal(events.rows.length,7);
+    for(const x of events.rows){
+      assert.ok(!('pin' in x.data),'PIN must not be in audit event');
+      assert.ok(!('pin' in x.payload),'PIN must not be in outbox');
+    }
+  }finally{await close();}
+});
