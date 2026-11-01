@@ -86,6 +86,7 @@ function buildQuote(input:CartInput,products:Product[]){
     throw error;
   }
   return {policyVersion:q.policyVersion,itemsMinor:money(q.itemsMinor),
+    tipMinor:money(q.tipMinor),
     serviceFeeMinor:money(q.serviceFeeMinor),deliveryFeeMinor:money(q.deliveryFeeMinor),
     totalMinor:money(q.totalMinor),merchantCommissionMinor:money(q.merchantCommissionMinor),
     merchantPayableMinor:money(q.merchantPayableMinor),driverPayableMinor:money(q.driverPayableMinor),
@@ -106,6 +107,18 @@ export async function findBuyerOrder(pool:Pool,buyerId:string,id:string):Promise
   const result=await pool.query<DbOrder>(`
     SELECT * FROM tala_core_v2.orders
     WHERE id=$1::uuid AND buyer_id=$2::uuid`,[id,buyerId]);
+  if(!result.rows[0])return null;
+  return (await loadOrders(pool,[result.rows[0]]))[0]??null;
+}
+export async function findMerchantOrder(
+  pool:Pool,memberId:string,id:string
+):Promise<OrderView|null>{
+  if(!uuid.test(id)||!uuid.test(memberId))throw new OrderServiceError('ORDER_INVALID');
+  const result=await pool.query<DbOrder>(`
+    SELECT o.* FROM tala_core_v2.orders o
+    JOIN tala_core_v2.restaurant_memberships m ON m.restaurant_id=o.restaurant_id
+    WHERE o.id=$1::uuid AND m.member_id=$2::uuid AND m.is_active=true`,
+    [id,memberId]);
   if(!result.rows[0])return null;
   return (await loadOrders(pool,[result.rows[0]]))[0]??null;
 }
