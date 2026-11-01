@@ -44,6 +44,8 @@ jobs:
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/004_order_handoffs_lab.sql
       - name: Apply order integrity migration (isolated DB)
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/005_orders_integrity_lab.sql
+      - name: Apply order PIN budget migration (isolated DB)
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/006_order_pin_rate_lab.sql
       - name: Run unit, schema and E2E HTTP tests
         run: npm test
       - name: Smoke isolated merchant and driver seed tools
