@@ -61,6 +61,12 @@ test('P0 postdeploy: consistent order passes an isolated read-only audit',{
     });
     assert.equal('orderId' in result,false);
     assert.equal(JSON.stringify(result).includes(id),false);
+    const nonexistent=await auditOrdersReadOnly(pool,{
+      orderId:randomUUID(),maxOrders:1
+    });
+    assert.equal(nonexistent.status,'INCOMPLETE',
+      'An empty selection cannot prove post-deploy health');
+    assert.equal(nonexistent.scanned,0);
   }finally{await pool.end();}
 });
 
