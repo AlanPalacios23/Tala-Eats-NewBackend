@@ -107,10 +107,20 @@ if (writesFlag==='true') {
   }
   app.use(createOrderApp(pool));
 }
-const port = Number(process.env.CORE_V2_PORT ?? '18210');
+// Render's proxy requires PORT/0.0.0.0. This exception only exposes
+// read-only health endpoints and NEVER mounts the Orders API or writes.
+// Production orders remain intentionally unsupported by this release.
+const renderStaging=process.env.CORE_V2_RUNTIME==='render-staging'&&
+  writesFlag==='false'&&process.env.NODE_ENV==='production';
+const port = Number(process.env.CORE_V2_PORT ?? process.env.PORT ?? '18210');
 if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
   throw Error('PORT_INVALID');
 }
-const host = process.env.CORE_V2_HOST ?? '127.0.0.1';
-if (host !== '127.0.0.1') throw Error('LOCALHOST_ONLY_UNTIL_GATE_APPROVED');
-app.listen(port,host,() => console.log(writesFlag==='true'?'TALA_EATS_CORE_V2_LAB_READY':'TALA_EATS_CORE_V2_READONLY_READY',port));
+const host = process.env.CORE_V2_HOST ??
+  (renderStaging?'0.0.0.0':'127.0.0.1');
+if (host !== '127.0.0.1' && !(renderStaging&&host==='0.0.0.0'))
+  throw Error('LOCALHOST_ONLY_UNTIL_GATE_APPROVED');
+app.listen(port,host,() => console.log(
+  renderStaging?'TALA_EATS_CORE_V2_RENDER_STAGING_READONLY_READY':
+  writesFlag==='true'?'TALA_EATS_CORE_V2_LAB_READY':
+  'TALA_EATS_CORE_V2_READONLY_READY',port));
