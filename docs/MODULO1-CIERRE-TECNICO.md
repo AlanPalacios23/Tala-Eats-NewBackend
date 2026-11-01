@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 1 PEDIDOS · Cierre técnico
 
-**Versión:** `0.2.0-lab.4`. **Fecha:** 2026-11-01.
+**Versión:** `0.2.0-lab.5`. **Fecha:** 2026-11-01.
 **Decisión:** GO para continuar desarrollando los siguientes módulos **solo después de CI verde y revisión del PR**; NO-GO para cambiar el backend comercial ni procesar pagos reales.
 
 ## Alcance congelado del módulo
@@ -18,6 +18,9 @@ Pedidos es el dueño de la orden y de las transiciones verificables:
 Este es un contrato limitado del módulo Pedidos, **no** es implementación del
 motor general de Logística, del ledger de Finanzas ni del procesador de Pagos.
 Redis/workers y los otros módulos del diagrama quedan intactos.
+
+La extensión de seguimiento y comprobantes privados se documenta en
+[MODULO1-SEGUIMIENTO-Y-RECIBOS-LAB5.md](MODULO1-SEGUIMIENTO-Y-RECIBOS-LAB5.md).
 
 ## Controles P0 incorporados
 - Atomicidad en PostgreSQL: stock + orden + líneas + evidencias + outbox.
