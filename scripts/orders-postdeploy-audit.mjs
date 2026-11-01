@@ -18,9 +18,7 @@ const pool=new Pool({
   query_timeout:15000
 });
 try{
-  const r=await pool.query<{
-    superuser:boolean;can_write:boolean;can_read:boolean
-  }>(`
+  const r=await pool.query(`
     SELECT
       (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user)
         AS superuser,
