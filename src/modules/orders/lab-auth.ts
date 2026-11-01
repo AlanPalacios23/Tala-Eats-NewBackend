@@ -17,10 +17,10 @@ export async function verifyPassword(password:string,stored:string):Promise<bool
   const derived=await scrypt(password,parts[1],64) as Buffer;
   return timingSafeEqual(derived,Buffer.from(parts[2]!, 'hex'));
 }
-export type Identity={id:string;email:string;role:'customer'|'merchant';displayName:string};
+export type Identity={id:string;email:string;role:'customer'|'merchant'|'driver';displayName:string};
 export async function resolveSession(pool:Pool,token:string|undefined):Promise<Identity|null>{
   if(!token||!/^[a-f0-9]{64}$/.test(token))return null;
-  const {rows}=await pool.query<{id:string;email:string;role:'customer'|'merchant';display_name:string}>(`
+  const {rows}=await pool.query<{id:string;email:string;role:'customer'|'merchant'|'driver';display_name:string}>(`
     SELECT a.id,a.email,a.role,a.display_name
     FROM tala_core_v2.sessions s
     JOIN tala_core_v2.accounts a ON a.id=s.account_id
