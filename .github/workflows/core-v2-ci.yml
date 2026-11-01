@@ -48,7 +48,7 @@ jobs:
         run: |
           CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_LAB_MERCHANT_EMAIL=merchant-ci@example.test CORE_V2_LAB_MERCHANT_PASSWORD='CI-Only-Strong-Pass-2026!' node --experimental-strip-types scripts/seed-lab.mjs
           CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_LAB_DRIVER_EMAIL=driver-ci@example.test CORE_V2_LAB_DRIVER_PASSWORD='CI-Only-Strong-Pass-2026!' node --experimental-strip-types scripts/seed-driver-lab.mjs
-          test "$(psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM tala_core_v2.driver_profiles WHERE approved AND is_online")" = "1"
+          test "$(psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM tala_core_v2.driver_profiles p JOIN tala_core_v2.accounts a ON a.id=p.account_id WHERE p.approved AND p.is_online AND a.email='driver-ci@example.test'")" = "1"
       - name: Strict TypeScript build
         run: npm run build
       - name: Verify isolated HTTP startup and deployment safety
