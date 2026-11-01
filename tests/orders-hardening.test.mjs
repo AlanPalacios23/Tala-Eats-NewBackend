@@ -27,7 +27,7 @@ async function serve(pool){
     return {status:response.status,body:await response.json(),
       cache:response.headers.get('cache-control'),setCookie:response.headers.get('set-cookie')?.split(';')[0]};
   }
-  return {request,close:()=>new Promise((resolve,reject)=>server.close(err=>err?reject(err):resolve()))};
+  return {base,request,close:()=>new Promise((resolve,reject)=>server.close(err=>err?reject(err):resolve()))};
 }
 async function register(request){
   const email='c-'+randomUUID()+'@example.test',password='Strong-Pass-2026!';
@@ -100,6 +100,9 @@ test('P0 lab: ownership, empty pickup address, no stale cache, batched reads and
     assert.equal(orders.filter(o=>o.id===id).length,1);
     assert.equal(orders.find(o=>o.id===id).lines[0].name,'Producto pruebas');
     await pool.query('UPDATE tala_core_v2.restaurants SET is_open=false WHERE id=$1',[shop.id]);
+    const menuClosed=await api.request('GET','/api/v2/restaurants/'+shop.id+'/menu');
+    assert.equal(menuClosed.status,200);
+    assert.deepEqual(menuClosed.body,[]);
     const closed=await api.request('POST','/api/v2/orders',{
       ...input,idempotencyKey:key()
     },buyer.cookie);
@@ -169,4 +172,49 @@ test('P0 lab: incorrect credentials respond 401, bounded login attempts respond 
     assert.equal(blocked.status,429);
     assert.equal(blocked.body.code,'AUTH_RATE_LIMITED');
   }finally{await api.close();await pool.end();}
+});
+
+test('P0 lab: malformed JSON is 400, oversized body 413, lock timeout 503 and safe same-key retry',{
+  skip:!enabled,timeout:45000
+},async()=>{
+  const pool=new Pool({connectionString:db,max:5});
+  const api=await serve(pool);
+  let locker;
+  try{
+    const shop=await store(pool);
+    const buyer=await register(api.request);
+    const headers={'Content-Type':'application/json','X-Talaeats-Client':'core-v2-lab'};
+    const broken=await fetch(api.base+'/api/v2/auth/login',{
+      method:'POST',headers,body:'{"email":'
+    });
+    assert.equal(broken.status,400);
+    assert.deepEqual(await broken.json(),{code:'REQUEST_INVALID'});
+    const oversized=await fetch(api.base+'/api/v2/auth/login',{
+      method:'POST',headers,body:JSON.stringify({junk:'x'.repeat(22000)})
+    });
+    assert.equal(oversized.status,413);
+    assert.deepEqual(await oversized.json(),{code:'BODY_TOO_LARGE'});
+    const checkout={restaurantId:shop.id,fulfillment:'pickup',
+      lines:[{productId:shop.product,quantity:1}],
+      paymentMethod:'cash',idempotencyKey:key()};
+    locker=await pool.connect();
+    await locker.query('BEGIN');
+    await locker.query('UPDATE tala_core_v2.restaurants SET is_open=true WHERE id=$1',[shop.id]);
+    // Checkout waits for the restaurant row's FOR SHARE lock.
+    const retryLater=await api.request('POST','/api/v2/orders',checkout,buyer.cookie);
+    assert.equal(retryLater.status,503,JSON.stringify(retryLater.body));
+    assert.equal(retryLater.body.code,'ORDER_TEMPORARILY_BUSY');
+    await locker.query('ROLLBACK');
+    locker.release();locker=null;
+    const recovered=await api.request('POST','/api/v2/orders',checkout,buyer.cookie);
+    assert.equal(recovered.status,201,JSON.stringify(recovered.body));
+    const replay=await api.request('POST','/api/v2/orders',checkout,buyer.cookie);
+    assert.equal(replay.status,200);
+    assert.equal(replay.body.replayed,true);
+    const check=await pool.query('SELECT stock FROM tala_core_v2.catalog_products WHERE id=$1',[shop.product]);
+    assert.equal(check.rows[0].stock,3);
+  }finally{
+    if(locker){await locker.query('ROLLBACK');locker.release();}
+    await api.close();await pool.end();
+  }
 });
