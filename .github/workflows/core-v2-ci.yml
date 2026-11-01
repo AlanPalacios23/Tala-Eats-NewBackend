@@ -57,6 +57,11 @@ jobs:
           test "$(psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM tala_core_v2.driver_profiles p JOIN tala_core_v2.accounts a ON a.id=p.account_id WHERE p.approved AND p.is_online AND a.email='driver-ci@example.test'")" = "1"
       - name: Strict TypeScript build
         run: npm run build
+      - name: Verify source and compiled JavaScript syntax
+        run: |
+          set -Eeuo pipefail
+          while IFS= read -r -d '' file; do node --check "$file"; done < <(find scripts tests -type f -name '*.mjs' -print0)
+          while IFS= read -r -d '' file; do node --check "$file"; done < <(find dist -type f -name '*.js' -print0)
       - name: Verify isolated HTTP startup and deployment safety
         run: |
           set -Eeuo pipefail
