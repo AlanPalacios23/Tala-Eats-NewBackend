@@ -25,7 +25,8 @@ export async function cancelCashOrder(pool:Pool,cmd:CancelCommand):Promise<Cance
     }else{
       const rights=await client.query(`
         SELECT 1 FROM tala_core_v2.restaurant_memberships
-        WHERE restaurant_id=$1::uuid AND member_id=$2::uuid AND is_active=true`,
+        WHERE restaurant_id=$1::uuid AND member_id=$2::uuid AND is_active=true
+        FOR SHARE`,
         [order.restaurant_id,cmd.actorId]);
       if(!rights.rowCount)throw new OrderServiceError('ORDER_NOT_FOUND');
     }
