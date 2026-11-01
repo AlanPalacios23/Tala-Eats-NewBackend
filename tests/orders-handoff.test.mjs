@@ -211,6 +211,12 @@ test('P0 domicilio completo: driver aprobado reclama, recoge, va en ruta y entre
       version=step.data.version;
     }
     assert.equal(version,'7');
+    const keyReusedForOtherAction=await request(
+      'PATCH','/api/v2/driver/orders/'+order.id+'/status',{
+        ...pickedUpCommand,status:'on_the_way',expectedVersion:'6'
+      },driver.cookie);
+    assert.equal(keyReusedForOtherAction.status,409);
+    assert.equal(keyReusedForOtherAction.data.code,'IDEMPOTENCY_CONFLICT');
     // Replays must not report the newest state/version. Return original receipt.
     const claimAfterProgress=await request(
       'POST','/api/v2/driver/orders/'+order.id+'/claim',claimCmd,driver.cookie);
