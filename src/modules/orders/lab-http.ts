@@ -73,6 +73,7 @@ const statusOf=(error:Error):number=>{
   if(error instanceof z.ZodError)return 400;
   if(error instanceof OrderServiceError||error instanceof MerchantOrderError){
     const code=error.code;
+    if(code==='CART_TOTAL_OUT_OF_RANGE')return 400;
     if(code==='PIN_GENERATION_RATE_LIMITED')return 429;
     if(code==='PIN_INVALID')return 409; // correct PIN format, wrong proof
     if(code.includes('NOT_FOUND'))return 404;
