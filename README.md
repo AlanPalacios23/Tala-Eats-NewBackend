@@ -108,6 +108,9 @@ sigue siendo una referencia de controles P0.
 Versión candidata del flujo cash completo:
 [MODULO1-RC-FLUJO-COMPLETO-LAB.md](docs/MODULO1-RC-FLUJO-COMPLETO-LAB.md).
 
+Auditoría adicional de seguridad y contratos (LAB4):
+[MODULO1-AUDITORIA-LAB4.md](docs/MODULO1-AUDITORIA-LAB4.md).
+
 Auditoría y endurecimiento del Módulo 1:
 [MODULO1-AUDITORIA-HARDENING.md](docs/MODULO1-AUDITORIA-HARDENING.md).
 La suite de pruebas PostgreSQL 16 incluye permisos, idempotencia, carreras
