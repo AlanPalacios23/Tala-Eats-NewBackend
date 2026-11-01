@@ -12,7 +12,7 @@ El Módulo 1 opera con un único origen de verdad transaccional:
 - Ningún comprador puede registrar un restaurante o un repartidor. Las cuentas comerciales y de flota se crean solamente mediante semilla administrativa de LAB.
 
 ## Migraciones (solo DB local `tala_core_v2_lab`)
-Aplicar **en este orden**: `001_orders.sql` → `002_order_permissions.sql` → `003_orders_http_lab.sql` → `004_order_handoffs_lab.sql` → `005_orders_integrity_lab.sql` → `006_order_pin_rate_lab.sql`.
+Aplicar **en este orden**: `001_orders.sql` → `002_order_permissions.sql` → `003_orders_http_lab.sql` → `004_order_handoffs_lab.sql` → `005_orders_integrity_lab.sql` → `006_order_pin_rate_lab.sql` → `007_orders_address_handoff_integrity_lab.sql`.
 No hay migración para ninguna base LIVE; `tala_node_live` y `tala_node_stage` están fuera de alcance.
 
 ## Rutas HTTP en LAB
