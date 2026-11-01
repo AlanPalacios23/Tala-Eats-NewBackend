@@ -44,7 +44,7 @@ const stateCommand=command.extend({
 const driverState=command.extend({
   status:z.enum(['picked_up','on_the_way'])
 }).strict();
-const finishCommand=command.extend({pin:z.string().regex(/^\\d{8}$/)}).strict();
+const finishCommand=command.extend({pin:z.string().regex(/^\d{8}$/)}).strict();
 const noInput=z.object({}).strict();
 const signup=z.object({
   email:z.string().email().max(254).transform(s=>s.toLowerCase().trim()),
