@@ -2,9 +2,10 @@
 
 Backend modular nuevo de **TALA EATS**, desarrollado por fases.
 
-> **Estado actual: fundamento de PEDIDOS en desarrollo (NO-GO comercial).**
-> Este sistema no está desplegado en el servidor Kali, no procesa pedidos reales,
-> no comparte bases de datos con el backend anterior y no acepta cobros.
+> **Estado actual: PEDIDOS funcional en laboratorio aislado (NO-GO comercial).**
+> API HTTP con login, catálogo, cotización, checkout cash, cocina y cancelación.
+> No está desplegado en Kali ni acepta pagos Stripe o pedidos comerciales.
+> No comparte PostgreSQL con el backend anterior.
 
 ## Arquitectura
 - **Node.js 24 + Express + TypeScript** como monolito modular.
@@ -23,14 +24,16 @@ src/
       order-machine.ts   # maquina de estados determinista
       pricing.ts         # calculadora 17% + servicio, centavos bigint
       merchant-orders.ts # acciones restaurante transaccionales (SIN HTTP)
-  server.ts              # GET /health y GET /ready, SOLO LECTURA
+  server.ts              # GET /health y /ready; API solo con gate LAB
 migrations/
   001_orders.sql         # orders, items, eventos inmutables, outbox
   002_order_permissions.sql # membresías restaurante desactivadas por defecto
+  003_orders_http_lab.sql # cuentas, sesiones, catálogo (solo LAB)
 tests/
   orders.test.mjs        # reglas de estados y precios
   postgres-schema.test.mjs # restricciones PostgreSQL, CI aislada
   merchant-order-transactions.test.mjs # concurrencia, authz, rollback en PG aislado
+  orders-http-lab.test.mjs # E2E HTTP multirrol, inventario y cancelación
 docs/
   ARQUITECTURA_Y_MIGRACION.md
 .github/workflows/
@@ -43,9 +46,13 @@ docs/
 2. `npm install`; después `npm test` y `npm run build`.
 3. Copiar `.env.example` a `.env` y apuntar exclusivamente a una DB nueva
    de laboratorio (jamás `tala_node_live` ni `tala_node_stage`).
-4. Aplicar `migrations/001_orders.sql` y luego `migrations/002_order_permissions.sql` **sólo en esa DB**.
-5. Ejecutar `npm run dev`, con `CORE_V2_WRITES_ENABLED=false`.
-6. Consultar `http://127.0.0.1:18210/health` y `/ready`.
+4. Aplicar las migraciones `001`, `002`, `003` **solo en una DB llamada `tala_core_v2_lab`**.
+5. Arranque normal: `CORE_V2_WRITES_ENABLED=false` y `npm run dev`.
+6. Para activar **únicamente el laboratorio**, usar `CORE_V2_RUNTIME=isolated-lab`,
+   `CORE_V2_WRITES_ENABLED=true`, host `127.0.0.1`, DB local `tala_core_v2_lab`.
+7. Consultar `http://127.0.0.1:18210/ready`, sembrar un comercio con
+   `scripts/seed-lab.mjs` e ingresar con `POST /api/v2/auth/login`.
+   Ver los contratos detallados en `docs/MODULO1-PEDIDOS-HTTP-LAB.md`.
 
 El pipeline de CI crea su propia DB PostgreSQL 16 descartable para pruebas.
 Aún falta generar y versionar `package-lock.json` para dependencias
@@ -57,6 +64,8 @@ completamente reproducibles.
 - Cotización pura con importes en centavos y comisión **objetivo 17%**,
   más 7% de servicio (tope $25), envío y pago driver parametrizados.
 - Tablas de pedidos, líneas, eventos inmutables y outbox.
+- API LAB con sesiones reales, catálogo, checkout en efectivo e idempotencia,
+  inventario atómico, lectura por propiedad y cancelaciones compensadas.
 - Comandos **internos** de aceptar, preparar y marcar listo: membership activo, versión,
   idempotencia y actualización conjunta del pedido, evento de auditoría y outbox.
   No hay ruta HTTP ni habilitación de operaciones comerciales. Las membresías
@@ -66,10 +75,11 @@ completamente reproducibles.
 ## Qué falta antes de cerrar PEDIDOS
 - Autenticación real y provisión verificada de identidades y miembros autorizados
   (la autorización transaccional por membership ya está implementada).
-- Checkout y persistencia transaccional de precio, stock y orden.
+- Checkout Stripe TEST y comprobación firmada del pago (el cash LAB ya opera).
 - Idempotencia en creación y checkout, integración de eventos/outbox con trabajadores.
   Las transiciones internas de restaurante ya son transaccionales y probadas en CI.
-- Endpoints autenticados para crear, leer, aceptar y cancelar.
+- Endpoints comerciales y autenticación de producción: el contrato HTTP LAB
+  está construido, pero no ha sido conectado a las PWA y no está certificado LIVE.
 - Pruebas de reversión de inventario/pagos, concurrencia, E2E multirrol.
 - Stripe TEST con webhook auténtico y conciliación de dinero, sin LIVE.
 - Integración de las PWA, monitoreo y recuperación/rollback verificados.
