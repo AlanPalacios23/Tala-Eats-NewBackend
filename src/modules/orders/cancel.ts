@@ -65,7 +65,7 @@ export async function cancelCashOrder(pool:Pool,cmd:CancelCommand):Promise<Cance
       INSERT INTO tala_core_v2.order_events
         (order_id,event_key,previous_status,new_status,actor_role,actor_id,data)
       VALUES($1::uuid,$2,$3,'cancelled',$4,$5::uuid,$6::jsonb)`,
-      [order.id,key,order.status,cmd.actor==='customer'?'system':'merchant',cmd.actorId,
+      [order.id,key,order.status,cmd.actor,cmd.actorId,
         JSON.stringify({expectedVersion:String(cmd.expectedVersion),restocked:true,actor:cmd.actor})]);
     await client.query(`
       INSERT INTO tala_core_v2.outbox(aggregate_id,event_key,event_type,payload)
