@@ -194,7 +194,7 @@ export async function finalizeDispatch(pool:Pool,order:string,
        WHERE order_id=$1::uuid FOR UPDATE`,[orderId]
     );
     const row=r.rows[0];
-    if(!row)bad('LOGISTICS_DISPATCH_NOT_FOUND');
+    if(!row)throw new LogisticsError('LOGISTICS_DISPATCH_NOT_FOUND');
     const earlier=await client.query<{event_type:string;details:{version:string;status:string;courierId:string}}>(
       `SELECT event_type,details FROM tala_logistics_v2.dispatch_events
        WHERE order_id=$1::uuid AND command_key=$2`,[orderId,commandKey]
@@ -215,11 +215,12 @@ export async function finalizeDispatch(pool:Pool,order:string,
        WHERE order_id=$1::uuid AND version=$3::bigint RETURNING *`,
       [orderId,target,expectedVersion]
     );
-    if(!final.rows[0])bad('LOGISTICS_VERSION_CONFLICT');
-    await logEvent(client,final.rows[0],commandKey,type);
+    const updated=final.rows[0];
+    if(!updated)throw new LogisticsError('LOGISTICS_VERSION_CONFLICT');
+    await logEvent(client,updated,commandKey,type);
     await client.query('COMMIT');
     return {orderId,courierId:row.courier_id,status:target,
-      version:final.rows[0].version,replayed:false};
+      version:updated.version,replayed:false};
   }catch(err){await client.query('ROLLBACK');throw err;}
   finally{client.release();}
 }
