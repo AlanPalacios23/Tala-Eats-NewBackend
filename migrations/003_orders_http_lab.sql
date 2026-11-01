@@ -36,6 +36,12 @@ CREATE INDEX IF NOT EXISTS idx_core_catalog_restaurant ON tala_core_v2.catalog_p
 ALTER TABLE tala_core_v2.orders
   ADD COLUMN IF NOT EXISTS delivery_address text
     CHECK (delivery_address IS NULL OR char_length(delivery_address) BETWEEN 5 AND 240);
+-- Customer-originated cancellation has an honest actor role in immutable evidence.
+ALTER TABLE tala_core_v2.order_events
+  DROP CONSTRAINT IF EXISTS order_events_actor_role_check;
+ALTER TABLE tala_core_v2.order_events
+  ADD CONSTRAINT order_events_actor_role_check
+  CHECK (actor_role IN ('system','merchant','driver','admin','customer'));
 -- Intentional: migration 001 order ids are independent and existing schema tests
 -- insert arbitrary UUIDs. Ownership is checked with explicit lookups and
 -- membership inside each command; FK backfill comes after migration design.
