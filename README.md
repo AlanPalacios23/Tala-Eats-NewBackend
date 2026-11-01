@@ -91,5 +91,10 @@ No se apaga ni se elimina hasta que se demuestre una migración segura.
 Su [checklist de operación comercial #206](https://github.com/AlanPalacios23/AlanPalacios23-tala-eats-backend/issues/206)
 sigue siendo una referencia de controles P0.
 
+Auditoría y endurecimiento del Módulo 1:
+[MODULO1-AUDITORIA-HARDENING.md](docs/MODULO1-AUDITORIA-HARDENING.md).
+La suite de pruebas PostgreSQL 16 incluye permisos, idempotencia, carreras
+aceptar/cancelar, dirección pickup, rate limiting y timeout SQL.
+
 Lee [ARQUITECTURA_Y_MIGRACION.md](docs/ARQUITECTURA_Y_MIGRACION.md)
 para conocer la estrategia de convivencia y retiro del backend anterior.
