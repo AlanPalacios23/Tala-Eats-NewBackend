@@ -58,6 +58,10 @@ function parse<T>(schema:z.ZodType<T>,body:unknown):T{
   return result.data;
 }
 const statusOf=(error:Error):number=>{
+  const transport=error as Error&{status?:number;type?:string;code?:string};
+  if(transport.status===400&&transport.type==='entity.parse.failed')return 400;
+  if(transport.status===413&&transport.type==='entity.too.large')return 413;
+  if(['55P03','57014','40P01','40001'].includes(transport.code??''))return 503;
   if(error instanceof AuthError)return ['AUTH_REQUIRED','INVALID_CREDENTIALS'].includes(error.code)?401:403;
   if(error instanceof z.ZodError)return 400;
   if(error instanceof OrderServiceError||error instanceof MerchantOrderError){
@@ -133,8 +137,11 @@ export function createOrderApp(pool:Pool){
   app.get('/api/v2/restaurants/:id/menu',wrap(async(req,res)=>{
     const id=uuid.parse(req.params.id);
     const products=await pool.query(`
-      SELECT id,name,price_minor,stock,is_available FROM tala_core_v2.catalog_products
-      WHERE restaurant_id=$1::uuid AND is_available=true ORDER BY name LIMIT 200`,[id]);
+      SELECT p.id,p.name,p.price_minor,p.stock,p.is_available
+      FROM tala_core_v2.catalog_products p
+      JOIN tala_core_v2.restaurants r ON r.id=p.restaurant_id
+      WHERE p.restaurant_id=$1::uuid AND p.is_available=true AND r.is_open=true
+      ORDER BY p.name LIMIT 200`,[id]);
     res.json(products.rows);
   }));
   app.post('/api/v2/auth/register',limitAuth,wrap(async(req,res)=>{
@@ -227,7 +234,10 @@ export function createOrderApp(pool:Pool){
     const err=error instanceof Error?error:new Error('UNKNOWN_ERROR');
     const status=statusOf(err);
     // Never return raw SQL/stack traces or customer details.
+    if(status===503)res.setHeader('Retry-After','2');
     res.status(status).json({code:status===500?'INTERNAL_ERROR':
+      status===503?'ORDER_TEMPORARILY_BUSY':
+      status===413?'BODY_TOO_LARGE':
       err instanceof AuthError||err instanceof OrderServiceError||err instanceof MerchantOrderError
         ?err.code:'REQUEST_INVALID'});
   });
