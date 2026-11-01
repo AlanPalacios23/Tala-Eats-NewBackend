@@ -8,7 +8,7 @@ import {createHash} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 import type {DeliveryAssignmentRequest} from './contracts.ts';
 
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const zone=/^[a-z0-9][a-z0-9_-]{1,63}$/;
 const keyFormat=/^[a-zA-Z0-9_.:-]{16,128}$/;
 const bad=(code:string):never=>{throw new LogisticsError(code);};
