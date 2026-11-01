@@ -1,11 +1,12 @@
 /** CORE v2 Orders — isolated cash checkout, no Stripe writes, no LIVE access. */
 import {createHash} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
-import {quoteOrder} from './pricing.js';
-import type {Fulfillment} from './order-machine.js';
+import {quoteOrder} from './pricing.ts';
+import type {Fulfillment} from './order-machine.ts';
 
 export class OrderServiceError extends Error {
-  constructor(readonly code:string){super(code);this.name='OrderServiceError';}
+  readonly code:string;
+  constructor(code:string){super(code);this.code=code;this.name='OrderServiceError';}
 }
 export type CartLine={productId:string;quantity:number};
 export type CartInput={restaurantId:string;fulfillment:Fulfillment;lines:CartLine[];deliveryAddress?:string};
