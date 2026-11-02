@@ -16,7 +16,7 @@ import {cancelCashOrder} from './cancel.ts';
 import {advanceMerchantOrder,MerchantOrderError} from './merchant-orders.ts';
 import {claimDelivery,advanceDelivery,availableDriverOrders,myDriverOrders,
   issueBuyerHandoffPin,attestCash,finishCashOrder} from './handoff.ts';
-import {LogisticsError,getDriverLogistics,changeDriverPresence,recordDriverLocation}
+import {LogisticsError,getDriverLogistics,changeDriverPresence,recordDriverLocation,heartbeatDriver}
   from '../logistics/driver-operations.ts';
 import {DispatchError,listDriverDispatchOffers,acceptDispatchOffer,declineDispatchOffer}
   from '../logistics/tala-dispatch-engine.ts';
@@ -333,6 +333,11 @@ export function createOrderApp(pool:Pool){
       accuracyMeters:data.accuracyMeters,sequence:BigInt(data.sequence),
       observedAt:data.observedAt
     }));
+  }));
+  app.post('/api/v2/driver/heartbeat',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    parse(noInput,req.body);
+    res.json(await heartbeatDriver(pool,user.id));
   }));
   app.get('/api/v2/driver/dispatch-offers',wrap(async(req,res)=>{
     const user=await requireAuth(pool,req,'driver');
