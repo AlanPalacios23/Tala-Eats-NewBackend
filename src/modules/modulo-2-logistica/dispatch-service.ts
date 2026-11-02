@@ -143,11 +143,16 @@ export async function reserveDelivery(pool:Pool,
       if(row.restaurant_id!==restaurantId||row.zone!==request.deliveryZone)
         bad('LOGISTICS_ORDER_CONFLICT');
       if(row.status!=='reserved')bad('LOGISTICS_DISPATCH_FINALIZED');
-      const previous=await client.query<{event_type:string}>(
-        `SELECT event_type FROM tala_logistics_v2.dispatch_events
+      const previous=await client.query<{
+        event_type:string;details:{dispatchMethod?:string}
+      }>(
+        `SELECT event_type,details FROM tala_logistics_v2.dispatch_events
          WHERE order_id=$1::uuid AND command_key=$2`,[orderId,commandKey]
       );
       if(previous.rows[0]?.event_type==='dispatch.reserved'){
+        const originalMethod=previous.rows[0].details?.dispatchMethod??'capacity';
+        if(originalMethod!==(geo?'proximity':'capacity'))
+          bad('LOGISTICS_DISPATCH_MODE_CONFLICT');
         await client.query('COMMIT');
         return {decision:'RESERVED',orderId,courierId:row.courier_id,
           status:'reserved',version:row.version,replayed:true};
