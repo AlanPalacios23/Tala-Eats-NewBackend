@@ -43,7 +43,7 @@ export async function reassignUnavailableDelivery(
    "WHERE order_id=$1::uuid FOR UPDATE",[orderId]
   );
   const row=r.rows[0];
-  if(!row)reject('LOGISTICS_DISPATCH_NOT_FOUND');
+  if(!row)throw new LogisticsError('LOGISTICS_DISPATCH_NOT_FOUND');
   const prior=await client.query<{
    event_type:string;details:{
     previousCourierId?:string;courierId?:string;version?:string
@@ -54,13 +54,16 @@ export async function reassignUnavailableDelivery(
   );
   if(prior.rows[0]){
    const event=prior.rows[0];
-   if(event.event_type!=='dispatch.reassigned'||!event.details.previousCourierId
-    ||!event.details.courierId||!event.details.version)
-    reject('LOGISTICS_IDEMPOTENCY_CONFLICT');
+   const evidence=event.details;
+   if(event.event_type!=='dispatch.reassigned'
+    ||typeof evidence?.previousCourierId!=='string'
+    ||typeof evidence.courierId!=='string'
+    ||typeof evidence.version!=='string')
+    throw new LogisticsError('LOGISTICS_IDEMPOTENCY_CONFLICT');
    await client.query('COMMIT');
    return {decision:'REASSIGNED',orderId,
-    previousCourierId:event.details.previousCourierId,
-    courierId:event.details.courierId,version:event.details.version,replayed:true};
+    previousCourierId:evidence.previousCourierId,
+    courierId:evidence.courierId,version:evidence.version,replayed:true};
   }
   if(row.status!=='reserved')reject('LOGISTICS_DISPATCH_FINALIZED');
   if(row.version!==expectedVersion)reject('LOGISTICS_VERSION_CONFLICT');
@@ -83,7 +86,7 @@ export async function reassignUnavailableDelivery(
    "LEFT JOIN tala_logistics_v2.courier_positions p ON p.courier_id=c.id "+
    "WHERE c.id=$1::uuid FOR UPDATE OF c",[row.courier_id]
   );
-  if(!current.rows[0])reject('LOGISTICS_COURIER_NOT_FOUND');
+  if(!current.rows[0])throw new LogisticsError('LOGISTICS_COURIER_NOT_FOUND');
   const old=current.rows[0];
   const server=await client.query<{now:Date}>("SELECT clock_timestamp() AS now");
   const now=server.rows[0]!.now.getTime();
@@ -138,7 +141,7 @@ export async function reassignUnavailableDelivery(
    "RETURNING version,courier_id",[orderId,candidate.id,expectedVersion]
   );
   const updated=changed.rows[0];
-  if(!updated)reject('LOGISTICS_VERSION_CONFLICT');
+  if(!updated)throw new LogisticsError('LOGISTICS_VERSION_CONFLICT');
   const details={orderId,previousCourierId:row.courier_id,courierId:candidate.id,
    status:'reserved',version:updated.version,
    dispatchEngine:'TALA Dispatch Engine',dispatchEngineVersion:TALA_GEO_VERSION,
