@@ -10,6 +10,7 @@ import type {DeliveryAssignmentRequest} from './contracts.ts';
 import {TALA_DISPATCH_ENGINE_VERSION,evaluateTalaDispatch,isDispatchTriggerReady}
   from './tala-dispatch-engine.ts';
 import {TALA_GEO_VERSION,validGeoPoint,type GeoPoint} from './geo.ts';
+import {reserveFingerprint,finalizeFingerprint} from './command-integrity.ts';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const zone=/^[a-z0-9][a-z0-9_-]{1,63}$/;
@@ -95,13 +96,13 @@ export async function setCourierOnline(pool:Pool,courierId:string,online:boolean
 }
 async function logEvent(client:PoolClient,row:ReservationRow,commandKey:string,
   type:'dispatch.reserved'|'dispatch.released'|'dispatch.completed',
-  method:'capacity'|'proximity'='capacity'){
+  method:'capacity'|'proximity'='capacity',commandDigest?:string){
   const k=eventKey(row.order_id,commandKey,type);
   const payload={orderId:row.order_id,courierId:row.courier_id,
     status:row.status,version:row.version,
     dispatchEngine:'TALA Dispatch Engine',
     dispatchEngineVersion:method==='proximity'?TALA_GEO_VERSION:TALA_DISPATCH_ENGINE_VERSION,
-    dispatchMethod:method};
+    dispatchMethod:method,...(commandDigest?{commandDigest}:{} )};
   await client.query(
     `INSERT INTO tala_logistics_v2.dispatch_events
       (order_id,command_key,event_type,courier_id,event_key,details)
@@ -128,6 +129,8 @@ export async function reserveDelivery(pool:Pool,
     bad('LOGISTICS_GEO_REQUEST_INVALID');
   if(!isDispatchTriggerReady(request))
     return {decision:'NOT_ELIGIBLE',orderId};
+  const digest=reserveFingerprint(orderId,restaurantId,request.deliveryZone,
+    geo?'proximity':'capacity',geo?.restaurant,geo?.maxDistanceMeters);
   const client=await pool.connect();
   try{
     await start(client);
@@ -144,7 +147,7 @@ export async function reserveDelivery(pool:Pool,
         bad('LOGISTICS_ORDER_CONFLICT');
       if(row.status!=='reserved')bad('LOGISTICS_DISPATCH_FINALIZED');
       const previous=await client.query<{
-        event_type:string;details:{dispatchMethod?:string}
+        event_type:string;details:{dispatchMethod?:string;commandDigest?:string}
       }>(
         `SELECT event_type,details FROM tala_logistics_v2.dispatch_events
          WHERE order_id=$1::uuid AND command_key=$2`,[orderId,commandKey]
@@ -153,6 +156,8 @@ export async function reserveDelivery(pool:Pool,
         const originalMethod=previous.rows[0].details?.dispatchMethod??'capacity';
         if(originalMethod!==(geo?'proximity':'capacity'))
           bad('LOGISTICS_DISPATCH_MODE_CONFLICT');
+        if(previous.rows[0].details?.commandDigest!==digest)
+          bad('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT');
         await client.query('COMMIT');
         return {decision:'RESERVED',orderId,courierId:row.courier_id,
           status:'reserved',version:row.version,replayed:true};
@@ -229,7 +234,7 @@ export async function reserveDelivery(pool:Pool,
       [orderId,restaurantId,request.deliveryZone,courier.id]
     );
     const row=inserted.rows[0]!;
-    await logEvent(client,row,commandKey,'dispatch.reserved',geo?'proximity':'capacity');
+    await logEvent(client,row,commandKey,'dispatch.reserved',geo?'proximity':'capacity',digest);
     await client.query('COMMIT');
     return {decision:'RESERVED',orderId,courierId:row.courier_id,
       status:'reserved',version:row.version,replayed:false};
@@ -257,7 +262,9 @@ export async function finalizeDispatch(pool:Pool,order:string,
     );
     const row=r.rows[0];
     if(!row)throw new LogisticsError('LOGISTICS_DISPATCH_NOT_FOUND');
-    const earlier=await client.query<{event_type:string;details:{version:string;status:string;courierId:string}}>(
+    const earlier=await client.query<{event_type:string;details:{
+      version:string;status:string;courierId:string;commandDigest?:string
+    }}>(
       `SELECT event_type,details FROM tala_logistics_v2.dispatch_events
        WHERE order_id=$1::uuid AND command_key=$2`,[orderId,commandKey]
     );
@@ -265,6 +272,8 @@ export async function finalizeDispatch(pool:Pool,order:string,
     const type=target==='completed'?'dispatch.completed':'dispatch.released';
     if(old){
       if(old.event_type!==type)bad('LOGISTICS_IDEMPOTENCY_CONFLICT');
+      if(old.details?.commandDigest!==finalizeFingerprint(orderId,expectedVersion,target))
+        bad('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT');
       await client.query('COMMIT');
       return {orderId,courierId:old.details.courierId,
         status:target,version:old.details.version,replayed:true};
@@ -279,7 +288,8 @@ export async function finalizeDispatch(pool:Pool,order:string,
     );
     const updated=final.rows[0];
     if(!updated)throw new LogisticsError('LOGISTICS_VERSION_CONFLICT');
-    await logEvent(client,updated,commandKey,type);
+    await logEvent(client,updated,commandKey,type,'capacity',
+      finalizeFingerprint(orderId,expectedVersion,target));
     await client.query('COMMIT');
     return {orderId,courierId:row.courier_id,status:target,
       version:updated.version,replayed:false};
