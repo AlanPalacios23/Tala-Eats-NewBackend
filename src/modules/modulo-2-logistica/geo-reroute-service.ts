@@ -21,6 +21,13 @@ export type VerifyPrePickup=(
  context:Readonly<{orderId:string;restaurantId:string;
    courierId:string;zone:string}>
 )=>Promise<boolean>;
+/** Module boundary callback. A trusted Orders adapter must atomically
+ * update its assignment and evidence on the SAME PoolClient. */
+export type CommitOrdersReassignment=(
+ client:PoolClient,
+ context:Readonly<{orderId:string;restaurantId:string;previousCourierId:string;
+   courierId:string;zone:string;logisticsVersion:string;commandKey:string}>
+)=>Promise<boolean>;
 export type RerouteResult=
  | Readonly<{decision:'REASSIGNED';orderId:string;previousCourierId:string;
     courierId:string;version:string;replayed:boolean}>
@@ -30,7 +37,8 @@ export type RerouteResult=
 export async function reassignUnavailableDelivery(
  pool:Pool,orderId:string,expectedVersion:string,
  commandKey:string,restaurant:GeoPoint,maxDistanceMeters=20000,
- verifyPrePickup?:VerifyPrePickup
+ verifyPrePickup?:VerifyPrePickup,
+ commitOrdersReassignment?:CommitOrdersReassignment
 ):Promise<RerouteResult>{
  if(typeof orderId!=='string'||!uuid.test(orderId)
    ||typeof expectedVersion!=='string'||!/^[1-9][0-9]{0,15}$/.test(expectedVersion)
@@ -40,6 +48,8 @@ export async function reassignUnavailableDelivery(
    reject('LOGISTICS_REROUTE_INPUT_INVALID');
  if(typeof verifyPrePickup!=='function')
    reject('LOGISTICS_ORDER_VERIFICATION_REQUIRED');
+ if(typeof commitOrdersReassignment!=='function')
+   reject('LOGISTICS_ORDER_SYNC_REQUIRED');
  orderId=orderId.toLowerCase();
  const digest=rerouteFingerprint(orderId,expectedVersion,restaurant,maxDistanceMeters);
  const client=await pool.connect();
@@ -171,6 +181,15 @@ export async function reassignUnavailableDelivery(
   );
   const updated=changed.rows[0];
   if(!updated)throw new LogisticsError('LOGISTICS_VERSION_CONFLICT');
+  // The Orders update is part of this SQL transaction: any rejection or
+  // exception rolls back the courier swap, event and outbox.
+  const synchronized=await commitOrdersReassignment!(client,{
+    orderId,restaurantId:row.restaurant_id,previousCourierId:row.courier_id,
+    courierId:candidate.id,zone:row.zone,logisticsVersion:updated.version,
+    commandKey
+  });
+  if(synchronized!==true)reject('LOGISTICS_ORDER_SYNC_FAILED');
+
   const details={orderId,previousCourierId:row.courier_id,courierId:candidate.id,
    status:'reserved',version:updated.version,
    dispatchEngine:'TALA Dispatch Engine',dispatchEngineVersion:TALA_GEO_VERSION,
