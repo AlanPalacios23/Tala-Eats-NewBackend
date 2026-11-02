@@ -9,6 +9,7 @@ import type {Pool,PoolClient} from 'pg';
 import type {DeliveryAssignmentRequest} from './contracts.ts';
 import {TALA_DISPATCH_ENGINE_VERSION,evaluateTalaDispatch,isDispatchTriggerReady}
   from './tala-dispatch-engine.ts';
+import {TALA_GEO_VERSION,validGeoPoint,type GeoPoint} from './geo.ts';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const zone=/^[a-z0-9][a-z0-9_-]{1,63}$/;
@@ -39,6 +40,12 @@ async function start(client:PoolClient):Promise<void>{
   await client.query("SET LOCAL statement_timeout = '10000ms'");
   await client.query("SET LOCAL idle_in_transaction_session_timeout = '15000ms'");
 }
+/** Optional internal-only Geo v2 candidate ranking. No public HTTP caller.
+ * The provided restaurant point must be established by a trusted Orders adapter. */
+export type GeoDispatchOptions=Readonly<{
+  restaurant:GeoPoint;
+  maxDistanceMeters:number;
+}>;
 type CourierRow={id:string;capacity:number;active:number};
 type ReservationRow={order_id:string;restaurant_id:string;zone:string;
   courier_id:string;status:'reserved'|'released'|'completed';version:string};
@@ -87,11 +94,14 @@ export async function setCourierOnline(pool:Pool,courierId:string,online:boolean
   if(!r.rowCount)bad('LOGISTICS_COURIER_NOT_APPROVED');
 }
 async function logEvent(client:PoolClient,row:ReservationRow,commandKey:string,
-  type:'dispatch.reserved'|'dispatch.released'|'dispatch.completed'){
+  type:'dispatch.reserved'|'dispatch.released'|'dispatch.completed',
+  method:'capacity'|'proximity'='capacity'){
   const k=eventKey(row.order_id,commandKey,type);
   const payload={orderId:row.order_id,courierId:row.courier_id,
     status:row.status,version:row.version,
-    dispatchEngine:'TALA Dispatch Engine',dispatchEngineVersion:TALA_DISPATCH_ENGINE_VERSION};
+    dispatchEngine:'TALA Dispatch Engine',
+    dispatchEngineVersion:method==='proximity'?TALA_GEO_VERSION:TALA_DISPATCH_ENGINE_VERSION,
+    dispatchMethod:method};
   await client.query(
     `INSERT INTO tala_logistics_v2.dispatch_events
       (order_id,command_key,event_type,courier_id,event_key,details)
@@ -107,10 +117,15 @@ async function logEvent(client:PoolClient,row:ReservationRow,commandKey:string,
 /** Atomic reservation, with row locks per courier and per-order advisory lock.
  * Only consumes a trusted Orders 'ready' event. Not a commercial assignment. */
 export async function reserveDelivery(pool:Pool,
-  request:DeliveryAssignmentRequest,commandKey:string):Promise<DispatchDecision>{
+  request:DeliveryAssignmentRequest,commandKey:string,
+  geo?:GeoDispatchOptions):Promise<DispatchDecision>{
   if(!request)return bad('LOGISTICS_REQUEST_INVALID');
   const orderId=requireId(request.orderId),restaurantId=requireId(request.restaurantId);
   requireZone(request.deliveryZone);requireKey(commandKey);
+  if(geo!==undefined && (!geo || !validGeoPoint(geo.restaurant)
+    || !Number.isFinite(geo.maxDistanceMeters)
+    || geo.maxDistanceMeters<=0 || geo.maxDistanceMeters>100000))
+    bad('LOGISTICS_GEO_REQUEST_INVALID');
   if(!isDispatchTriggerReady(request))
     return {decision:'NOT_ELIGIBLE',orderId};
   const client=await pool.connect();
@@ -141,10 +156,31 @@ export async function reserveDelivery(pool:Pool,
     }
     // SKIP LOCKED prevents competing orders from simultaneously claiming
     // a courier. Capacity is rechecked AFTER acquiring the courier lock.
-    const candidate=await client.query<{
-      id:string;capacity:number;zone:string;approved:boolean;
-      online:boolean;last_seen_at:Date|null;
-    }>(
+    // Each courier position writer first locks its courier row. This lock
+    // therefore freezes location and capacity while the reservation commits.
+    // Geo mode also rejects missing/stale GPS and prefers shortest Haversine
+    // distance to the trusted restaurant point. Never fake road ETA.
+    const haversine=`
+      6371008.8 * 2 * asin(sqrt(least(1.0,
+        power(sin(radians(p.latitude - $2::double precision)/2),2)
+        + cos(radians($2::double precision))*cos(radians(p.latitude))
+        * power(sin(radians(p.longitude - $3::double precision)/2),2)
+      )))`;
+    const candidateSql=geo?
+      `SELECT c.id,c.capacity,c.zone,c.approved,c.online,c.last_seen_at
+         FROM tala_logistics_v2.couriers c
+         JOIN tala_logistics_v2.courier_positions p ON p.courier_id=c.id
+        WHERE c.approved=true AND c.online=true AND c.zone=$1
+          AND c.last_seen_at BETWEEN clock_timestamp()-interval '120 seconds' AND clock_timestamp()
+          AND p.observed_at BETWEEN clock_timestamp()-interval '120 seconds' AND clock_timestamp()
+          AND p.accuracy_m<=100
+          AND (SELECT count(*) FROM tala_logistics_v2.dispatch_reservations d
+                WHERE d.courier_id=c.id AND d.status='reserved') < c.capacity
+          AND (${haversine}) <= $4::double precision
+        ORDER BY (${haversine}) ASC,
+          (SELECT count(*) FROM tala_logistics_v2.dispatch_reservations d
+           WHERE d.courier_id=c.id AND d.status='reserved'),c.id
+        FOR UPDATE OF c SKIP LOCKED LIMIT 1`:
       `SELECT c.id,c.capacity,c.zone,c.approved,c.online,c.last_seen_at
        FROM tala_logistics_v2.couriers c
        WHERE c.approved=true AND c.online=true AND c.zone=$1
@@ -154,8 +190,12 @@ export async function reserveDelivery(pool:Pool,
               WHERE d.courier_id=c.id AND d.status='reserved') < c.capacity
        ORDER BY (SELECT count(*) FROM tala_logistics_v2.dispatch_reservations d
                   WHERE d.courier_id=c.id AND d.status='reserved'),c.id
-       FOR UPDATE OF c SKIP LOCKED LIMIT 1`,[request.deliveryZone]
-    );
+       FOR UPDATE OF c SKIP LOCKED LIMIT 1`;
+    const candidate=await client.query<{
+      id:string;capacity:number;zone:string;approved:boolean;
+      online:boolean;last_seen_at:Date|null;
+    }>(candidateSql,geo?[request.deliveryZone,geo.restaurant.latitude,
+        geo.restaurant.longitude,geo.maxDistanceMeters]:[request.deliveryZone]);
     const courier=candidate.rows[0];
     if(!courier){
       await client.query('COMMIT');
@@ -184,7 +224,7 @@ export async function reserveDelivery(pool:Pool,
       [orderId,restaurantId,request.deliveryZone,courier.id]
     );
     const row=inserted.rows[0]!;
-    await logEvent(client,row,commandKey,'dispatch.reserved');
+    await logEvent(client,row,commandKey,'dispatch.reserved',geo?'proximity':'capacity');
     await client.query('COMMIT');
     return {decision:'RESERVED',orderId,courierId:row.courier_id,
       status:'reserved',version:row.version,replayed:false};
