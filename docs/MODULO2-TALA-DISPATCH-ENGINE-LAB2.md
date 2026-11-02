@@ -4,7 +4,7 @@
 
 ## Política de despacho actual
 
-- Pedidos **cash/pending** a domicilio en estado **ready**; se selecciona el más antiguo primero.
+- Pedidos **cash/pending** a domicilio en estado **ready**; se selecciona el más antiguo **entre los que tienen conductor elegible**. Un pedido sin candidatos no bloquea los siguientes de la misma cohorte.
 - Un trabajador interno invoca `dispatchNext(pool)`; no hay endpoint HTTP público para iniciar el despacho. Acepta un `DispatchScope` interno de IDs de pedidos y conductores para cohortes aisladas. Este control no puede enviarlo un cliente HTTP.
 - Orden de candidatos: repartidor activo, aprobado, online, con **heartbeat autenticado de menos de 90 segundos**, libre (capacidad=1), sin ofertas pendientes, sin ofertas previas del mismo pedido; prioridad a quien no tenga ofertas recientes, después `presence_updated_at` e ID. Evita sesiones online abandonadas y distribuye mejor los ofrecimientos.
 - El motor **no fuerza una asignación**: genera una oferta con vencimiento a **60 segundos**. El conductor acepta o rechaza voluntariamente.
@@ -27,14 +27,14 @@ Las rutas existentes de `claim` se bloquean mientras una oferta pendiente afecte
 
 - Runner de **un ciclo**: `scripts/dispatch-lab-once.mjs`. Requiere `CORE_V2_RUNTIME=isolated-lab`, `CORE_V2_WRITES_ENABLED=true`, `NODE_ENV` distinto de production, PostgreSQL localhost y nombre `tala_core_v2_lab` o `tala_core_v2_test`.
 - El runner no se instala como servicio, no tiene cron y no está desplegado a Render/Kali; ejecutar varias veces es una decisión explícita del operador de LAB.
-- `expireDispatchOffers(pool)` libera ofertas caducadas con bloqueos en orden **pedido → oferta**, registra eventos append-only y outbox. No toca un pedido ya recogido.
-- `recoverUncollectedAssignment(pool, orderId, expectedVersion, commandKey)` es una función **interna para revisión manual**, nunca una ruta HTTP. Requiere estado `assigned`, asignación con 20 minutos o más, y **sin PIN emitido, efectivo confirmado ni evidencia de custodia**. Rechaza `picked_up` y `on_the_way`; registra recuperación y elimina solo GPS efímero del conductor anterior.
+- `expireDispatchOffers(pool)` libera ofertas caducadas con bloqueos en orden **pedido → oferta**, registra eventos append-only y outbox. Valida las fechas con `clock_timestamp()` de PostgreSQL, al igual que aceptar/rechazar una oferta, para evitar discrepancias con el reloj de Node.js. No toca un pedido ya recogido.
+- `recoverUncollectedAssignment(pool, orderId, expectedVersion, commandKey)` es una función **interna para revisión manual**, nunca una ruta HTTP. Requiere estado `assigned`, asignación con 20 minutos o más, y **sin PIN emitido, efectivo confirmado ni evidencia de custodia**. Comprueba tanto la evidencia actual como el historial append-only de eventos y outbox: un registro de handoff faltante no permite borrar pruebas anteriores de PIN/efectivo. Rechaza `picked_up` y `on_the_way`; registra recuperación y elimina solo GPS efímero del conductor anterior.
 - Todas las operaciones persistentes usan transacciones, versionado de pedidos, eventos y outbox. **Aceptar efectivo no equivale a liquidarlo**; el módulo de Finanzas aún no implementa ledger final.
 
 ## Esquema y pruebas
 
 - Migración nueva `migrations/009_tala_dispatch_engine_lab.sql`, **después de 001–008, únicamente en una base descartable**.
-- `tests/tala-dispatch-engine.test.mjs`: dos trabajadores concurrentes, propiedad de ofertas, consentimiento, bloqueo de self-claim, idempotencia, vencimiento y recuperación protegida.
+- `tests/tala-dispatch-engine.test.mjs`: dos trabajadores concurrentes, propiedad de ofertas, consentimiento, bloqueo de self-claim, idempotencia, vencimiento en el motor antes de barrido, evitar bloqueo FIFO por pedido sin conductor elegible, recuperación válida y veto por historial de PIN.
 - La suite CI usa PostgreSQL 16 aislado y comprueba el gate de servidor: en Render público las rutas de logística/despacho siguen inexistentes (`CORE_V2_WRITES_ENABLED=false`).
 
 ## Pendiente antes de cualquier GO
