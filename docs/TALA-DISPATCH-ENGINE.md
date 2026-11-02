@@ -97,3 +97,26 @@ al bloqueador transaccional de asignación ni modifica Pedidos.
 la PWA Repartidores, consentimiento y privacidad GPS, verificación de eventos
 de Pedidos, reserva más próxima con revalidación SQL, ruteo vial con proveedor
 real y reasignación segura. Comercial sigue **NO-GO**.
+
+## V2 — decisión por GPS con COMMIT y recuperación
+
+La V1 sigue siendo compatible. Además, V2 incorpora:
+1. `reserveNearestDelivery`: recibe el punto de recogida de un **adaptador
+   de confianza todavía pendiente**. La consulta PostgreSQL filtra ubicación
+   de no más de 120 segundos, aprobación, presencia, zona y capacidad; prioriza
+   la menor distancia Haversine con `FOR UPDATE OF c SKIP LOCKED`. Confirma
+   únicamente tras insertar reserva, evento y outbox en la misma transacción.
+2. `reassignUnavailableDelivery`: solo permite recuperar una reserva GEO
+   cuando el conductor original está offline, sin aprobación, sin presencia
+   vigente o sin GPS reciente. La nueva asignación aumenta la versión y
+   escribe el evento inmutable `dispatch.reassigned`.
+3. Seguridad: un mismo comando no puede cambiar silenciosamente entre
+   modalidad `capacity` y `proximity`. Los eventos no guardan coordenadas.
+   Si no hay sustituto o el conductor sigue disponible, no cambia la reserva.
+
+**Sin autorización comercial:** una persona podría recoger el producto antes de
+que su GPS deje de reportar. El motor **no debe reasignar ese pedido**
+hasta que Pedidos certifique que sigue sin recogerse. El servicio todavía
+no consume un evento firmado/verificado `order.ready`, no autentica al
+repartidor ni controla GPS del dispositivo. No hay ETA de carretera, rutas
+turn-by-turn, integración financiera, pagos ni publicación en PWAs.

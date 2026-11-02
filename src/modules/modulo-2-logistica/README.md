@@ -52,3 +52,24 @@ se aplica después de 001–007 Pedidos, sin tocar sus tablas.
 - `listNearbyCouriers`: sugiere candidatos elegibles por zona y posición de hace máximo 120 segundos, con capacidad libre; **devuelve distancia recta aproximada, nunca coordenadas privadas**.
 - `straightLineMeters`: Haversine. **No** conoce calles, rutas reales, tráfico ni ETA. No sustituye la selección SQL v1 que ya está probada; la proximidad será integrada a la reserva solo después de un adaptador de identidad y pedido verificado.
 - Se aplicó el cambio solo al backend de LAB y CI, no a Render ni a Kali.
+
+## V2 — reserva por cercanía y recuperación transaccional (LAB)
+- `reserveNearestDelivery` selecciona al conductor geográficamente más cercano
+  al punto de recogida verificado por un **futuro adaptador interno de Pedidos**,
+  siempre bajo bloqueo SQL y con GPS vigente, zona compatible y capacidad libre.
+  La política `reserveDelivery` por carga de V1 sigue vigente y probada.
+- Se registra `dispatchMethod: proximity` y `dispatchEngineVersion: 2.0.0-lab`
+  en eventos y outbox. Reutilizar una llave idempotente cambiando de método
+  provoca `LOGISTICS_DISPATCH_MODE_CONFLICT`, no una confirmación engañosa.
+- Migración `003_dispatch_reassignment_lab.sql`: eventos inmutables
+  `dispatch.reassigned` y outbox correspondientes.
+- `reassignUnavailableDelivery` permite mover una reserva **originada
+  por GEO** cuando el conductor ya no está disponible. Bloquea la orden
+  y al nuevo conductor, revalida GPS/capacidad, incrementa versión y
+  registra origen y destino en un mismo COMMIT. No altera Módulo 1.
+- El motor no distingue si el conductor ya recogió el pedido; **queda
+  prohibido usar esta reasignación comercialmente** hasta verificar
+  el estado de recogida y la versión del pedido mediante un adaptador
+  autorizado de Pedidos. Tampoco existe autenticación del GPS desde PWA.
+- Ninguna función se expone como API en Render, Kali o la PWA; las
+  pruebas se ejecutan solamente en PostgreSQL 16 de GitHub Actions.

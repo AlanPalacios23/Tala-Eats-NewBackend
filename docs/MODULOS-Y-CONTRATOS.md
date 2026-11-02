@@ -39,10 +39,17 @@ si el pedido existe en Módulo 1, así que esta etapa es solo de LAB.
 Existe ahora `geo.ts` y `location-service.ts` para registrar la última
 ubicación GPS y consultar candidatos próximos al restaurante, junto con la
 migración `002_courier_position_lab.sql` en el esquema exclusivo de Logística.
-Estos servicios todavía no tienen endpoint autenticado ni se integran a
-`reserveDelivery`; el cálculo es de distancia recta y **no es ETA vial**.
+Estos servicios todavía no tienen endpoint autenticado, pero la reserva
+interna **`reserveNearestDelivery`** ya puede elegir al repartidor
+cercano con verificación GPS y bloqueo SQL. La política por carga de
+`reserveDelivery` sigue disponible y se conserva la regresión completa.
+La distancia es recta: **no es ETA vial**.
+Existe también `reassignUnavailableDelivery` para recuperar una
+reserva GEO de un conductor offline o con presencia/GPS vencidos, de
+manera versionada e idempotente. **No debe usarse tras recogida real**;
+necesita que Pedidos certifique el estado y autorice esa operación.
 Faltan conexión transaccional/compensación con Pedidos, autenticación
-de identidad del repartidor, GPS real desde PWA, ETA vial y operaciones reales.
+del repartidor, GPS desde PWA, ETA vial y operaciones comerciales.
 
 ### Contrato entre módulos
 `DeliveryAssignmentRequest` contiene únicamente `orderId`,
