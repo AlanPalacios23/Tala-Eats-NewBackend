@@ -4,14 +4,14 @@
 
 | Área | Espacio | PR base |
 | --- | --- | --- |
-| M1 Pedidos | \`src/modules/orders/\`, rama \`feat/core-v2-pedidos-foundation\` | \`main\` |
-| M2 Logística | \`src/modules/logistics/\`, rama \`feat/core-v2-logistica-lab1\` | M1 (temporal) |
-| M3 Finanzas | **\`modules/finance/\`**, rama \`feat/core-v2-finanzas-foundation\` | **\`main\`** |
+| M1 Pedidos | `src/modules/orders/`, rama `feat/core-v2-pedidos-foundation` | `main` |
+| M2 Logística | `src/modules/logistics/`, rama `feat/core-v2-logistica-lab1` | M1 (temporal) |
+| M3 Finanzas | **`modules/finance/`**, rama `feat/core-v2-finanzas-foundation` | **`main`** |
 
-M3 es autónomo: esquema \`tala_finance_v2\`, migraciones ordenadas localmente,
+M3 es autónomo: esquema `tala_finance_v2`, migraciones ordenadas localmente,
 pruebas y workflow CI propios. Nunca ejecutar su migración en base M1/M2 o LIVE.
 Su contrato de entrada será un evento versionado de pago/custodia verificado,
-con \`orderId\`, \`policyVersion\`, desglose de centavos y evidencia de origen.
+con `orderId`, `policyVersion`, desglose de centavos y evidencia de origen.
 Las tablas y APIs M1/M2 no se importan ni se escriben desde Finanzas.
 
 ## Controles de integridad pendientes
