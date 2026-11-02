@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {Pool} from 'pg';
 import {createOrderApp} from '../src/modules/orders/lab-http.ts';
 import {hashPassword} from '../src/modules/orders/lab-auth.ts';
@@ -226,6 +226,101 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
       [protectedOrder.id,key(),JSON.stringify({failedAttemptsReset:true})]);
     await assert.rejects(recoverUncollectedAssignment(pool,protectedOrder.id,protectedVersion,key()),
       error=>error.code==='RECOVERY_CUSTODY_REVIEW_REQUIRED');
+    // LAB3: an offline courier must not monopolize an order until TTL.
+    const offlineOrder=await makeOrder();
+    const offlineCourier=await seed('driver');
+    const disconnected=await dispatchNext(pool,{
+      orderIds:[offlineOrder.id],driverIds:[offlineCourier.id]});
+    assert.equal(disconnected.state,'offered');
+    const wentOffline=await request('POST','/api/v2/driver/presence',{
+      online:false,expectedVersion:'1',commandKey:key()
+    },offlineCourier.cookie);
+    assert.equal(wentOffline.status,200,JSON.stringify(wentOffline.data));
+    const standbyCourier=await seed('driver');
+    const reassignedOffer=await dispatchNext(pool,{
+      orderIds:[offlineOrder.id],driverIds:[standbyCourier.id]});
+    assert.equal(reassignedOffer.state,'offered',JSON.stringify(reassignedOffer));
+    assert.equal(reassignedOffer.orderId,offlineOrder.id);
+    assert.equal(reassignedOffer.driverId,standbyCourier.id);
+    const closed=await pool.query(`
+      SELECT f.state,x.payload->>'reason' AS reason
+      FROM tala_core_v2.dispatch_offers f
+      JOIN tala_core_v2.outbox x ON x.event_key=$2
+      WHERE f.id=$1::uuid AND x.event_type='dispatch.offer.expired'`,
+      [disconnected.offerId,createHash('sha256')
+        .update('dispatch.offer.expired|'+disconnected.offerId).digest('hex')]);
+    assert.equal(closed.rows[0]?.state,'expired');
+    assert.equal(closed.rows[0]?.reason,'courier_unavailable');
+
+    // A stale heartbeat is also an early invalidation, before the 60s TTL.
+    const heartbeatOrder=await makeOrder();
+    const staleCourier=await seed('driver');
+    const heartbeatOffer=await dispatchNext(pool,{
+      orderIds:[heartbeatOrder.id],driverIds:[staleCourier.id]});
+    assert.equal(heartbeatOffer.state,'offered');
+    await pool.query(`
+      UPDATE tala_core_v2.driver_profiles
+      SET dispatch_heartbeat_at=clock_timestamp()-interval '3 minutes'
+      WHERE account_id=$1::uuid`,[staleCourier.id]);
+    const alternateCourier=await seed('driver');
+    const heartbeatRedispatch=await dispatchNext(pool,{
+      orderIds:[heartbeatOrder.id],driverIds:[alternateCourier.id]});
+    assert.equal(heartbeatRedispatch.state,'offered');
+    assert.equal(heartbeatRedispatch.orderId,heartbeatOrder.id);
+    const heartbeatCause=await pool.query(`
+      SELECT payload->>'reason' AS reason FROM tala_core_v2.outbox
+      WHERE event_key=$1`,[
+        createHash('sha256')
+          .update('dispatch.offer.expired|'+heartbeatOffer.offerId).digest('hex')
+      ]);
+    assert.equal(heartbeatCause.rows[0]?.reason,'heartbeat_stale');
+
+    // Once ten offers have been consumed, report manual review, not idle.
+    const reviewOrder=await makeOrder();
+    const reviewer=await seed('driver');
+    await pool.query(`
+      INSERT INTO tala_core_v2.dispatch_offers
+        (order_id,driver_id,expected_order_version,state,expires_at,decided_at)
+      SELECT $1::uuid,$2::uuid,$3::bigint,'declined',
+        clock_timestamp()+interval '60 seconds',clock_timestamp()
+      FROM generate_series(1,10)`,[reviewOrder.id,reviewer.id,reviewOrder.version]);
+    const review=await dispatchNext(pool,{
+      orderIds:[reviewOrder.id],driverIds:[reviewer.id]});
+    assert.deepEqual(review,{state:'needs_review',orderId:reviewOrder.id});
+
+    // The pre-acceptance DB deadline must be checked even after waiting
+    // for a concurrent profile lock.
+    const deadlineOrder=await makeOrder();
+    const deadlineCourier=await seed('driver');
+    const nearDeadline=await dispatchNext(pool,{
+      orderIds:[deadlineOrder.id],driverIds:[deadlineCourier.id]});
+    assert.equal(nearDeadline.state,'offered');
+    await pool.query(`
+      UPDATE tala_core_v2.dispatch_offers
+      SET expires_at=clock_timestamp()+interval '400 milliseconds'
+      WHERE id=$1::uuid`,[nearDeadline.offerId]);
+    const locker=await pool.connect();
+    try{
+      await locker.query('BEGIN');
+      await locker.query(
+        'SELECT 1 FROM tala_core_v2.driver_profiles WHERE account_id=$1::uuid FOR UPDATE',
+        [deadlineCourier.id]);
+      const arriving= request('POST',
+        '/api/v2/driver/dispatch-offers/'+nearDeadline.offerId+'/accept',
+        {},deadlineCourier.cookie);
+      await new Promise(resolve=>setTimeout(resolve,650));
+      await locker.query('COMMIT');
+      const tooLate=await arriving;
+      assert.equal(tooLate.status,409,JSON.stringify(tooLate.data));
+      assert.equal(tooLate.data.code,'OFFER_EXPIRED');
+      assert.equal((await pool.query(
+        'SELECT status FROM tala_core_v2.orders WHERE id=$1::uuid',
+        [deadlineOrder.id])).rows[0].status,'ready');
+    }finally{
+      await locker.query('ROLLBACK').catch(()=>{});
+      locker.release();
+    }
+
     const history=await pool.query(
       "SELECT count(*)::int AS n FROM tala_core_v2.outbox WHERE event_type LIKE 'dispatch.%' AND aggregate_id=ANY($1::uuid[])",
       [orders.map(o=>o.id)]);
