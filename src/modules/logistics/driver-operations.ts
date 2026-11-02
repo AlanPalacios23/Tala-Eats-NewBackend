@@ -11,7 +11,8 @@ export class LogisticsError extends Error {
 }
 const idPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const keyPattern=/^[A-Za-z0-9_.:-]{16,128}$/;
-type Profile={account_id:string;is_online:boolean;presence_version:string;approved:boolean;dispatch_heartbeat_at:Date|null};
+type Profile={account_id:string;is_online:boolean;presence_version:string;approved:boolean;
+  dispatch_heartbeat_at:Date|null;heartbeat_fresh?:boolean};
 type LocationRow={latitude_micro:number;longitude_micro:number;accuracy_m:number;
   sequence:string;observed_at:Date;received_at:Date};
 async function tx(client:PoolClient){
@@ -43,7 +44,9 @@ async function hasActive(client:Pick<Pool,'query'>,id:string):Promise<boolean>{
 export async function getDriverLogistics(pool:Pool,driverId:string){
   if(!idPattern.test(driverId))throw new LogisticsError('DRIVER_INVALID');
   const p=await pool.query<Profile>(`
-    SELECT p.account_id,p.is_online,p.presence_version,p.approved,p.dispatch_heartbeat_at
+    SELECT p.account_id,p.is_online,p.presence_version,p.approved,p.dispatch_heartbeat_at,
+      COALESCE(p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds',false)
+        AS heartbeat_fresh
     FROM tala_core_v2.driver_profiles p
     JOIN tala_core_v2.accounts a ON a.id=p.account_id
     WHERE p.account_id=$1::uuid AND p.approved=true
@@ -54,15 +57,21 @@ export async function getDriverLogistics(pool:Pool,driverId:string){
     JOIN tala_core_v2.orders o ON o.id=d.order_id
     WHERE d.driver_id=$1::uuid AND o.status IN ('assigned','picked_up','on_the_way')`,[driverId]);
   const pending=await pool.query<{count:string}>(`
-    SELECT count(*)::text AS count FROM tala_core_v2.dispatch_offers
-    WHERE driver_id=$1::uuid AND state='offered'`,[driverId]);
+    SELECT count(*)::text AS count FROM tala_core_v2.dispatch_offers f
+    JOIN tala_core_v2.orders o ON o.id=f.order_id
+    WHERE f.driver_id=$1::uuid AND f.state='offered'
+      AND f.expires_at>clock_timestamp()
+      AND o.status='ready' AND o.fulfillment='delivery'
+      AND o.payment_method='cash' AND o.payment_status='pending'
+      AND o.version=f.expected_order_version`,[driverId]);
   const pendingOffers=Number(pending.rows[0]?.count??0);
   const loc=await pool.query<{received_at:Date}>(`
     SELECT received_at FROM tala_core_v2.driver_latest_locations
     WHERE driver_id=$1::uuid`,[driverId]);
   const age=loc.rows[0]?Math.max(0,Math.floor((Date.now()-new Date(loc.rows[0].received_at).getTime())/1000)):null;
-  const hb=p.rows[0].dispatch_heartbeat_at;
-  const heartbeatFresh=hb!==null&&Date.now()-new Date(hb).getTime()<=90000;
+  // The database clock is the authority for eligibility and offer expiry.
+  // Pending means actionable, not a stale row awaiting the manual sweeper.
+  const heartbeatFresh=p.rows[0].heartbeat_fresh===true;
   return {online:p.rows[0].is_online,presenceVersion:p.rows[0].presence_version,
     dispatchEligible:p.rows[0].is_online&&heartbeatFresh&&Number(active.rows[0]?.count??0)===0&&pendingOffers===0,
     pendingOffers,activeDeliveries:Number(active.rows[0]?.count??0),capacity:1,
