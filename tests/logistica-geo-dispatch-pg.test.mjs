@@ -152,3 +152,22 @@ test('GEO v2: legacy capacity-only dispatch remains unchanged',{
   assert.equal(audit.rows[0].details.dispatchEngineVersion,'1.0.0-lab');
  }finally{await p.end();}
 });
+
+test('GEO v2: same command key cannot silently switch between geo and legacy policy',{
+ skip:!enabled
+},async()=>{
+ const p=pool();
+ try{
+  const z=zone();await courier(p,z,point());
+  const r=request(z),cmd=key();
+  const prior=await reserveDelivery(p,r,cmd);
+  assert.equal(prior.decision,'RESERVED');
+  await assert.rejects(reserveNearestDelivery(p,r,cmd,point()),
+   assertCode('LOGISTICS_DISPATCH_MODE_CONFLICT'));
+  const r2=request(z),cmd2=key();
+  const nearby=await reserveNearestDelivery(p,r2,cmd2,point());
+  assert.equal(nearby.decision,'NO_AVAILABLE_COURIER');
+  // No reservation is created on NO_AVAILABLE_COURIER; same key may retry
+  // later, which is correct and cannot reassign an already reserved order.
+ }finally{await p.end();}
+});
