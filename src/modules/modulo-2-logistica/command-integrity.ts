@@ -1,11 +1,13 @@
-import {createHash} from 'node:crypto';
+import {createHmac} from 'node:crypto';
 import type {GeoPoint} from './geo.ts';
 
-/** Stable request identity: same command key cannot be replayed with
- * different order, restaurant, zone, pickup or radius. No coordinates
- * are emitted to dispatch events; only the SHA-256 digest is persisted. */
+/** Keyed digests protect low-entropy GPS inputs from offline guessing.
+ * No secret => fail closed; no hardcoded production fallback. */
 function sha256(values:readonly (string|number)[]):string{
-  return createHash('sha256').update(JSON.stringify(values)).digest('hex');
+  const key=process.env.TALA_DISPATCH_HMAC_KEY;
+  if(typeof key!=='string'||Buffer.byteLength(key,'utf8')<32)
+    throw Error('LOGISTICS_HMAC_KEY_REQUIRED');
+  return createHmac('sha256',key).update(JSON.stringify(values)).digest('hex');
 }
 export function reserveFingerprint(orderId:string,restaurantId:string,
   deliveryZone:string,method:'capacity'|'proximity',
