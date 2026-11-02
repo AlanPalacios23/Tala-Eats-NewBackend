@@ -120,6 +120,15 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
     assert.equal((await pool.query(
       'SELECT status FROM tala_core_v2.orders WHERE id=$1',[waiting.orderId])).rows[0].status,'ready');
     const third=await seed('driver');
+    // Stale online flag must NOT qualify the driver for new dispatch offers.
+    await pool.query(
+      "UPDATE tala_core_v2.driver_profiles SET dispatch_heartbeat_at=now()-interval '3 minutes' WHERE account_id=$1",
+      [third.id]);
+    const blocked=await dispatchNext(pool,{orderIds:[waiting.orderId],driverIds:[third.id]});
+    assert.equal(blocked.state,'no_driver');
+    const revived=await request('POST','/api/v2/driver/heartbeat',{},third.cookie);
+    assert.equal(revived.status,200);
+    assert.equal(revived.data.accepted,true);
     const next=await dispatchNext(pool,{
       orderIds:scope.orderIds,driverIds:[...scope.driverIds,third.id]
     });
