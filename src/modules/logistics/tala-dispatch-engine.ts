@@ -154,6 +154,7 @@ export async function listDriverDispatchOffers(pool:Pool,driverId:string){
     WHERE f.driver_id=$1::uuid AND f.state='offered' AND f.expires_at>now()
       AND o.status='ready' AND o.version=f.expected_order_version
       AND p.approved=true AND p.is_online=true AND a.is_active=true AND a.role='driver'
+      AND p.dispatch_heartbeat_at>=now()-interval '90 seconds'
     ORDER BY f.created_at,f.id LIMIT 10`,[driverId]);
   // Never expose buyer address, customer identity or GPS before acceptance.
   return r.rows;
