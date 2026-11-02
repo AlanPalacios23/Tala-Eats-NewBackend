@@ -92,6 +92,9 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
     assert.equal(list.status,200);
     assert.equal(list.data.length,1);
     assert.equal(list.data[0].offerId,assigned.offerId);
+    const pendingState=await request('GET','/api/v2/driver/logistics',undefined,driver.cookie);
+    assert.equal(pendingState.data.pendingOffers,1);
+    assert.equal(pendingState.data.dispatchEligible,false);
     assert.equal(JSON.stringify(list.data).includes('Privada de Comprador'),false);
     assert.equal(JSON.stringify(list.data).includes('buyer'),false);
     const directClaim=await request('POST','/api/v2/driver/orders/'+assigned.orderId+'/claim',
