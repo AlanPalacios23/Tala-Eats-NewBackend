@@ -1,6 +1,6 @@
 # TALA EATS · Módulo 3 — Finanzas
 
-**LAB0 / estructura independiente / NO-GO comercial.**
+**LAB1 / Stripe TEST firmado y ledger PostgreSQL aislado / NO-GO comercial.**
 
 Este módulo vive por completo en `modules/finance/` dentro de
 `AlanPalacios23/Tala-Eats-NewBackend` y trabaja en su propia rama
@@ -17,18 +17,28 @@ No se debe copiar código entre PR ni hacer un merge cruzado sin resolver contra
 - **Integración futura**: contratos versionados por eventos de outbox con IDs estables,
   transacciones idempotentes y reconciliación; sin acceso a tablas internas de M1/M2.
 
-## Lo que existe en LAB0
+## Lo que existe en LAB1
 
 1. `src/ledger.mjs`: validación monetaria con `BigInt`, sin cálculos flotantes,
    y propuesta inmutable de asientos balanceados para *capturas Stripe TEST*.
-2. `migrations/001_finance_foundation.sql`: esquema **`tala_finance_v2`** propio,
+2. `src/stripe-test-webhook.mjs` y `src/store.mjs`: firma HMAC en cuerpo crudo,
+   cotejo de importes con contrato interno inmutable y captura transaccional idempotente.
+   El verificador acepta únicamente eventos TEST `payment_intent.succeeded`.
+3. `migrations/002_test_webhook_inbox.sql`: contratos internos y comprobantes
+   webhook append-only ligados al diario de captura.
+4. `tests/webhook.test.mjs` y `tests/stripe-integration.test.mjs`:
+   pruebas de seguridad y 8 solicitudes simultáneas contra PostgreSQL 16.
+5. `migrations/001_finance_foundation.sql`: esquema **`tala_finance_v2`** propio,
    diario de asientos, restricciones de importe y balance, protección append-only,
    unicidad de (pedido, tipo) y (proveedor TEST, evento).
-3. `tests/` y CI propios. No llama a Stripe ni a APIs LIVE.
+6. `tests/` y CI propios. No llama a Stripe ni a APIs LIVE.
 
-**Una propuesta no demuestra que Stripe recibió dinero.** Un límite confiable de
-webhook firmado, captura confirmada y conciliación debe añadirse **antes**
-de cualquier escritura financiera real. La función no está conectada a HTTP,
+**Las firmas de las pruebas son sintéticas, no un webhook real de Stripe**.
+La creación de PaymentIntent en la cuenta TEST, autenticación de origen del snapshot
+M1 y conciliación con la API del proveedor siguen pendientes. Los asientos en
+este laboratorio se generan solo contra una base descartable y no son pagos reales.
+Ver [`docs/MODULO3-FINANZAS-LAB1.md`](../../docs/MODULO3-FINANZAS-LAB1.md)
+para alcance y límites. La función no está conectada a HTTP,
 Kali, PM2, Redis ni a las PWA.
 
 ## Contrato y discrepancia P0
@@ -42,11 +52,11 @@ antes de conectar Finanzas a Pedidos.** M3 valida sumas, no calcula tarifas.
 
 ## Próximas fases
 
-- LAB1: almacén transaccional idempotente (no solo schema) con PostgreSQL aislado,
-  webhook Stripe TEST firmado, eventos repetidos/fuera de orden, capturas y refunds.
-- LAB2: wallets de restaurante y conductor como proyecciones del ledger,
+- LAB2: conexión real a Stripe TEST y contrato firmado desde M1; eventos
+  verificados con secretos protegidos, pago parcial, fraude y refunds de laboratorio.
+- LAB3: wallets de restaurante y conductor como proyecciones del ledger,
   saldo disponible/pendiente, custodias de efectivo y conciliación inmutable.
-- LAB3: pagos de salida, retiros, reversos, discrepancias, alertas,
+- LAB4: pagos de salida, retiros, reversos, discrepancias, alertas,
   facturación e impuestos con política revisada.
 - Integración E2E: orden de M1 → asignación/entrega M2 → fondos reales M3.
 
