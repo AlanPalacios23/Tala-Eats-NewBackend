@@ -34,6 +34,7 @@ app.get('/ready', async (_req,res) => {
         to_regclass('tala_core_v2.driver_profiles') IS NOT NULL AS drivers_ready,
         to_regclass('tala_core_v2.driver_presence_commands') IS NOT NULL AS presence_ready,
         to_regclass('tala_core_v2.driver_latest_locations') IS NOT NULL AS location_ready,
+        to_regclass('tala_core_v2.dispatch_offers') IS NOT NULL AS dispatch_ready,
         EXISTS(SELECT 1 FROM information_schema.columns
           WHERE table_schema='tala_core_v2' AND table_name='order_handoffs'
             AND column_name='pin_generation_count') AS pin_budget_ready,
@@ -48,7 +49,7 @@ app.get('/ready', async (_req,res) => {
     );
     const schemaReady = result.rows[0]?.orders_ready === true &&
       (process.env.CORE_V2_WRITES_ENABLED!=='true'||
-        ['accounts_ready','sessions_ready','restaurants_ready','catalog_ready','members_ready','handoff_ready','drivers_ready','presence_ready','location_ready','pin_budget_ready','snapshot_ready','handoff_proof_ready']
+        ['accounts_ready','sessions_ready','restaurants_ready','catalog_ready','members_ready','handoff_ready','drivers_ready','presence_ready','location_ready','dispatch_ready','pin_budget_ready','snapshot_ready','handoff_proof_ready']
           .every(k=>result.rows[0]?.[k]===true));
     res.status(schemaReady?200:503).json({
       ready:schemaReady,
