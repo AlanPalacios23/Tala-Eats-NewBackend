@@ -33,3 +33,11 @@ Las tablas y APIs M1/M2 no se importan ni se escriben desde Finanzas.
 3. M2 emite hechos de custodia/entrega independientes de rutas internas.
 4. Solo después de gates E2E, revisión de seguridad y aprobación explícita
    preparar despliegue. No se activa ningún flujo comercial en esta fase.
+
+## LAB1 completado en la rama aislada
+
+El PR #5 incorpora `modules/finance/src/stripe-test-webhook.mjs`,
+`store.mjs`, migración `002_test_webhook_inbox.sql` y pruebas reales
+PostgreSQL de duplicados y concurrencia. Son **webhooks simulados y firmados
+localmente**; no hay conexión con la cuenta Stripe TEST, ni HTTP público,
+ni cobros. Véase `docs/MODULO3-FINANZAS-LAB1.md`.
