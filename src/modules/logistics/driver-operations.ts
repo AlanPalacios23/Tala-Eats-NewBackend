@@ -59,11 +59,16 @@ export async function getDriverLogistics(pool:Pool,driverId:string){
   const pending=await pool.query<{count:string}>(`
     SELECT count(*)::text AS count FROM tala_core_v2.dispatch_offers f
     JOIN tala_core_v2.orders o ON o.id=f.order_id
+    JOIN tala_core_v2.driver_profiles p ON p.account_id=f.driver_id
+    JOIN tala_core_v2.accounts a ON a.id=f.driver_id
     WHERE f.driver_id=$1::uuid AND f.state='offered'
       AND f.expires_at>clock_timestamp()
       AND o.status='ready' AND o.fulfillment='delivery'
       AND o.payment_method='cash' AND o.payment_status='pending'
-      AND o.version=f.expected_order_version`,[driverId]);
+      AND o.version=f.expected_order_version
+      AND p.approved=true AND p.is_online=true
+      AND a.is_active=true AND a.role='driver'
+      AND p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds'`,[driverId]);
   const pendingOffers=Number(pending.rows[0]?.count??0);
   const loc=await pool.query<{received_at:Date}>(`
     SELECT received_at FROM tala_core_v2.driver_latest_locations
