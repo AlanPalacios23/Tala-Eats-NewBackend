@@ -16,6 +16,8 @@ import {cancelCashOrder} from './cancel.ts';
 import {advanceMerchantOrder,MerchantOrderError} from './merchant-orders.ts';
 import {claimDelivery,advanceDelivery,availableDriverOrders,myDriverOrders,
   issueBuyerHandoffPin,attestCash,finishCashOrder} from './handoff.ts';
+import {LogisticsError,getDriverLogistics,changeDriverPresence,recordDriverLocation}
+  from '../logistics/driver-operations.ts';
 
 type Handler=(req:Request,res:Response)=>Promise<void>;
 const wrap=(fn:Handler)=>(req:Request,res:Response,next:NextFunction)=>{
@@ -45,6 +47,14 @@ const stateCommand=command.extend({
 const driverState=command.extend({
   status:z.enum(['picked_up','on_the_way'])
 }).strict();
+const presenceCommand=command.extend({online:z.boolean()}).strict();
+const locationCommand=z.object({
+  latitude:z.number().finite().min(-90).max(90),
+  longitude:z.number().finite().min(-180).max(180),
+  accuracyMeters:z.number().int().min(1).max(100),
+  sequence:z.string().regex(/^[1-9]\d{0,18}$/),
+  observedAt:z.string().datetime({offset:true})
+}).strict();
 const finishCommand=command.extend({pin:z.string().regex(/^\d{8}$/)}).strict();
 const noInput=z.object({}).strict();
 const signup=z.object({
@@ -72,6 +82,12 @@ const statusOf=(error:Error):number=>{
   if(['55P03','57014','40P01','40001'].includes(transport.code??''))return 503;
   if(error instanceof AuthError)return ['AUTH_REQUIRED','INVALID_CREDENTIALS'].includes(error.code)?401:403;
   if(error instanceof z.ZodError)return 400;
+  if(error instanceof LogisticsError){
+    if(error.code==='LOCATION_RATE_LIMITED')return 429;
+    if(error.code==='DRIVER_NOT_AVAILABLE')return 403;
+    if(error.code.endsWith('_INVALID'))return 400;
+    return 409;
+  }
   if(error instanceof OrderServiceError||error instanceof MerchantOrderError){
     const code=error.code;
     if(code==='CART_TOTAL_OUT_OF_RANGE')return 400;
@@ -288,6 +304,29 @@ export function createOrderApp(pool:Pool){
   }));
   // Driver accounts are created only by a trusted lab bootstrap and require
   // approved, online profiles to claim orders. No public role promotion.
+  // Logistics LAB endpoints are mounted ONLY under the existing localhost
+  // write gate. They do not exist on public Render staging or Kali.
+  app.get('/api/v2/driver/logistics',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    res.json(await getDriverLogistics(pool,user.id));
+  }));
+  app.post('/api/v2/driver/presence',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    const data=parse(presenceCommand,req.body);
+    res.json(await changeDriverPresence(pool,user.id,{
+      online:data.online,expectedVersion:BigInt(data.expectedVersion),
+      commandKey:data.commandKey
+    }));
+  }));
+  app.post('/api/v2/driver/location',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    const data=parse(locationCommand,req.body);
+    res.json(await recordDriverLocation(pool,user.id,{
+      latitude:data.latitude,longitude:data.longitude,
+      accuracyMeters:data.accuracyMeters,sequence:BigInt(data.sequence),
+      observedAt:data.observedAt
+    }));
+  }));
   app.get('/api/v2/driver/available',wrap(async(req,res)=>{
     const user=await requireAuth(pool,req,'driver');
     res.json(await availableDriverOrders(pool,user.id));
@@ -337,12 +376,13 @@ export function createOrderApp(pool:Pool){
     const status=statusOf(err);
     // Never return raw SQL/stack traces or customer details.
     if(status===503)res.setHeader('Retry-After','2');
+    if(status===429&&err instanceof LogisticsError)res.setHeader('Retry-After','2');
     if(status===429&&err instanceof OrderServiceError&&
       err.code==='PIN_GENERATION_RATE_LIMITED')res.setHeader('Retry-After','600');
     res.status(status).json({code:status===500?'INTERNAL_ERROR':
       status===503?'ORDER_TEMPORARILY_BUSY':
       status===413?'BODY_TOO_LARGE':
-      err instanceof AuthError||err instanceof OrderServiceError||err instanceof MerchantOrderError
+      err instanceof AuthError||err instanceof OrderServiceError||err instanceof MerchantOrderError||err instanceof LogisticsError
         ?err.code:'REQUEST_INVALID'});
   });
   return app;
