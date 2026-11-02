@@ -31,25 +31,40 @@ async function lockOrder(c:PoolClient,id:string,skip=false){
 }
 const eventKey=(name:string,id:string)=>createHash('sha256').update(name+'|'+id).digest('hex');
 async function audit(c:PoolClient,order:Order,offerId:string,driverId:string,
-  eventType:string,from:string,to:string,version:string){
+  eventType:string,from:string,to:string,version:string,reason?:string){
   const k=eventKey(eventType,offerId);
   await c.query(`
     INSERT INTO tala_core_v2.order_events
       (order_id,event_key,previous_status,new_status,actor_role,actor_id,data)
     VALUES($1::uuid,$2,$3,$4,'system',NULL,$5::jsonb)`,
-    [order.id,k,from,to,JSON.stringify({dispatchOfferId:offerId,driverId,version})]);
+    [order.id,k,from,to,JSON.stringify({dispatchOfferId:offerId,driverId,version,...(reason?{reason}:{})})]);
   await c.query(`
     INSERT INTO tala_core_v2.outbox(aggregate_id,event_key,event_type,payload)
     VALUES($1::uuid,$2,$3,$4::jsonb)`,
-    [order.id,k,eventType,JSON.stringify({orderId:order.id,offerId,driverId,from,to,version})]);
+    [order.id,k,eventType,JSON.stringify({orderId:order.id,offerId,driverId,from,to,version,...(reason?{reason}:{})})]);
 }
-/** Expire in bounded batches, always lock order BEFORE offer. */
+/**
+ * Reconcile invalid or timed-out offers in bounded batches. Never leave an
+ * offline/revoked courier holding a ready order until the 60-second TTL.
+ * Keep lock order consistent: order -> offer. Only the LAB worker invokes it.
+ */
 export async function expireDispatchOffers(pool:Pool,limit=20){
   if(!Number.isInteger(limit)||limit<1||limit>100)throw new DispatchError('LIMIT_INVALID');
   const ids=await pool.query<{id:string;order_id:string}>(`
-    SELECT id,order_id FROM tala_core_v2.dispatch_offers
-    WHERE state='offered' AND expires_at<=now()
-    ORDER BY expires_at,id LIMIT $1`,[limit]);
+    SELECT f.id,f.order_id FROM tala_core_v2.dispatch_offers f
+    JOIN tala_core_v2.orders o ON o.id=f.order_id
+    JOIN tala_core_v2.driver_profiles p ON p.account_id=f.driver_id
+    JOIN tala_core_v2.accounts a ON a.id=p.account_id
+    WHERE f.state='offered' AND (
+      f.expires_at<=clock_timestamp()
+      OR o.status<>'ready' OR o.fulfillment<>'delivery'
+      OR o.payment_method<>'cash' OR o.payment_status<>'pending'
+      OR o.version<>f.expected_order_version
+      OR p.approved=false OR p.is_online=false OR a.is_active=false OR a.role<>'driver'
+      OR p.dispatch_heartbeat_at IS NULL
+      OR p.dispatch_heartbeat_at<clock_timestamp()-interval '90 seconds'
+    )
+    ORDER BY f.expires_at,f.id LIMIT $1`,[limit]);
   let expired=0;
   for(const item of ids.rows){
     const c=await pool.connect();
@@ -57,16 +72,34 @@ export async function expireDispatchOffers(pool:Pool,limit=20){
       await begin(c);
       const o=await lockOrder(c,item.order_id,true);
       if(!o){await c.query('ROLLBACK');continue;}
-      const r=await c.query<Offer>(
-        'SELECT *, expires_at<=clock_timestamp() AS expired FROM tala_core_v2.dispatch_offers WHERE id=$1::uuid FOR UPDATE',[item.id]);
+      const r=await c.query<Offer>(`
+        SELECT *, expires_at<=clock_timestamp() AS expired
+        FROM tala_core_v2.dispatch_offers
+        WHERE id=$1::uuid FOR UPDATE`,[item.id]);
       const offer=r.rows[0];
-      if(!offer||offer.state!=='offered'||offer.expired!==true){
+      if(!offer||offer.state!=='offered'){
         await c.query('COMMIT');continue;
       }
+      const status=await c.query<{available:boolean;heartbeat_fresh:boolean}>(`
+        SELECT (p.approved AND p.is_online AND a.is_active AND a.role='driver')
+          AS available,
+          COALESCE(p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds',false)
+          AS heartbeat_fresh
+        FROM tala_core_v2.driver_profiles p
+        JOIN tala_core_v2.accounts a ON a.id=p.account_id
+        WHERE p.account_id=$1::uuid`,[offer.driver_id]);
+      const orderChanged=o.status!=='ready'||o.fulfillment!=='delivery'||
+        o.payment_method!=='cash'||o.payment_status!=='pending'||
+        BigInt(o.version)!==BigInt(offer.expected_order_version);
+      const reason=offer.expired?'timeout':orderChanged?'order_changed':
+        status.rows[0]?.available!==true?'courier_unavailable':
+        status.rows[0]?.heartbeat_fresh!==true?'heartbeat_stale':null;
+      if(!reason){await c.query('COMMIT');continue;}
       await c.query(`
-        UPDATE tala_core_v2.dispatch_offers SET state='expired',decided_at=now()
+        UPDATE tala_core_v2.dispatch_offers SET state='expired',decided_at=clock_timestamp()
         WHERE id=$1::uuid`,[offer.id]);
-      await audit(c,o,offer.id,offer.driver_id,'dispatch.offer.expired',o.status,o.status,o.version);
+      await audit(c,o,offer.id,offer.driver_id,'dispatch.offer.expired',
+        o.status,o.status,o.version,reason);
       await c.query('COMMIT');expired++;
     }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
   }
@@ -77,7 +110,7 @@ export type DispatchScope={orderIds?:string[];driverIds?:string[]};
 /** Worker makes ONE 60-second offer, never auto-assigns an unconsenting driver. */
 export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Promise<
   {state:'offered';offerId:string;orderId:string;driverId:string;expiresAt:string}
-  |{state:'idle'|'no_driver';orderId?:string}>{
+  |{state:'idle'|'no_driver'|'needs_review';orderId?:string}>{
   for(const ids of [scope.orderIds,scope.driverIds]){
     if(ids!==undefined&&(!Array.isArray(ids)||ids.length>100||
       ids.some(id=>typeof id!=='string'||!uuid.test(id))))
@@ -133,8 +166,22 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
             WHERE h.order_id=o.id)<10
           AND ($1::uuid[] IS NULL OR o.id=ANY($1::uuid[]))
         ORDER BY o.created_at,o.id LIMIT 1`,[scope.orderIds??null]);
+      if(waiting.rows[0]){
+        await c.query('COMMIT');
+        return {state:'no_driver',orderId:waiting.rows[0].id};
+      }
+      const review=await c.query<{id:string}>(`
+        SELECT o.id FROM tala_core_v2.orders o
+        WHERE o.status='ready' AND o.fulfillment='delivery'
+          AND o.payment_method='cash' AND o.payment_status='pending'
+          AND NOT EXISTS(SELECT 1 FROM tala_core_v2.order_driver_assignments a
+            WHERE a.order_id=o.id)
+          AND (SELECT count(*) FROM tala_core_v2.dispatch_offers h
+            WHERE h.order_id=o.id)>=10
+          AND ($1::uuid[] IS NULL OR o.id=ANY($1::uuid[]))
+        ORDER BY o.created_at,o.id LIMIT 1`,[scope.orderIds??null]);
       await c.query('COMMIT');
-      return waiting.rows[0]?{state:'no_driver',orderId:waiting.rows[0].id}:{state:'idle'};
+      return review.rows[0]?{state:'needs_review',orderId:review.rows[0].id}:{state:'idle'};
     }
     const ds=await c.query<{account_id:string}>(`
       SELECT p.account_id FROM tala_core_v2.driver_profiles p
@@ -158,7 +205,7 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
     const rows=await c.query<{id:string;expires_at:Date}>(`
       INSERT INTO tala_core_v2.dispatch_offers
         (order_id,driver_id,expected_order_version,expires_at)
-      VALUES($1::uuid,$2::uuid,$3::bigint,now()+($4::int*interval '1 second'))
+      VALUES($1::uuid,$2::uuid,$3::bigint,clock_timestamp()+($4::int*interval '1 second'))
       ON CONFLICT DO NOTHING
       RETURNING id,expires_at`,[order.id,driver.account_id,order.version,OFFER_SECONDS]);
     // READ COMMITTED can select a row based on a snapshot just before a
@@ -169,7 +216,7 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
     }
     const offer=rows.rows[0];
     await c.query(
-      'UPDATE tala_core_v2.driver_profiles SET last_dispatch_offer_at=now() WHERE account_id=$1::uuid',
+      'UPDATE tala_core_v2.driver_profiles SET last_dispatch_offer_at=clock_timestamp() WHERE account_id=$1::uuid',
       [driver.account_id]);
     await audit(c,order,offer.id,driver.account_id,'dispatch.offer.created',
       'ready','ready',order.version);
@@ -188,7 +235,7 @@ export async function listDriverDispatchOffers(pool:Pool,driverId:string){
     JOIN tala_core_v2.restaurants r ON r.id=o.restaurant_id
     JOIN tala_core_v2.driver_profiles p ON p.account_id=f.driver_id
     JOIN tala_core_v2.accounts a ON a.id=f.driver_id
-    WHERE f.driver_id=$1::uuid AND f.state='offered' AND f.expires_at>now()
+    WHERE f.driver_id=$1::uuid AND f.state='offered' AND f.expires_at>clock_timestamp()
       AND o.status='ready' AND o.version=f.expected_order_version
       AND p.approved=true AND p.is_online=true AND a.is_active=true AND a.role='driver'
       AND p.dispatch_heartbeat_at>=now()-interval '90 seconds'
@@ -233,7 +280,7 @@ export async function acceptDispatchOffer(pool:Pool,driverId:string,offerId:stri
       FOR UPDATE OF p FOR SHARE OF a`,[driverId]);
     if(!p.rows[0]?.is_online)throw new DispatchError('DRIVER_NOT_AVAILABLE');
     const beat=await c.query(
-      "SELECT 1 FROM tala_core_v2.driver_profiles WHERE account_id=$1::uuid AND dispatch_heartbeat_at>=now()-interval '90 seconds'",
+      "SELECT 1 FROM tala_core_v2.driver_profiles WHERE account_id=$1::uuid AND dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds'",
       [driverId]);
     if(!beat.rowCount)throw new DispatchError('DRIVER_HEARTBEAT_STALE');
     const busy=await c.query(`
@@ -242,6 +289,12 @@ export async function acceptDispatchOffer(pool:Pool,driverId:string,offerId:stri
       WHERE d.driver_id=$1::uuid AND o.status IN ('assigned','picked_up','on_the_way')
       LIMIT 1`,[driverId]);
     if(busy.rowCount)throw new DispatchError('DRIVER_CAPACITY_EXCEEDED');
+    // A lock wait can consume the final seconds of an offer; recheck at the
+    // very last moment before writing the assignment.
+    const live=await c.query<{live:boolean}>(`
+      SELECT expires_at>clock_timestamp() AS live
+      FROM tala_core_v2.dispatch_offers WHERE id=$1::uuid`,[offerId]);
+    if(live.rows[0]?.live!==true)throw new DispatchError('OFFER_EXPIRED');
     if(order.status!=='ready'||order.fulfillment!=='delivery'||
       order.payment_method!=='cash'||order.payment_status!=='pending')
       throw new DispatchError('ORDER_NOT_DISPATCHABLE');
