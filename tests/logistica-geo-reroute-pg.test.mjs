@@ -236,3 +236,31 @@ test('Security: original reserve command cannot replay after courier reroute',{
   assert.equal(evidence.rows[0].n,2);
  }finally{await dbpool.end();}
 });
+
+test('Security: old reroute receipt is superseded after a second reassignment',{
+ skip:!enabled,timeout:30000
+},async()=>{
+ const dbpool=pool();
+ try{
+  const zone=z();
+  const a=await setup(dbpool,zone,p(20.6531,-103.699));
+  const b=await setup(dbpool,zone,p(20.654,-103.699));
+  const c=await setup(dbpool,zone,p(20.655,-103.699));
+  const order=req(zone),firstKey=key();
+  assert.equal((await reserveNearestDelivery(dbpool,order,key(),p())).courierId,a);
+  await setCourierOnline(dbpool,a,false);
+  const first=await reassignUnavailableDelivery(dbpool,order.orderId,'1',firstKey,p(),20000,verify);
+  assert.equal(first.courierId,b);
+  await setCourierOnline(dbpool,b,false);
+  const second=await reassignUnavailableDelivery(dbpool,order.orderId,'2',key(),p(),20000,verify);
+  assert.equal(second.courierId,c);
+  await assert.rejects(
+   reassignUnavailableDelivery(dbpool,order.orderId,'1',firstKey,p(),20000,verify),
+   expectCode('LOGISTICS_REROUTE_SUPERSEDED')
+  );
+  const events=await dbpool.query(
+   "SELECT count(*)::int AS n FROM tala_logistics_v2.dispatch_events WHERE order_id=$1",
+   [order.orderId]);
+  assert.equal(events.rows[0].n,3);
+ }finally{await dbpool.end();}
+});
