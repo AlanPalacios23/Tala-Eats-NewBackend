@@ -236,6 +236,11 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
       online:false,expectedVersion:'1',commandKey:key()
     },offlineCourier.cookie);
     assert.equal(wentOffline.status,200,JSON.stringify(wentOffline.data));
+    const offlineView=await request('GET','/api/v2/driver/logistics',
+      undefined,offlineCourier.cookie);
+    assert.equal(offlineView.status,200);
+    assert.equal(offlineView.data.pendingOffers,0,'hidden invalid pending offers');
+    assert.equal(offlineView.data.dispatchEligible,false);
     const standbyCourier=await seed('driver');
     const reassignedOffer=await dispatchNext(pool,{
       orderIds:[offlineOrder.id],driverIds:[standbyCourier.id]});
@@ -262,6 +267,11 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
       UPDATE tala_core_v2.driver_profiles
       SET dispatch_heartbeat_at=clock_timestamp()-interval '3 minutes'
       WHERE account_id=$1::uuid`,[staleCourier.id]);
+    const staleView=await request('GET','/api/v2/driver/logistics',
+      undefined,staleCourier.cookie);
+    assert.equal(staleView.status,200);
+    assert.equal(staleView.data.pendingOffers,0);
+    assert.equal(staleView.data.dispatchEligible,false);
     const alternateCourier=await seed('driver');
     const heartbeatRedispatch=await dispatchNext(pool,{
       orderIds:[heartbeatOrder.id],driverIds:[alternateCourier.id]});
