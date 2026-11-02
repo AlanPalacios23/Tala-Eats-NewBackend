@@ -402,6 +402,11 @@ export async function finishCashOrder(pool:Pool,cmd:Command,role:'merchant'|'dri
       cashAmountMinor:order.total_minor,custodySettled:false,
       pinVerified:true,buyerAttested:true,custodianAttested:true
     });
+    // Privacy: once the delivery is complete, retain no last-known GPS.
+    // Keep deletion in the SAME transaction as the verified handoff.
+    if(role==='driver')await client.query(
+      'DELETE FROM tala_core_v2.driver_latest_locations WHERE driver_id=$1::uuid',
+      [cmd.actorId]);
     await client.query('COMMIT');committed=true;
     return {orderId:order.id,status:'delivered',version:BigInt(next.rows[0]!.version),replayed:false};
   }catch(error){if(!committed)await client.query('ROLLBACK');throw error;}
