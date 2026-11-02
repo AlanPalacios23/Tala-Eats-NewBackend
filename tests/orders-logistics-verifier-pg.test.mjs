@@ -156,3 +156,85 @@ test('Orders bridge: M1 pickup prevents any mutation in logistics',{
   assert.deepEqual(unchanged.rows[0],{courier_id:original,version:'1'});
  }finally{await p.end();}
 });
+
+test('Orders bridge: rejected replacement rolls back BOTH modules and outboxes',{
+ skip:!enabled,timeout:30000
+},async()=>{
+ const p=pool();
+ try{
+  const z=zone(),original=randomUUID(),replacement=randomUUID();
+  await courier(p,z,original,20.6531);
+  await courier(p,z,replacement,20.655);
+  const order=await orderFixture(p,original);
+  const reserve=await reserveNearestDelivery(p,{
+   orderId:order.id,restaurantId:order.restaurantId,deliveryZone:z,
+   orderStatus:'ready',fulfillment:'delivery'
+  },key(),pickup);
+  assert.equal(reserve.courierId,original);
+  await setCourierOnline(p,original,false);
+  const before=await p.query(
+   'SELECT COUNT(*)::int AS n FROM tala_logistics_v2.dispatch_events WHERE order_id=$1',
+   [order.id]);
+  await assert.rejects(
+   reassignUnavailableDelivery(p,order.id,'1',key(),pickup,20000,
+    verifyOrdersPrePickup,commitOrdersReassignment),
+   rejectCode('LOGISTICS_ORDER_SYNC_FAILED')
+  );
+  const logistics=await p.query(
+   'SELECT courier_id,version FROM tala_logistics_v2.dispatch_reservations WHERE order_id=$1',
+   [order.id]);
+  assert.deepEqual(logistics.rows[0],{courier_id:original,version:'1'});
+  const orders=await p.query(
+   'SELECT driver_id FROM tala_core_v2.order_driver_assignments WHERE order_id=$1',
+   [order.id]);
+  assert.equal(orders.rows[0].driver_id,original);
+  const after=await p.query(
+   'SELECT COUNT(*)::int AS n FROM tala_logistics_v2.dispatch_events WHERE order_id=$1',
+   [order.id]);
+  assert.equal(after.rows[0].n,before.rows[0].n);
+  // Once the replacement is approved in M1, the same order is recoverable.
+  await approvedM1Courier(p,replacement);
+  const recovered=await reassignUnavailableDelivery(p,order.id,'1',key(),pickup,20000,
+   verifyOrdersPrePickup,commitOrdersReassignment);
+  assert.equal(recovered.decision,'REASSIGNED');
+  assert.equal(recovered.courierId,replacement);
+ }finally{await p.end();}
+});
+test('Orders bridge: forced failure of M1 callback rolls back M2 reservation',{
+ skip:!enabled,timeout:30000
+},async()=>{
+ const p=pool();
+ try{
+  const z=zone(),original=randomUUID(),replacement=randomUUID();
+  await courier(p,z,original,20.6531);
+  await courier(p,z,replacement,20.655);
+  const order=await orderFixture(p,original);
+  await approvedM1Courier(p,replacement);
+  await reserveNearestDelivery(p,{
+   orderId:order.id,restaurantId:order.restaurantId,deliveryZone:z,
+   orderStatus:'ready',fulfillment:'delivery'
+  },key(),pickup);
+  await setCourierOnline(p,original,false);
+  const fail=async(client,ctx)=>{
+    const result=await commitOrdersReassignment(client,ctx);
+    assert.equal(result,true);
+    throw Error('CI_SIMULATED_COMMIT_FAILURE');
+  };
+  await assert.rejects(
+   reassignUnavailableDelivery(p,order.id,'1',key(),pickup,20000,
+    verifyOrdersPrePickup,fail),
+   /CI_SIMULATED_COMMIT_FAILURE/
+  );
+  const q=await p.query(
+   "SELECT a.driver_id,o.version,"+
+   "(SELECT courier_id FROM tala_logistics_v2.dispatch_reservations WHERE order_id=o.id) AS logistics_courier "+
+   "FROM tala_core_v2.orders o JOIN tala_core_v2.order_driver_assignments a ON a.order_id=o.id "+
+   "WHERE o.id=$1",[order.id]);
+  assert.equal(q.rows[0].driver_id,original);
+  assert.equal(q.rows[0].logistics_courier,original);
+  assert.equal(q.rows[0].version,'1');
+  const ev=await p.query(
+   "SELECT COUNT(*)::int n FROM tala_core_v2.order_events WHERE order_id=$1",[order.id]);
+  assert.equal(ev.rows[0].n,0);
+ }finally{await p.end();}
+});
