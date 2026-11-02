@@ -38,7 +38,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Pure finance and money integrity tests
+      - name: Install standalone M3 dependencies (never root M1/M2)
+        working-directory: modules/finance
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Pure finance, signatures and money integrity tests
         run: |
           cd modules/finance
           npm run check
@@ -48,6 +51,16 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
             -f modules/finance/migrations/001_finance_foundation.sql
+      - name: Apply durable Stripe TEST finance inbox migration
+        env:
+          PGPASSWORD: finance_lab_test_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test             -f modules/finance/migrations/002_test_webhook_inbox.sql
+      - name: Signed Stripe TEST webhook idempotency and concurrency integration
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/stripe-integration.test.mjs
       - name: PostgreSQL ledger double-entry and immutability regression
         env:
           PGPASSWORD: finance_lab_test_only
@@ -63,6 +76,11 @@ jobs:
           if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d unrelated_lab \
              -f modules/finance/migrations/001_finance_foundation.sql; then
             echo 'ERROR: migration bypassed FINANCE_LAB_ONLY guard'
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d unrelated_lab \
+            -f modules/finance/migrations/002_test_webhook_inbox.sql; then
+            echo 'ERROR: migration 002 bypassed FINANCE_LAB_ONLY guard'
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U finance_lab -d unrelated_lab \
