@@ -97,9 +97,45 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
           WHERE f.order_id=o.id AND f.state='offered')
         AND (SELECT count(*) FROM tala_core_v2.dispatch_offers h WHERE h.order_id=o.id)<10
         AND ($1::uuid[] IS NULL OR o.id=ANY($1::uuid[]))
-      ORDER BY o.created_at,o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,[scope.orderIds??null]);
+        -- FIFO among serviceable orders: do not let an unserviceable
+        -- first order hold up other ready deliveries in the same cohort.
+        AND EXISTS(
+          SELECT 1 FROM tala_core_v2.driver_profiles p
+          JOIN tala_core_v2.accounts a ON a.id=p.account_id
+          WHERE p.approved=true AND p.is_online=true
+            AND a.is_active=true AND a.role='driver'
+            AND p.max_active_deliveries=1
+            AND p.dispatch_heartbeat_at>=now()-interval '90 seconds'
+            AND NOT EXISTS(SELECT 1 FROM tala_core_v2.order_driver_assignments own
+              JOIN tala_core_v2.orders busy ON busy.id=own.order_id
+              WHERE own.driver_id=p.account_id
+                AND busy.status IN ('assigned','picked_up','on_the_way'))
+            AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers pending
+              WHERE pending.driver_id=p.account_id AND pending.state='offered')
+            AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers previous
+              WHERE previous.driver_id=p.account_id AND previous.order_id=o.id)
+            AND ($2::uuid[] IS NULL OR p.account_id=ANY($2::uuid[]))
+        )
+      ORDER BY o.created_at,o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,
+      [scope.orderIds??null,scope.driverIds??null]);
     const order=r.rows[0];
-    if(!order){await c.query('COMMIT');return {state:'idle'};}
+    if(!order){
+      // Preserve no_driver vs idle without locking every order in the queue.
+      const waiting=await c.query<{id:string}>(`
+        SELECT o.id FROM tala_core_v2.orders o
+        WHERE o.status='ready' AND o.fulfillment='delivery'
+          AND o.payment_method='cash' AND o.payment_status='pending'
+          AND NOT EXISTS(SELECT 1 FROM tala_core_v2.order_driver_assignments a
+            WHERE a.order_id=o.id)
+          AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers f
+            WHERE f.order_id=o.id AND f.state='offered')
+          AND (SELECT count(*) FROM tala_core_v2.dispatch_offers h
+            WHERE h.order_id=o.id)<10
+          AND ($1::uuid[] IS NULL OR o.id=ANY($1::uuid[]))
+        ORDER BY o.created_at,o.id LIMIT 1`,[scope.orderIds??null]);
+      await c.query('COMMIT');
+      return waiting.rows[0]?{state:'no_driver',orderId:waiting.rows[0].id}:{state:'idle'};
+    }
     const ds=await c.query<{account_id:string}>(`
       SELECT p.account_id FROM tala_core_v2.driver_profiles p
       JOIN tala_core_v2.accounts a ON a.id=p.account_id
