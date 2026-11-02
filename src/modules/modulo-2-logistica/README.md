@@ -75,9 +75,13 @@ se aplica después de 001–007 Pedidos, sin tocar sus tablas.
   pruebas se ejecutan solamente en PostgreSQL 16 de GitHub Actions.
 
 ## V2 — endurecimiento de contratos y frontera con Pedidos (LAB)
-- Los comandos de reserva, finalización y reasignación guardan un digest
-  SHA-256 del contenido canónico (orden, tienda, zona, coordenadas
-  y radio según corresponda). Una llave reusada con otros datos se
+- Los comandos de reserva, finalización y reasignación guardan una
+  **firma HMAC-SHA-256** del contenido canónico (orden, tienda, zona,
+  coordenadas y radio según corresponda), con clave requerida de mínimo
+  32 bytes en `TALA_DISPATCH_HMAC_KEY`. Sin secreto válido, falla
+  cerrado. La clave de GitHub Actions es solo de pruebas sintéticas;
+  ningún secreto de producción vive en el repositorio.
+  Una llave reusada con otros datos se
   **rechaza** sin crear otra asignación; el digest no expone posiciones GPS.
 - Tras una segunda asignación, reintentar un comprobante anterior se
   rechaza como `LOGISTICS_RESERVATION_SUPERSEDED` o
@@ -98,3 +102,11 @@ se aplica después de 001–007 Pedidos, sin tocar sus tablas.
   notificaciones y recuperación con reintentos están **PENDIENTES**.
   Los callbacks permisivos existen solo dentro de pruebas desechables;
   nunca deben utilizarse en el servicio publicado.
+
+### Configuración exigida para ejecución interna de Logística
+Definir `TALA_DISPATCH_HMAC_KEY` mediante el administrador de secretos
+del entorno (mínimo 32 bytes aleatorios). Nunca reutilizar la clave
+de CI; rotarla requiere un procedimiento que preserve la verificación
+de reintentos del historial. El servicio de Render actual **no recibe**
+esta configuración ni expone estas funciones. La autenticación GPS y
+del conductor sigue pendiente, al igual que el commit coordinado con M1.

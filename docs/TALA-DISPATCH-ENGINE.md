@@ -122,7 +122,10 @@ repartidor ni controla GPS del dispositivo. No hay ETA de carretera, rutas
 turn-by-turn, integración financiera, pagos ni publicación en PWAs.
 
 ## LAB V2 Hardening — idempotencia y recogida verificada
-La identidad del comando se valida con un SHA-256 de entrada canónica.
+La identidad del comando se valida con **HMAC-SHA-256** y una clave
+obligatoria `TALA_DISPATCH_HMAC_KEY` de al menos 32 bytes. Esto
+evita que un digest sin clave facilite adivinar posiciones GPS
+de un área geográfica pequeña.
 Reserva, finalización y recuperación se niegan si una misma llave
 reutiliza otros valores. Una confirmación obsoleta de asignación nunca
 se presenta como conductor actual. No se agregaron coordenadas a
