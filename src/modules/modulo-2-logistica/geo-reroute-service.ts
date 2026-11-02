@@ -77,6 +77,9 @@ export async function reassignUnavailableDelivery(
     throw new LogisticsError('LOGISTICS_IDEMPOTENCY_CONFLICT');
    if(evidence.commandDigest!==digest)
     reject('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT');
+   if(row.status!=='reserved'||row.courier_id!==evidence.courierId
+     ||row.version!==evidence.version)
+    reject('LOGISTICS_REROUTE_SUPERSEDED');
    await client.query('COMMIT');
    return {decision:'REASSIGNED',orderId,
     previousCourierId:evidence.previousCourierId,
