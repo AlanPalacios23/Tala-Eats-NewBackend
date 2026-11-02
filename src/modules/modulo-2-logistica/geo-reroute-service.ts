@@ -5,12 +5,22 @@
  * authorization, status and version. No HTTP or production entry point.
  */
 import {createHash} from 'node:crypto';
-import type {Pool} from 'pg';
+import type {Pool,PoolClient} from 'pg';
 import {LogisticsError} from './dispatch-service.ts';
 import {validGeoPoint,type GeoPoint,TALA_GEO_VERSION} from './geo.ts';
+import {rerouteFingerprint} from './command-integrity.ts';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const keyPattern=/^[a-zA-Z0-9_.:-]{16,128}$/;
 const reject=(code:string):never=>{throw new LogisticsError(code);};
+/** Must be supplied by a trusted Orders adapter and execute its
+ * pre-pickup check on the SAME database connection/transaction.
+ * A public caller or untrusted callback is NEVER permitted.
+ * Module 2 intentionally does not import any Orders implementation. */
+export type VerifyPrePickup=(
+ client:PoolClient,
+ context:Readonly<{orderId:string;restaurantId:string;
+   courierId:string;zone:string}>
+)=>Promise<boolean>;
 export type RerouteResult=
  | Readonly<{decision:'REASSIGNED';orderId:string;previousCourierId:string;
     courierId:string;version:string;replayed:boolean}>
@@ -19,7 +29,8 @@ export type RerouteResult=
 
 export async function reassignUnavailableDelivery(
  pool:Pool,orderId:string,expectedVersion:string,
- commandKey:string,restaurant:GeoPoint,maxDistanceMeters=20000
+ commandKey:string,restaurant:GeoPoint,maxDistanceMeters=20000,
+ verifyPrePickup?:VerifyPrePickup
 ):Promise<RerouteResult>{
  if(typeof orderId!=='string'||!uuid.test(orderId)
    ||typeof expectedVersion!=='string'||!/^[1-9][0-9]{0,15}$/.test(expectedVersion)
@@ -27,7 +38,10 @@ export async function reassignUnavailableDelivery(
    ||!validGeoPoint(restaurant)||!Number.isFinite(maxDistanceMeters)
    ||maxDistanceMeters<=0||maxDistanceMeters>100000)
    reject('LOGISTICS_REROUTE_INPUT_INVALID');
+ if(typeof verifyPrePickup!=='function')
+   reject('LOGISTICS_ORDER_VERIFICATION_REQUIRED');
  orderId=orderId.toLowerCase();
+ const digest=rerouteFingerprint(orderId,expectedVersion,restaurant,maxDistanceMeters);
  const client=await pool.connect();
  try{
   await client.query('BEGIN');
@@ -46,7 +60,8 @@ export async function reassignUnavailableDelivery(
   if(!row)throw new LogisticsError('LOGISTICS_DISPATCH_NOT_FOUND');
   const prior=await client.query<{
    event_type:string;details:{
-    previousCourierId?:string;courierId?:string;version?:string
+    previousCourierId?:string;courierId?:string;version?:string;
+    commandDigest?:string
    }
   }>(
    "SELECT event_type,details FROM tala_logistics_v2.dispatch_events "+
@@ -60,6 +75,8 @@ export async function reassignUnavailableDelivery(
     ||typeof evidence.courierId!=='string'
     ||typeof evidence.version!=='string')
     throw new LogisticsError('LOGISTICS_IDEMPOTENCY_CONFLICT');
+   if(evidence.commandDigest!==digest)
+    reject('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT');
    await client.query('COMMIT');
    return {decision:'REASSIGNED',orderId,
     previousCourierId:evidence.previousCourierId,
@@ -74,6 +91,15 @@ export async function reassignUnavailableDelivery(
   );
   if(origin.rows[0]?.details.dispatchMethod!=='proximity')
    reject('LOGISTICS_REROUTE_REQUIRES_GEO_RESERVATION');
+
+  // Mandatory fail-closed Orders verification. This check must lock/check
+  // Orders state and pickup proof in the SAME transaction, before selecting
+  // a replacement. No real Orders adapter is enabled in LAB2.
+  const allowed=await verifyPrePickup!(client,{
+   orderId,restaurantId:row.restaurant_id,courierId:row.courier_id,
+   zone:row.zone
+  });
+  if(allowed!==true)reject('LOGISTICS_ORDER_NOT_VERIFIED_PRE_PICKUP');
 
   // Read under courier lock so a concurrent online/heartbeat update
   // cannot alter eligibility between inspection and commit.
@@ -145,7 +171,8 @@ export async function reassignUnavailableDelivery(
   const details={orderId,previousCourierId:row.courier_id,courierId:candidate.id,
    status:'reserved',version:updated.version,
    dispatchEngine:'TALA Dispatch Engine',dispatchEngineVersion:TALA_GEO_VERSION,
-   dispatchMethod:'proximity',rerouteReason:'PREVIOUS_COURIER_UNAVAILABLE'};
+   dispatchMethod:'proximity',rerouteReason:'PREVIOUS_COURIER_UNAVAILABLE',
+   commandDigest:digest};
   const eventKey=createHash('sha256').update(
    ['logistics.v2',orderId,commandKey,'dispatch.reassigned'].join('|')
   ).digest('hex');
