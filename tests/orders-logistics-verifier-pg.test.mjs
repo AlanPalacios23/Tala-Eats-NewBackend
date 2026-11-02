@@ -5,6 +5,7 @@ import {Pool} from 'pg';
 import {verifyOrdersPrePickup} from '../src/integrations/orders-logistics/verify-pre-pickup.ts';
 import {commitOrdersReassignment} from '../src/integrations/orders-logistics/commit-reassignment.ts';
 import {inspectDispatchConsistency} from '../src/integrations/orders-logistics/inspect-consistency.ts';
+import {reassignOrderDispatchAtomic} from '../src/integrations/orders-logistics/reassign-atomically.ts';
 import {enrollCourier,approveCourier,setCourierOnline,recordCourierPosition,
   reserveNearestDelivery,reassignUnavailableDelivery,LogisticsError}
  from '../src/modules/modulo-2-logistica/index.ts';
@@ -114,8 +115,7 @@ test('Orders bridge: reroute only with actual pre-pickup M1 order lock',{
   assert.equal(r.decision,'RESERVED');
   assert.equal(r.courierId,original);
   await setCourierOnline(p,original,false);
-  const changed=await reassignUnavailableDelivery(p,o.id,'1',key(),pickup,20000,
-   verifyOrdersPrePickup,commitOrdersReassignment);
+  const changed=await reassignOrderDispatchAtomic(p,o.id,'1',key(),pickup);
   assert.equal(changed.decision,'REASSIGNED');
   assert.equal(changed.courierId,replacement);
   const dbOrder=await p.query(
@@ -149,8 +149,7 @@ test('Orders bridge: M1 pickup prevents any mutation in logistics',{
   assert.equal(r.courierId,original);
   await setCourierOnline(p,original,false);
   await p.query("UPDATE tala_core_v2.orders SET status='picked_up' WHERE id=$1",[o.id]);
-  await assert.rejects(reassignUnavailableDelivery(
-   p,o.id,'1',key(),pickup,20000,verifyOrdersPrePickup,commitOrdersReassignment),
+  await assert.rejects(reassignOrderDispatchAtomic(p,o.id,'1',key(),pickup),
    rejectCode('LOGISTICS_ORDER_NOT_VERIFIED_PRE_PICKUP'));
   const unchanged=await p.query(
    'SELECT courier_id,version FROM tala_logistics_v2.dispatch_reservations WHERE order_id=$1',[o.id]);
@@ -177,8 +176,7 @@ test('Orders bridge: rejected replacement rolls back BOTH modules and outboxes',
    'SELECT COUNT(*)::int AS n FROM tala_logistics_v2.dispatch_events WHERE order_id=$1',
    [order.id]);
   await assert.rejects(
-   reassignUnavailableDelivery(p,order.id,'1',key(),pickup,20000,
-    verifyOrdersPrePickup,commitOrdersReassignment),
+   reassignOrderDispatchAtomic(p,order.id,'1',key(),pickup),
    rejectCode('LOGISTICS_ORDER_SYNC_FAILED')
   );
   const logistics=await p.query(
@@ -195,8 +193,7 @@ test('Orders bridge: rejected replacement rolls back BOTH modules and outboxes',
   assert.equal(after.rows[0].n,before.rows[0].n);
   // Once the replacement is approved in M1, the same order is recoverable.
   await approvedM1Courier(p,replacement);
-  const recovered=await reassignUnavailableDelivery(p,order.id,'1',key(),pickup,20000,
-   verifyOrdersPrePickup,commitOrdersReassignment);
+  const recovered=await reassignOrderDispatchAtomic(p,order.id,'1',key(),pickup);
   assert.equal(recovered.decision,'REASSIGNED');
   assert.equal(recovered.courierId,replacement);
  }finally{await p.end();}
