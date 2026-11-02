@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {verifyOrdersPrePickup} from '../src/integrations/orders-logistics/verify-pre-pickup.ts';
 import {commitOrdersReassignment} from '../src/integrations/orders-logistics/commit-reassignment.ts';
+import {inspectDispatchConsistency} from '../src/integrations/orders-logistics/inspect-consistency.ts';
 import {enrollCourier,approveCourier,setCourierOnline,recordCourierPosition,
   reserveNearestDelivery,reassignUnavailableDelivery,LogisticsError}
  from '../src/modules/modulo-2-logistica/index.ts';
@@ -236,5 +237,44 @@ test('Orders bridge: forced failure of M1 callback rolls back M2 reservation',{
   const ev=await p.query(
    "SELECT COUNT(*)::int n FROM tala_core_v2.order_events WHERE order_id=$1",[order.id]);
   assert.equal(ev.rows[0].n,0);
+ }finally{await p.end();}
+});
+
+test('Orders bridge: read-only audit detects and explains a driver divergence',{
+ skip:!enabled,timeout:30000
+},async()=>{
+ const p=pool();
+ try{
+  const z=zone(),old=randomUUID(),next=randomUUID();
+  await courier(p,z,old,20.6531);
+  await courier(p,z,next,20.655);
+  const o=await orderFixture(p,old);
+  await approvedM1Courier(p,next);
+  const initial=await reserveNearestDelivery(p,{
+   orderId:o.id,restaurantId:o.restaurantId,deliveryZone:z,
+   orderStatus:'ready',fulfillment:'delivery'
+  },key(),pickup);
+  assert.equal(initial.courierId,old);
+  assert.equal((await inspectDispatchConsistency(p,o.id)).status,'CONSISTENT');
+  await setCourierOnline(p,old,false);
+  const replaced=await reassignUnavailableDelivery(p,o.id,'1',key(),pickup,20000,
+    verifyOrdersPrePickup,commitOrdersReassignment);
+  assert.equal(replaced.courierId,next);
+  const audit=await inspectDispatchConsistency(p,o.id);
+  assert.deepEqual(audit,{
+    orderId:o.id,status:'CONSISTENT',
+    logisticsCourierId:next,ordersCourierId:next
+  });
+  // Corruption simulation in disposable PostgreSQL CI only.
+  await p.query(
+   'UPDATE tala_core_v2.order_driver_assignments SET driver_id=$2 WHERE order_id=$1',
+   [o.id,old]
+  );
+  const divergent=await inspectDispatchConsistency(p,o.id);
+  assert.equal(divergent.status,'COURIER_MISMATCH');
+  assert.equal(divergent.logisticsCourierId,next);
+  assert.equal(divergent.ordersCourierId,old);
+  await assert.rejects(inspectDispatchConsistency(p,'fake'),
+    /LOGISTICS_AUDIT_ORDER_INVALID/);
  }finally{await p.end();}
 });
