@@ -122,6 +122,13 @@ test('LOGISTICA LAB1: capacidad serializada, GPS privado, idempotencia y presenc
     const done=await req('POST','/api/v2/driver/orders/'+accepted.id+'/complete',
       {expectedVersion:version,commandKey:key(),pin:pin.data.pin},driver.cookie);
     assert.equal(done.status,200,JSON.stringify(done.data));
+    // GPS must be erased at successful delivery, not just after logout.
+    assert.equal((await pool.query(
+      'SELECT count(*)::int AS n FROM tala_core_v2.driver_latest_locations WHERE driver_id=$1',
+      [driver.id])).rows[0].n,0);
+    const finished=await req('GET','/api/v2/driver/logistics',undefined,driver.cookie);
+    assert.equal(finished.data.locationFresh,false);
+    assert.equal(finished.data.activeDeliveries,0);
     const offline=await req('POST','/api/v2/driver/presence',offlineCmd,driver.cookie);
     assert.equal(offline.status,200,JSON.stringify(offline.data));
     assert.equal(offline.data.presenceVersion,'2');
