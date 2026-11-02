@@ -120,3 +120,25 @@ hasta que Pedidos certifique que sigue sin recogerse. El servicio todavía
 no consume un evento firmado/verificado `order.ready`, no autentica al
 repartidor ni controla GPS del dispositivo. No hay ETA de carretera, rutas
 turn-by-turn, integración financiera, pagos ni publicación en PWAs.
+
+## LAB V2 Hardening — idempotencia y recogida verificada
+La identidad del comando se valida con un SHA-256 de entrada canónica.
+Reserva, finalización y recuperación se niegan si una misma llave
+reutiliza otros valores. Una confirmación obsoleta de asignación nunca
+se presenta como conductor actual. No se agregaron coordenadas a
+eventos ni outbox.
+
+La recuperación GEO requiere que un adaptador confiable compruebe
+en la **misma transacción** que el pedido M1 existe, sigue
+`assigned` a ese conductor, es de entrega a domicilio y no tiene
+evidencia irreversible de recogida/entrega ni PIN consumido.
+El adaptador `src/integrations/orders-logistics/verify-pre-pickup.ts`
+es de solo lectura y se prueba con PostgreSQL 16; mantiene ambas
+carpetas de negocio independientes.
+
+**Todavía NO existe el handoff transaccional completo entre módulos**:
+el cambio en la reserva de Logística NO actualiza el conductor asignado
+en el módulo de Pedidos. Tampoco hay autenticación HTTP, permisos GPS
+de la PWA, liquidación financiera, ETA vial o deploy público.
+Prohibido utilizar el servicio como dispatcher comercial hasta
+completar esa transacción multi-módulo y las pruebas E2E.

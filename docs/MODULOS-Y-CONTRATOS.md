@@ -72,3 +72,17 @@ a una orden sin su versión y validaciones transaccionales.
   el PR #1.
 - Toda modificación a Pedidos exige correr la regresión completa,
   incluidos los escenarios de autorización, checkout y handoff.
+
+## Verificación cruzada de LAB — frontera M1/M2
+`src/integrations/orders-logistics/verify-pre-pickup.ts` es el
+**adaptador externo**, separado de los dos módulos. Comprueba
+transaccionalmente `orders.status='assigned'`, entrega,
+`restaurant_id`, `order_driver_assignments.driver_id` y evidencia
+de que no hubo recogida, entrega ni PIN consumido antes de autorizar
+`reassignUnavailableDelivery`.
+
+No es un endpoint de aplicación ni permite a un cliente crear una
+autorización. **La asignación real registrada en Pedidos sigue siendo
+autoridad final** y la reserva Logística aún no se sincroniza con ella.
+Por tanto, no se puede habilitar despacho real antes de añadir
+orquestación/compensación confiable y comprobar ambos commits.

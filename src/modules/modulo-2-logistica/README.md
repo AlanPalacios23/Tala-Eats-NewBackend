@@ -73,3 +73,28 @@ se aplica después de 001–007 Pedidos, sin tocar sus tablas.
   autorizado de Pedidos. Tampoco existe autenticación del GPS desde PWA.
 - Ninguna función se expone como API en Render, Kali o la PWA; las
   pruebas se ejecutan solamente en PostgreSQL 16 de GitHub Actions.
+
+## V2 — endurecimiento de contratos y frontera con Pedidos (LAB)
+- Los comandos de reserva, finalización y reasignación guardan un digest
+  SHA-256 del contenido canónico (orden, tienda, zona, coordenadas
+  y radio según corresponda). Una llave reusada con otros datos se
+  **rechaza** sin crear otra asignación; el digest no expone posiciones GPS.
+- Tras una segunda asignación, reintentar un comprobante anterior se
+  rechaza como `LOGISTICS_RESERVATION_SUPERSEDED` o
+  `LOGISTICS_REROUTE_SUPERSEDED`, en vez de devolver una persona
+  que ya no tiene asignada esa orden.
+- `reassignUnavailableDelivery` **exige** un callback interno
+  `VerifyPrePickup`. Sin él o si rechaza el pedido, no mueve ninguna
+  reserva. La verificación se ejecuta **dentro de la transacción actual**.
+- El puente independiente
+  `src/integrations/orders-logistics/verify-pre-pickup.ts`
+  consulta `tala_core_v2.orders` bajo lock de lectura, comprueba
+  estado `assigned`, `fulfillment=delivery`, tienda, conductor
+  de M1 y ausencia de evidencia de `picked_up/on_the_way/delivered`
+  o PIN consumido. El Módulo 2 **no importa código de Pedidos**.
+- Este puente **no autentica a un cliente HTTP** ni modifica la
+  asignación que guarda M1. La coordinación de commit entre M1 y M2,
+  el registro del cambio de conductor en M1, autenticación PWA/GPS,
+  notificaciones y recuperación con reintentos están **PENDIENTES**.
+  Los callbacks permisivos existen solo dentro de pruebas desechables;
+  nunca deben utilizarse en el servicio publicado.
