@@ -27,6 +27,8 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       PG_CI_URL: postgresql://core_v2_ci:ci_password_not_for_production@127.0.0.1:15450/tala_core_v2_test
+      # Disposable synthetic CI key only. Never use this value in staging/LIVE.
+      TALA_DISPATCH_HMAC_KEY: CI_ONLY_SYNTHETIC_TALA_DISPATCH_HMAC_KEY_2026_NOT_PRODUCTION
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
