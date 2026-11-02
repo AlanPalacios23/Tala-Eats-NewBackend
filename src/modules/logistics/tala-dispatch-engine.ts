@@ -63,6 +63,7 @@ export async function expireDispatchOffers(pool:Pool,limit=20){
       OR p.approved=false OR p.is_online=false OR a.is_active=false OR a.role<>'driver'
       OR p.dispatch_heartbeat_at IS NULL
       OR p.dispatch_heartbeat_at<clock_timestamp()-interval '90 seconds'
+      OR p.presence_updated_at>f.created_at
     )
     ORDER BY f.expires_at,f.id LIMIT $1`,[limit]);
   let expired=0;
@@ -80,20 +81,23 @@ export async function expireDispatchOffers(pool:Pool,limit=20){
       if(!offer||offer.state!=='offered'){
         await c.query('COMMIT');continue;
       }
-      const status=await c.query<{available:boolean;heartbeat_fresh:boolean}>(`
+      const status=await c.query<{available:boolean;heartbeat_fresh:boolean;session_valid:boolean}>(`
         SELECT (p.approved AND p.is_online AND a.is_active AND a.role='driver')
           AS available,
           COALESCE(p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds',false)
-          AS heartbeat_fresh
+          AS heartbeat_fresh,
+          p.presence_updated_at<=f.created_at AS session_valid
         FROM tala_core_v2.driver_profiles p
         JOIN tala_core_v2.accounts a ON a.id=p.account_id
-        WHERE p.account_id=$1::uuid`,[offer.driver_id]);
+        JOIN tala_core_v2.dispatch_offers f ON f.id=$2::uuid
+        WHERE p.account_id=$1::uuid`,[offer.driver_id,offer.id]);
       const orderChanged=o.status!=='ready'||o.fulfillment!=='delivery'||
         o.payment_method!=='cash'||o.payment_status!=='pending'||
         BigInt(o.version)!==BigInt(offer.expected_order_version);
       const reason=offer.expired?'timeout':orderChanged?'order_changed':
         status.rows[0]?.available!==true?'courier_unavailable':
-        status.rows[0]?.heartbeat_fresh!==true?'heartbeat_stale':null;
+        status.rows[0]?.heartbeat_fresh!==true?'heartbeat_stale':
+        status.rows[0]?.session_valid!==true?'session_changed':null;
       if(!reason){await c.query('COMMIT');continue;}
       await c.query(`
         UPDATE tala_core_v2.dispatch_offers SET state='expired',decided_at=clock_timestamp()
@@ -138,7 +142,7 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
           WHERE p.approved=true AND p.is_online=true
             AND a.is_active=true AND a.role='driver'
             AND p.max_active_deliveries=1
-            AND p.dispatch_heartbeat_at>=now()-interval '90 seconds'
+            AND p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds'
             AND NOT EXISTS(SELECT 1 FROM tala_core_v2.order_driver_assignments own
               JOIN tala_core_v2.orders busy ON busy.id=own.order_id
               WHERE own.driver_id=p.account_id
@@ -188,7 +192,7 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
       JOIN tala_core_v2.accounts a ON a.id=p.account_id
       WHERE p.approved=true AND p.is_online=true AND a.is_active=true AND a.role='driver'
         AND p.max_active_deliveries=1
-        AND p.dispatch_heartbeat_at>=now()-interval '90 seconds'
+        AND p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds'
         AND NOT EXISTS(SELECT 1 FROM tala_core_v2.order_driver_assignments own
           JOIN tala_core_v2.orders busy ON busy.id=own.order_id
           WHERE own.driver_id=p.account_id
@@ -204,8 +208,9 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
     if(!driver){await c.query('COMMIT');return {state:'no_driver',orderId:order.id};}
     const rows=await c.query<{id:string;expires_at:Date}>(`
       INSERT INTO tala_core_v2.dispatch_offers
-        (order_id,driver_id,expected_order_version,expires_at)
-      VALUES($1::uuid,$2::uuid,$3::bigint,clock_timestamp()+($4::int*interval '1 second'))
+        (order_id,driver_id,expected_order_version,created_at,expires_at)
+      VALUES($1::uuid,$2::uuid,$3::bigint,clock_timestamp(),
+        clock_timestamp()+($4::int*interval '1 second'))
       ON CONFLICT DO NOTHING
       RETURNING id,expires_at`,[order.id,driver.account_id,order.version,OFFER_SECONDS]);
     // READ COMMITTED can select a row based on a snapshot just before a
@@ -238,7 +243,8 @@ export async function listDriverDispatchOffers(pool:Pool,driverId:string){
     WHERE f.driver_id=$1::uuid AND f.state='offered' AND f.expires_at>clock_timestamp()
       AND o.status='ready' AND o.version=f.expected_order_version
       AND p.approved=true AND p.is_online=true AND a.is_active=true AND a.role='driver'
-      AND p.dispatch_heartbeat_at>=now()-interval '90 seconds'
+      AND p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds'
+      AND p.presence_updated_at<=f.created_at
     ORDER BY f.created_at,f.id LIMIT 10`,[driverId]);
   // Never expose buyer address, customer identity or GPS before acceptance.
   return r.rows;
@@ -273,12 +279,15 @@ export async function acceptDispatchOffer(pool:Pool,driverId:string,offerId:stri
     if(offer.state!=='offered')throw new DispatchError('OFFER_ALREADY_CLOSED');
     if(offer.is_live!==true)
       throw new DispatchError('OFFER_EXPIRED');
-    const p=await c.query<{is_online:boolean}>(`
-      SELECT p.is_online FROM tala_core_v2.driver_profiles p
+    const p=await c.query<{is_online:boolean;session_valid:boolean}>(`
+      SELECT p.is_online,p.presence_updated_at<=f.created_at AS session_valid
+      FROM tala_core_v2.driver_profiles p
       JOIN tala_core_v2.accounts a ON a.id=p.account_id
+      JOIN tala_core_v2.dispatch_offers f ON f.id=$2::uuid
       WHERE p.account_id=$1::uuid AND p.approved=true AND a.is_active=true AND a.role='driver'
-      FOR UPDATE OF p FOR SHARE OF a`,[driverId]);
+      FOR UPDATE OF p FOR SHARE OF a`,[driverId,offerId]);
     if(!p.rows[0]?.is_online)throw new DispatchError('DRIVER_NOT_AVAILABLE');
+    if(p.rows[0]?.session_valid!==true)throw new DispatchError('OFFER_SESSION_CHANGED');
     const beat=await c.query(
       "SELECT 1 FROM tala_core_v2.driver_profiles WHERE account_id=$1::uuid AND dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds'",
       [driverId]);
