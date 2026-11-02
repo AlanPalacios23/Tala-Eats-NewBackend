@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,createHash} from 'node:crypto';
 import {Pool} from 'pg';
-import {auditOrdersReadOnly} from '../src/modules/orders/orders-audit.ts';
+import {auditOrdersReadOnly} from '../src/modules/modulo-1-pedidos/orders-audit.ts';
 
 const db=process.env.PG_CI_URL??'';
 const enabled=db.includes('/tala_core_v2_test');

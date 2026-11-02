@@ -1,7 +1,7 @@
 /** CORE v2: fail-closed boot shell. Order writes ONLY inside isolated LAB. */
 import express from 'express';
 import { Pool } from 'pg';
-import {createOrderApp} from './modules/orders/lab-http.ts';
+import {createOrderApp} from './modules/modulo-1-pedidos/lab-http.ts';
 
 const app = express();
 app.disable('x-powered-by');

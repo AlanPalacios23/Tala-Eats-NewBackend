@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
-import {createOrderApp} from '../src/modules/orders/lab-http.ts';
-import {hashPassword} from '../src/modules/orders/lab-auth.ts';
+import {createOrderApp} from '../src/modules/modulo-1-pedidos/lab-http.ts';
+import {hashPassword} from '../src/modules/modulo-1-pedidos/lab-auth.ts';
 
 const url=process.env.PG_CI_URL??'';
 const enabled=url.includes('/tala_core_v2_test');

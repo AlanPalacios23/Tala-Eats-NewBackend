@@ -15,45 +15,49 @@ Backend modular nuevo de **TALA EATS**, desarrollado por fases.
 - Varias interfaces: Usuarios, Restaurantes, Repartidores y ADMIN.
 - Una funcionalidad principal a la vez: **PEDIDOS primero**.
 
-## Estructura actual
+## Módulos independientes
 
 ```
 src/
   modules/
-    orders/
-      order-machine.ts   # maquina de estados determinista
-      pricing.ts         # calculadora 17% + servicio, centavos bigint
-      merchant-orders.ts # acciones de cocina con permisos y eventos
-      checkout.ts        # pedidos y stock idempotente
-      cancel.ts          # cancelación y restitución atómica
-      handoff.ts         # PIN, efectivo dual, conductor y entrega
-      lab-http.ts        # API HTTP de laboratorio
-      lab-auth.ts        # autenticación temporal de LAB
-      orders-read.ts     # timeline por actor y recibo inmutable del comprador
-      orders-audit.ts    # auditoría read-only de integridad y eventos
-  server.ts              # GET /health y /ready; API solo con gate LAB
-migrations/
-  001_orders.sql         # orders, items, eventos inmutables, outbox
-  002_order_permissions.sql # membresías restaurante desactivadas por defecto
-  003_orders_http_lab.sql # cuentas, sesiones, catálogo (solo LAB)
-  004_order_handoffs_lab.sql # repartidores, PIN y custodia de efectivo
-  005_orders_integrity_lab.sql # snapshots/custodia inmutables y FK del SKU
-  006_order_pin_rate_lab.sql # cuota SQL de PIN por pedido
-  007_orders_address_handoff_integrity_lab.sql # dirección y evidencias write-once
+    modulo-1-pedidos/
+      order-machine.ts       # estados y prueba de entrega del pedido
+      checkout.ts            # compra, inventario, idempotencia
+      merchant-orders.ts     # restaurante acepta y cocina
+      cancel.ts              # compensación de inventario
+      handoff.ts             # cierre del pedido, PIN y acuses de efectivo
+      pricing.ts             # desglose interno de pedidos
+      lab-auth.ts            # autenticación aislada del laboratorio
+      lab-http.ts            # rutas HTTP del laboratorio
+      orders-read.ts         # historial y comprobante
+      orders-audit.ts        # auditoría de integridad
+      migrations/            # SQL 001–007 EXCLUSIVO de Pedidos
+    modulo-2-logistica/
+      contracts.ts           # contrato independiente
+      assignment-policy.ts   # selección elegible de repartidor
+      index.ts               # API pública del módulo
+      dispatch-service.ts    # presencia y reservas SQL transaccionales
+      migrations/001_logistics_lab.sql # tablas/logs/outbox propios
+      README.md              # alcance, interfaces y estado real
+  server.ts                  # composición /health, /ready, gates
 tests/
-  orders.test.mjs        # reglas de estados y precios
-  postgres-schema.test.mjs # restricciones PostgreSQL, CI aislada
-  merchant-order-transactions.test.mjs # concurrencia, authz, rollback en PG aislado
-  orders-http-lab.test.mjs # E2E HTTP checkout, cocina y cancelaciones
-  orders-hardening.test.mjs # permisos, bloqueos SQL y seguridad HTTP
-  orders-handoff.test.mjs # E2E pickup/delivery con PIN y efectivo
-  orders-read.test.mjs # timeline multirrol, recibos, privacidad y detalle histórico
-  orders-postdeploy.test.mjs # auditoría read-only de postdespliegue
-docs/
-  ARQUITECTURA_Y_MIGRACION.md
-.github/workflows/
-  core-v2-ci.yml
+  orders*.test.mjs           # regresiones Módulo 1
+  logistica.test.mjs         # pruebas Módulo 2
+scripts/
+  render-staging-init.mjs    # migraciones bajo Módulo 1; solo Render seguro
 ```
+
+**Separación:** Pedidos conserva compra, inventario, cocina, prueba PIN y
+cierre del pedido. Logística aporta disponibilidad, capacidad, zonas y selección
+de repartidores, sin importar código de Pedidos, modificar dinero ni abrir rutas.
+El endpoint heredado de `claim` dentro del LAB de Pedidos es parte de la
+transición del pedido y seguirá funcionando. **Módulo 2 tiene su propia
+persistencia PostgreSQL probada en CI**, pero no está integrado al servidor,
+PWA ni a la base de Render. Su motor no reemplaza todavía la asignación
+de Pedidos: falta un adaptador autenticado y la confirmación transaccional
+del pedido para evitar asignaciones comerciales sin respaldo.
+
+Arquitectura y contratos: [MODULOS-Y-CONTRATOS.md](docs/MODULOS-Y-CONTRATOS.md).
 
 ## Primeros pasos locales (aislados)
 

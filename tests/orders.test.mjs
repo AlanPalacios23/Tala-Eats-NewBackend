@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { transitionOrder, OrderTransitionError } from '../src/modules/orders/order-machine.ts';
-import { quoteOrder, PRICING_POLICY_VERSION } from '../src/modules/orders/pricing.ts';
+import { transitionOrder, OrderTransitionError } from '../src/modules/modulo-1-pedidos/order-machine.ts';
+import { quoteOrder, PRICING_POLICY_VERSION } from '../src/modules/modulo-1-pedidos/pricing.ts';
 
 const base = {
   current: 'received',

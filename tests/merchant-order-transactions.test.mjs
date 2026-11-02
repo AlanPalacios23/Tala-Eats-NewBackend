@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {
   advanceMerchantOrder,merchantEventKey,MerchantOrderError
-} from '../src/modules/orders/merchant-orders.ts';
+} from '../src/modules/modulo-1-pedidos/merchant-orders.ts';
 
 const pgUrl=process.env.PG_CI_URL ?? '';
 // These tests create persistent fixtures; allow ONLY the disposable CI database.

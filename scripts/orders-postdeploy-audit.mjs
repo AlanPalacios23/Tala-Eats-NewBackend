@@ -4,7 +4,7 @@
  * Never outputs database credentials, buyer identities, addresses or order IDs.
  */
 import {Pool} from 'pg';
-import {auditOrdersReadOnly} from '../src/modules/orders/orders-audit.ts';
+import {auditOrdersReadOnly} from '../src/modules/modulo-1-pedidos/orders-audit.ts';
 
 const uri=process.env.CORE_V2_AUDIT_DATABASE_URL;
 if(!uri)throw Error('ORDERS_AUDIT_READONLY_URL_REQUIRED');

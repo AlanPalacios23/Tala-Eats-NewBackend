@@ -4,7 +4,7 @@
 **Estado: NO-GO para producción comercial.** Este paquete deja preparado el monitoreo inicial de **Pedidos** y los procedimientos de validación y reversión. **No** significa que el módulo se haya desplegado, ni autoriza activar LIVE. Solo se modificó Pedidos, scripts de revisión y CI.
 
 ## Qué se agregó
-1. `src/modules/orders/orders-audit.ts`: inspecciona una instantánea `REPEATABLE READ READ ONLY` de órdenes existentes, con paginación por UUID, sin cambios SQL.
+1. `src/modules/modulo-1-pedidos/orders-audit.ts`: inspecciona una instantánea `REPEATABLE READ READ ONLY` de órdenes existentes, con paginación por UUID, sin cambios SQL.
 2. `scripts/orders-postdeploy-audit.mjs`: auditoría por lotes. Rechaza cuentas con privilegios de INSERT/UPDATE/DELETE o superusuario. Solo acepta una conexión dedicada de **SELECT**. No imprime IDs de pedidos, direcciones, PIN, cuentas ni importes individuales.
 3. `scripts/orders-postdeploy-http.mjs`: smoke de HTTP exclusivamente con solicitudes **GET** a `/health`, `/ready` y `/api/v2/health`, HTTPS o loopback. Sin autenticación ni operaciones mutables.
 4. `tests/orders-postdeploy.test.mjs` y CI: detectan órdenes correctas/inconsistentes, escaneos parciales, cuenta escritora prohibida y **NO-GO cuando `commercialReady=false`**.
