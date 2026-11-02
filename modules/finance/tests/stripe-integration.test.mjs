@@ -101,6 +101,39 @@ test('M3 isolated SQL: trusted contract, signed capture, replay, concurrency, an
       const order2=randomUUID();
       await fail(()=>registerTestIntent(pool,{...registration,orderId:order2}),
         'INTENT_CONFLICT');
+      // Distinct signed TEST events racing for the same PaymentIntent may not
+      // create two journals, even with different provider event IDs.
+      const raceOrder=randomUUID(),raceIntent='pi_lab_'+randomUUID().replaceAll('-','');
+      await registerTestIntent(pool,{...registration,orderId:raceOrder,
+        paymentIntentId:raceIntent});
+      const [r1,r2]=await Promise.allSettled([
+        recordSignedTestCapture(pool,event(raceIntent,
+          'evt_lab_'+randomUUID().replaceAll('-',''))),
+        recordSignedTestCapture(pool,event(raceIntent,
+          'evt_lab_'+randomUUID().replaceAll('-','')))
+      ]);
+      assert.equal([r1,r2].filter(x=>x.status==='fulfilled').length,1);
+      const rejected=[r1,r2].find(x=>x.status==='rejected');
+      assert.equal(rejected?.reason?.code,'ORDER_ALREADY_CAPTURED');
+      assert.equal((await pool.query(
+        'SELECT count(*)::int AS n FROM tala_finance_v2.journals WHERE order_id=$1',
+        [raceOrder])).rows[0].n,1);
+
+      // Provider receipts and internal trusted contracts cannot be rewritten
+      // after ingestion; future changes must use append-only compensation.
+      await assert.rejects(pool.query(
+        'UPDATE tala_finance_v2.stripe_test_receipts SET raw_hash=$2 WHERE event_id=$1',
+        [eventId,'a'.repeat(64)]),/FINANCE_JOURNAL_IMMUTABLE/);
+      await assert.rejects(pool.query(
+        'DELETE FROM tala_finance_v2.stripe_test_receipts WHERE event_id=$1',
+        [eventId]),/FINANCE_JOURNAL_IMMUTABLE/);
+      await assert.rejects(pool.query(
+        'UPDATE tala_finance_v2.test_intents SET expected_minor=1 WHERE order_id=$1',
+        [orderId]),/FINANCE_JOURNAL_IMMUTABLE/);
+      await assert.rejects(pool.query(
+        'DELETE FROM tala_finance_v2.test_intents WHERE order_id=$1',
+        [orderId]),/FINANCE_JOURNAL_IMMUTABLE/);
+
       const intents=await pool.query(
         'SELECT count(*)::int AS n FROM tala_finance_v2.test_intents WHERE order_id=$1',
         [orderId]);
