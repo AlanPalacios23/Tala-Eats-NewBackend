@@ -228,3 +228,72 @@ export async function declineDispatchOffer(pool:Pool,driverId:string,offerId:str
     return {declined:true,replayed:false};
   }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
 }
+
+/**
+ * Manual trusted recovery. Not mounted in HTTP. Never requeue picked-up,
+ * on-the-way, PIN-generated, cash-attested or custody-settled deliveries.
+ * Threshold protects against releasing a driver for a transient disconnect.
+ */
+export async function recoverUncollectedAssignment(
+  pool:Pool,orderId:string,expectedVersion:bigint,commandKey:string){
+  if(!uuid.test(orderId)||!commandRe.test(commandKey)||
+    typeof expectedVersion!=='bigint'||expectedVersion<1n)
+    throw new DispatchError('RECOVERY_INVALID');
+  const k=eventKey('dispatch.manual.recovery.v1',orderId+'|'+commandKey);
+  const c=await pool.connect();
+  try{
+    await begin(c);
+    const order=await lockOrder(c,orderId);
+    if(!order)throw new DispatchError('ORDER_NOT_FOUND');
+    const previous=await c.query<{data:{expectedVersion?:string;version?:string}}>(`
+      SELECT data FROM tala_core_v2.order_events
+      WHERE order_id=$1::uuid AND event_key=$2`,[orderId,k]);
+    if(previous.rows[0]){
+      const prev=previous.rows[0].data;
+      if(prev?.expectedVersion!==String(expectedVersion)||!prev.version)
+        throw new DispatchError('IDEMPOTENCY_CONFLICT');
+      await c.query('COMMIT');
+      return {orderId,status:'ready',version:prev.version,replayed:true};
+    }
+    if(order.status!=='assigned'||order.fulfillment!=='delivery'||
+      order.payment_method!=='cash'||order.payment_status!=='pending')
+      throw new DispatchError('RECOVERY_FORBIDDEN');
+    if(BigInt(order.version)!==expectedVersion)
+      throw new DispatchError('ORDER_VERSION_CONFLICT');
+    const assignment=await c.query<{driver_id:string}>(`
+      SELECT driver_id FROM tala_core_v2.order_driver_assignments
+      WHERE order_id=$1::uuid AND assigned_at<=now()-interval '20 minutes'
+      FOR UPDATE`,[orderId]);
+    if(!assignment.rows[0])throw new DispatchError('RECOVERY_NOT_DUE');
+    const proof=await c.query(`
+      SELECT 1 FROM tala_core_v2.order_handoffs
+      WHERE order_id=$1::uuid AND (
+        buyer_cash_ack_at IS NOT NULL OR custodian_cash_ack_at IS NOT NULL
+        OR custodian_id IS NOT NULL OR pin_hash IS NOT NULL
+        OR pin_consumed_at IS NOT NULL OR custody_settled_at IS NOT NULL
+      )`,[orderId]);
+    if(proof.rowCount)throw new DispatchError('RECOVERY_CUSTODY_REVIEW_REQUIRED');
+    try{transitionOrder({current:'assigned',target:'ready',fulfillment:'delivery',
+      paymentMethod:'cash',actor:'system',reassignmentAuthorized:true});}
+    catch(e){if(e instanceof OrderTransitionError)throw new DispatchError(e.code);throw e;}
+    await c.query('DELETE FROM tala_core_v2.order_driver_assignments WHERE order_id=$1::uuid',[orderId]);
+    const updated=await c.query<{version:string}>(`
+      UPDATE tala_core_v2.orders SET status='ready',version=version+1,updated_at=now()
+      WHERE id=$1::uuid RETURNING version`,[orderId]);
+    const version=updated.rows[0]!.version;
+    await c.query(`
+      INSERT INTO tala_core_v2.order_events
+        (order_id,event_key,previous_status,new_status,actor_role,data)
+      VALUES($1::uuid,$2,'assigned','ready','system',$3::jsonb)`,
+      [orderId,k,JSON.stringify({expectedVersion:String(expectedVersion),version,
+        reason:'manual_timeout_before_pickup',driverId:assignment.rows[0].driver_id})]);
+    await c.query(`
+      INSERT INTO tala_core_v2.outbox(aggregate_id,event_key,event_type,payload)
+      VALUES($1::uuid,$2,'dispatch.assignment.recovered',$3::jsonb)`,
+      [orderId,k,JSON.stringify({orderId,version,previousDriverId:assignment.rows[0].driver_id})]);
+    await c.query('DELETE FROM tala_core_v2.driver_latest_locations WHERE driver_id=$1::uuid',
+      [assignment.rows[0].driver_id]);
+    await c.query('COMMIT');
+    return {orderId,status:'ready',version,replayed:false};
+  }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
+}
