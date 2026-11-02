@@ -62,7 +62,8 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
       return {id,version};
     };
     const orders=[await makeOrder(),await makeOrder()];
-    const [one,two]=await Promise.all([dispatchNext(pool),dispatchNext(pool)]);
+    const scope={orderIds:orders.map(o=>o.id),driverIds:drivers.map(d=>d.id)};
+    const [one,two]=await Promise.all([dispatchNext(pool,scope),dispatchNext(pool,scope)]);
     assert.equal(one.state,'offered');assert.equal(two.state,'offered');
     assert.notEqual(one.orderId,two.orderId,'one offer per order');
     assert.notEqual(one.driverId,two.driverId,'one pending offer per driver');
@@ -107,7 +108,9 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
     assert.equal((await pool.query(
       'SELECT status FROM tala_core_v2.orders WHERE id=$1',[waiting.orderId])).rows[0].status,'ready');
     const third=await seed('driver');
-    const next=await dispatchNext(pool);
+    const next=await dispatchNext(pool,{
+      orderIds:scope.orderIds,driverIds:[...scope.driverIds,third.id]
+    });
     assert.equal(next.state,'offered',JSON.stringify(next));
     assert.equal(next.orderId,waiting.orderId);
     assert.equal(next.driverId,third.id);
@@ -119,7 +122,9 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
     assert.equal(stale.data.code,'OFFER_ALREADY_CLOSED');
     assert.equal((await pool.query('SELECT state FROM tala_core_v2.dispatch_offers WHERE id=$1',
       [next.offerId])).rows[0].state,'expired');
-    assert.equal((await dispatchNext(pool)).state,'no_driver');
+    assert.equal((await dispatchNext(pool,{
+      orderIds:scope.orderIds,driverIds:[...scope.driverIds,third.id]
+    })).state,'no_driver');
 
     await assert.rejects(recoverUncollectedAssignment(pool,assigned.orderId,5n,key()),
       error=>error.code==='RECOVERY_NOT_DUE');
