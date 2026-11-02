@@ -148,3 +148,68 @@ test('Reroute v2: two simultaneous reroutes cannot assign same order twice',{
   assert.equal(q.rows[0].n,1);
  }finally{await dbpool.end();}
 });
+
+test('Security: reroute requires Orders pre-pickup verifier and fails closed on denial',{
+ skip:!enabled
+},async()=>{
+ const dbpool=pool();
+ try{
+  const zone=z(),old=await setup(dbpool,zone,p(20.6531,-103.699));
+  await setup(dbpool,zone,p(20.655,-103.699));
+  const order=req(zone);
+  assert.equal((await reserveNearestDelivery(dbpool,order,key(),p())).courierId,old);
+  await setCourierOnline(dbpool,old,false);
+  const cmd=key();
+  await assert.rejects(reassignUnavailableDelivery(
+   dbpool,order.orderId,'1',cmd,p()),
+   expectCode('LOGISTICS_ORDER_VERIFICATION_REQUIRED'));
+  await assert.rejects(reassignUnavailableDelivery(
+   dbpool,order.orderId,'1',cmd,p(),20000,async()=>false),
+   expectCode('LOGISTICS_ORDER_NOT_VERIFIED_PRE_PICKUP'));
+  const unchanged=await dbpool.query(
+   "SELECT version,courier_id FROM tala_logistics_v2.dispatch_reservations WHERE order_id=$1",
+   [order.orderId]);
+  assert.deepEqual(unchanged.rows[0],{version:'1',courier_id:old});
+  const events=await dbpool.query(
+   "SELECT count(*)::int AS n FROM tala_logistics_v2.dispatch_events WHERE order_id=$1",
+   [order.orderId]);
+  assert.equal(events.rows[0].n,1);
+  // The temporary CI-only stub accepts the original order, not an HTTP claimant.
+  let received=false;
+  const check=async (client,context)=>{
+   received=true;
+   assert.equal(context.orderId,order.orderId);
+   assert.equal(context.restaurantId,order.restaurantId);
+   assert.equal(context.courierId,old);
+   assert.equal(context.zone,zone);
+   const r=await client.query('SELECT 1 AS ok');
+   return r.rows[0].ok===1;
+  };
+  assert.equal((await reassignUnavailableDelivery(
+   dbpool,order.orderId,'1',cmd,p(),20000,check)).decision,'REASSIGNED');
+  assert.equal(received,true);
+ }finally{await dbpool.end();}
+});
+test('Security: changed reroute target/radius on same command key is not a replay',{
+ skip:!enabled
+},async()=>{
+ const dbpool=pool();
+ try{
+  const zone=z(),old=await setup(dbpool,zone,p(20.6531,-103.699));
+  await setup(dbpool,zone,p(20.655,-103.699));
+  const order=req(zone),cmd=key();
+  await reserveNearestDelivery(dbpool,order,key(),p());
+  await setCourierOnline(dbpool,old,false);
+  const prior=await reassignUnavailableDelivery(
+   dbpool,order.orderId,'1',cmd,p(),20000,verify);
+  assert.equal(prior.decision,'REASSIGNED');
+  await assert.rejects(reassignUnavailableDelivery(
+   dbpool,order.orderId,'1',cmd,p(20.654,-103.699),20000,verify),
+   expectCode('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT'));
+  await assert.rejects(reassignUnavailableDelivery(
+   dbpool,order.orderId,'1',cmd,p(),18000,verify),
+   expectCode('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT'));
+  assert.equal((await reassignUnavailableDelivery(
+   dbpool,order.orderId,'1',cmd,p(),20000,verify)).replayed,true);
+ }finally{await dbpool.end();}
+});
