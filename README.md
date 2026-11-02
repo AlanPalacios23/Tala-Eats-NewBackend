@@ -2,7 +2,7 @@
 
 Backend modular nuevo de **TALA EATS**, desarrollado por fases.
 
-> **Estado actual: PEDIDOS funcional en laboratorio aislado (NO-GO comercial).**
+> **Estado actual: PEDIDOS + LOGÍSTICA LAB1 en laboratorio aislado (NO-GO comercial).**
 > API HTTP con login, checkout cash, cocina, pickup/delivery, PIN y custodia de efectivo.
 > No está desplegado en Kali ni acepta pagos Stripe o pedidos comerciales.
 > No comparte PostgreSQL con el backend anterior.
@@ -13,7 +13,7 @@ Backend modular nuevo de **TALA EATS**, desarrollado por fases.
 - Futuro **Redis + workers** para GPS, colas, notificaciones y recuperación;
   se añadirán cuando un módulo los necesite.
 - Varias interfaces: Usuarios, Restaurantes, Repartidores y ADMIN.
-- Una funcionalidad principal a la vez: **PEDIDOS primero**.
+- Evolución por módulos: **PEDIDOS (PR #1)** → **LOGÍSTICA LAB1 (PR #4)**.
 
 ## Estructura actual
 
@@ -31,6 +31,9 @@ src/
       lab-auth.ts        # autenticación temporal de LAB
       orders-read.ts     # timeline por actor y recibo inmutable del comprador
       orders-audit.ts    # auditoría read-only de integridad y eventos
+    logistics/
+      driver-operations.ts # presencia, control de capacidad, GPS reciente
+      tala-dispatch-engine.ts # ofertas, aceptación, caducidad y recuperación
   server.ts              # GET /health y /ready; API solo con gate LAB
 migrations/
   001_orders.sql         # orders, items, eventos inmutables, outbox
@@ -40,6 +43,8 @@ migrations/
   005_orders_integrity_lab.sql # snapshots/custodia inmutables y FK del SKU
   006_order_pin_rate_lab.sql # cuota SQL de PIN por pedido
   007_orders_address_handoff_integrity_lab.sql # dirección y evidencias write-once
+  008_logistics_lab.sql # capacidad 1, comandos presencia, GPS más reciente
+  009_tala_dispatch_engine_lab.sql # ofertas, latido y rotación
 tests/
   orders.test.mjs        # reglas de estados y precios
   postgres-schema.test.mjs # restricciones PostgreSQL, CI aislada
@@ -49,6 +54,8 @@ tests/
   orders-handoff.test.mjs # E2E pickup/delivery con PIN y efectivo
   orders-read.test.mjs # timeline multirrol, recibos, privacidad y detalle histórico
   orders-postdeploy.test.mjs # auditoría read-only de postdespliegue
+  logistics-lab.test.mjs # capacidad concurrente, GPS/presencia, limpieza al entregar
+  tala-dispatch-engine.test.mjs # ofertas, consentimientos, carrera y recuperación
 docs/
   ARQUITECTURA_Y_MIGRACION.md
 .github/workflows/
@@ -61,7 +68,7 @@ docs/
 2. `npm install`; después `npm test` y `npm run build`.
 3. Copiar `.env.example` a `.env` y apuntar exclusivamente a una DB nueva
    de laboratorio (jamás `tala_node_live` ni `tala_node_stage`).
-4. Aplicar las migraciones `001`–`007` en orden **solo en una DB llamada `tala_core_v2_lab`**.
+4. En esta rama de Logística, aplicar las migraciones `001`–`009` en orden **solo en una DB llamada `tala_core_v2_lab`**.
 5. Arranque normal: `CORE_V2_WRITES_ENABLED=false` y `npm run dev`.
 6. Para activar **únicamente el laboratorio**, usar `CORE_V2_RUNTIME=isolated-lab`,
    `CORE_V2_WRITES_ENABLED=true`, host `127.0.0.1`, DB local `tala_core_v2_lab`.
@@ -88,6 +95,8 @@ completamente reproducibles.
 - Repartidor solo si perfil LAB aprobado; reclamación atómica y acceso a la
   dirección exclusivamente después de asignación.
 - Pruebas HTTP E2E completas de **laboratorio**, sin validación comercial LIVE.
+- **Logística LAB1**: presencia online/offline con versión e idempotencia, una entrega activa por repartidor y último GPS privado sin historial, eliminado al completar la entrega. Solo disponibles en localhost de laboratorio.
+- **Tala Dispatch Engine LAB2**: ofertas de 60 s, aceptación/rechazo, latido reciente (90 s), reparto por última oferta y recuperación manual protegida de asignaciones no recogidas. `scripts/dispatch-lab-once.mjs` ejecuta solo un ciclo en laboratorio aislado. No hay ETA real ni despacho LIVE.
 
 ## Qué falta antes de habilitar PEDIDOS en LIVE
 - Autenticación real y provisión verificada de identidades y miembros autorizados
@@ -122,6 +131,10 @@ Auditoría y endurecimiento del Módulo 1:
 [MODULO1-AUDITORIA-HARDENING.md](docs/MODULO1-AUDITORIA-HARDENING.md).
 La suite de pruebas PostgreSQL 16 incluye permisos, idempotencia, carreras
 aceptar/cancelar, dirección pickup, rate limiting y timeout SQL.
+
+Lee [MODULO2-LOGISTICA-LAB1.md](docs/MODULO2-LOGISTICA-LAB1.md) para la primera fase de Logística, sus pruebas y límites.
+
+Lee [MODULO2-TALA-DISPATCH-ENGINE-LAB2.md](docs/MODULO2-TALA-DISPATCH-ENGINE-LAB2.md) para el motor de ofertas, latido y recuperación.
 
 Lee [ARQUITECTURA_Y_MIGRACION.md](docs/ARQUITECTURA_Y_MIGRACION.md)
 para conocer la estrategia de convivencia y retiro del backend anterior.

@@ -139,6 +139,16 @@ export async function availableDriverOrders(pool:Pool,driverId:string){
         JOIN tala_core_v2.accounts a ON a.id=p.account_id
         WHERE p.account_id=$1::uuid AND p.approved=true AND p.is_online=true
           AND a.is_active=true AND a.role='driver')
+      AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers f
+        WHERE f.order_id=o.id AND f.state='offered')
+      AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers f
+        WHERE f.driver_id=$1::uuid AND f.state='offered')
+      AND NOT EXISTS(
+        SELECT 1 FROM tala_core_v2.order_driver_assignments active
+        JOIN tala_core_v2.orders ao ON ao.id=active.order_id
+        WHERE active.driver_id=$1::uuid
+          AND ao.status IN ('assigned','picked_up','on_the_way')
+      )
     ORDER BY o.created_at,o.id LIMIT 50`,[driverId]);
   return r.rows;
 }
@@ -165,7 +175,7 @@ export async function claimDelivery(pool:Pool,cmd:Command):Promise<Result>{
       SELECT p.is_online FROM tala_core_v2.driver_profiles p
       JOIN tala_core_v2.accounts a ON a.id=p.account_id
       WHERE p.account_id=$1::uuid AND p.approved=true
-        AND a.is_active=true AND a.role='driver' FOR SHARE OF p,a`,[cmd.actorId]);
+        AND a.is_active=true AND a.role='driver' FOR UPDATE OF p FOR SHARE OF a`,[cmd.actorId]);
     if(!p.rows[0])throw new OrderServiceError('DRIVER_NOT_AVAILABLE');
     const k=codeKey('driver.claim.v1',cmd);
     const replay=await checkReplay(client,order,k,cmd,'assigned');
@@ -176,6 +186,21 @@ export async function claimDelivery(pool:Pool,cmd:Command):Promise<Result>{
       return {orderId:order.id,...replay,replayed:true};
     }
     if(!p.rows[0].is_online)throw new OrderServiceError('DRIVER_NOT_AVAILABLE');
+    // An active dispatch offer must be accepted through the dedicated route:
+    // direct self-claim must not steal an order offered to another driver.
+    const offer=await client.query(`
+      SELECT 1 FROM tala_core_v2.dispatch_offers
+      WHERE state='offered' AND (order_id=$1::uuid OR driver_id=$2::uuid)
+      LIMIT 1`,[order.id,cmd.actorId]);
+    if(offer.rowCount)throw new OrderServiceError('DISPATCH_OFFER_PENDING');
+    // Serialize claims for DIFFERENT orders through the same profile lock.
+    // The order lock alone cannot enforce per-driver capacity.
+    const busy=await client.query(`
+      SELECT 1 FROM tala_core_v2.order_driver_assignments d
+      JOIN tala_core_v2.orders o ON o.id=d.order_id
+      WHERE d.driver_id=$1::uuid AND o.status IN ('assigned','picked_up','on_the_way')
+      LIMIT 1`,[cmd.actorId]);
+    if(busy.rowCount)throw new OrderServiceError('DRIVER_CAPACITY_EXCEEDED');
     checkVersion(order,cmd);
     if(order.payment_method!=='cash'||order.payment_status!=='pending')
       throw new OrderServiceError('PAYMENT_NOT_ALLOWED');
@@ -388,6 +413,11 @@ export async function finishCashOrder(pool:Pool,cmd:Command,role:'merchant'|'dri
       cashAmountMinor:order.total_minor,custodySettled:false,
       pinVerified:true,buyerAttested:true,custodianAttested:true
     });
+    // Privacy: once the delivery is complete, retain no last-known GPS.
+    // Keep deletion in the SAME transaction as the verified handoff.
+    if(role==='driver')await client.query(
+      'DELETE FROM tala_core_v2.driver_latest_locations WHERE driver_id=$1::uuid',
+      [cmd.actorId]);
     await client.query('COMMIT');committed=true;
     return {orderId:order.id,status:'delivered',version:BigInt(next.rows[0]!.version),replayed:false};
   }catch(error){if(!committed)await client.query('ROLLBACK');throw error;}
