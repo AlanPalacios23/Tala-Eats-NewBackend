@@ -150,18 +150,40 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
       orderIds:scope.orderIds,driverIds:[...scope.driverIds,third.id]
     })).state,'no_driver');
 
+    // Regression: the oldest ready order cannot monopolize dispatch when
+    // every available driver has already declined that particular order.
+    const fresh=await seed('driver');
+    await pool.query(`
+      INSERT INTO tala_core_v2.dispatch_offers
+        (order_id,driver_id,expected_order_version,state,expires_at,decided_at)
+      VALUES($1::uuid,$2::uuid,$3::bigint,'declined',
+        now()+interval '60 seconds',now())`,
+      [waiting.orderId,fresh.id,waiting.version]);
+    const later=await makeOrder();
+    const headOfLine=await dispatchNext(pool,{
+      orderIds:[waiting.orderId,later.id],driverIds:[fresh.id]
+    });
+    assert.equal(headOfLine.state,'offered',JSON.stringify(headOfLine));
+    assert.equal(headOfLine.orderId,later.id,'skips an unserviceable FIFO head');
+    assert.equal(headOfLine.driverId,fresh.id);
+    // An offer can expire before the sweeper has marked it expired.
+    await pool.query(`
+      UPDATE tala_core_v2.dispatch_offers
+      SET created_at=now()-interval '120 seconds',
+          expires_at=now()-interval '60 seconds'
+      WHERE id=$1::uuid`,[headOfLine.offerId]);
+    const lateAccept=await request('POST',
+      '/api/v2/driver/dispatch-offers/'+headOfLine.offerId+'/accept',{},fresh.cookie);
+    assert.equal(lateAccept.status,409);
+    assert.equal(lateAccept.data.code,'OFFER_EXPIRED');
+    assert.equal(await expireDispatchOffers(pool),1);
+
     await assert.rejects(recoverUncollectedAssignment(pool,assigned.orderId,5n,key()),
       error=>error.code==='RECOVERY_NOT_DUE');
     await pool.query(
       "UPDATE tala_core_v2.order_driver_assignments SET assigned_at=now()-interval '30 minutes' WHERE order_id=$1",
       [assigned.orderId]);
-    // Explicit evidence of cash custody or PIN must STOP reassignment.
-    await pool.query(
-      "INSERT INTO tala_core_v2.order_handoffs(order_id,cash_amount_minor,pin_hash,pin_salt,pin_expires_at) SELECT id,total_minor,$2,$3,now()+interval '10 minutes' FROM tala_core_v2.orders WHERE id=$1",
-      [assigned.orderId,'a'.repeat(128),'b'.repeat(32)]);
-    await assert.rejects(recoverUncollectedAssignment(pool,assigned.orderId,5n,key()),
-      error=>error.code==='RECOVERY_CUSTODY_REVIEW_REQUIRED');
-    await pool.query('DELETE FROM tala_core_v2.order_handoffs WHERE order_id=$1',[assigned.orderId]);
+    // A valid recovery with no PIN/cash/custody must still succeed.
     const recoverKey=key();
     const recovered=await recoverUncollectedAssignment(pool,assigned.orderId,5n,recoverKey);
     assert.equal(recovered.status,'ready');
@@ -173,6 +195,37 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
       [assigned.orderId])).rows[0].n,0);
     const revoked=await request('GET','/api/v2/driver/orders',undefined,driver.cookie);
     assert.equal(revoked.data.some(x=>x.id===assigned.orderId),false);
+
+    // Independent order to prove both live and historical handoff evidence
+    // block manual requeue, even if a handoff row was later removed.
+    const protectedOrder=await makeOrder(),protectedDriver=await seed('driver');
+    const protectedOffer=await dispatchNext(pool,{
+      orderIds:[protectedOrder.id],driverIds:[protectedDriver.id]});
+    assert.equal(protectedOffer.state,'offered');
+    const protectedAccept=await request('POST',
+      '/api/v2/driver/dispatch-offers/'+protectedOffer.offerId+'/accept',
+      {},protectedDriver.cookie);
+    assert.equal(protectedAccept.status,200);
+    const protectedVersion=BigInt(protectedAccept.data.version);
+    await pool.query(
+      "UPDATE tala_core_v2.order_driver_assignments SET assigned_at=now()-interval '30 minutes' WHERE order_id=$1",
+      [protectedOrder.id]);
+    await pool.query(
+      "INSERT INTO tala_core_v2.order_handoffs(order_id,cash_amount_minor,pin_hash,pin_salt,pin_expires_at) SELECT id,total_minor,$2,$3,now()+interval '10 minutes' FROM tala_core_v2.orders WHERE id=$1",
+      [protectedOrder.id,'a'.repeat(128),'b'.repeat(32)]);
+    await assert.rejects(recoverUncollectedAssignment(pool,protectedOrder.id,protectedVersion,key()),
+      error=>error.code==='RECOVERY_CUSTODY_REVIEW_REQUIRED');
+    // Simulate a missing current handoff row while immutable audit evidence
+    // of a previously issued PIN remains on the order.
+    await pool.query('DELETE FROM tala_core_v2.order_handoffs WHERE order_id=$1',
+      [protectedOrder.id]);
+    await pool.query(`
+      INSERT INTO tala_core_v2.order_events
+        (order_id,event_key,previous_status,new_status,actor_role,data)
+      VALUES($1::uuid,$2,'assigned','assigned','system',$3::jsonb)`,
+      [protectedOrder.id,key(),JSON.stringify({failedAttemptsReset:true})]);
+    await assert.rejects(recoverUncollectedAssignment(pool,protectedOrder.id,protectedVersion,key()),
+      error=>error.code==='RECOVERY_CUSTODY_REVIEW_REQUIRED');
     const history=await pool.query(
       "SELECT count(*)::int AS n FROM tala_core_v2.outbox WHERE event_type LIKE 'dispatch.%' AND aggregate_id=ANY($1::uuid[])",
       [orders.map(o=>o.id)]);
