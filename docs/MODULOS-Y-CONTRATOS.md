@@ -82,7 +82,13 @@ de que no hubo recogida, entrega ni PIN consumido antes de autorizar
 `reassignUnavailableDelivery`.
 
 No es un endpoint de aplicación ni permite a un cliente crear una
-autorización. **La asignación real registrada en Pedidos sigue siendo
-autoridad final** y la reserva Logística aún no se sincroniza con ella.
-Por tanto, no se puede habilitar despacho real antes de añadir
-orquestación/compensación confiable y comprobar ambos commits.
+autorización. **La asignación de Pedidos sigue siendo la autoridad final.**
+En LAB, el adaptador `commit-reassignment.ts` actualiza Pedidos (conductor,
+versión, evento y outbox) en la **misma transacción** donde Logística cambia
+la reserva. Si falla la aprobación, el estado o el evento, ambas
+operaciones se revierten. `inspect-consistency.ts` permite detectar
+desajustes sin modificar datos ni exponer un endpoint público.
+
+**Límites pendientes:** el despacho inicial todavía no coordina M1/M2
+en una transacción y no hay autenticación de PWA/GPS, notificaciones
+ni recuperación operativa de entregas. Por ello sigue NO-GO comercial.

@@ -96,12 +96,20 @@ se aplica después de 001–007 Pedidos, sin tocar sus tablas.
   estado `assigned`, `fulfillment=delivery`, tienda, conductor
   de M1 y ausencia de evidencia de `picked_up/on_the_way/delivered`
   o PIN consumido. El Módulo 2 **no importa código de Pedidos**.
-- Este puente **no autentica a un cliente HTTP** ni modifica la
-  asignación que guarda M1. La coordinación de commit entre M1 y M2,
-  el registro del cambio de conductor en M1, autenticación PWA/GPS,
-  notificaciones y recuperación con reintentos están **PENDIENTES**.
-  Los callbacks permisivos existen solo dentro de pruebas desechables;
-  nunca deben utilizarse en el servicio publicado.
+- El puente **no autentica clientes HTTP**. Para la reasignación,
+  `src/integrations/orders-logistics/commit-reassignment.ts` hace
+  la actualización M1 en la **misma transacción** que M2:
+  valida el conductor aprobado y activo en M1, actualiza la asignación
+  y versión del pedido, y crea evento y outbox inmutables. Una
+  excepción revierte ambos módulos.
+- `inspect-consistency.ts` inspecciona una orden de manera
+  **solo lectura** y detecta `COURIER_MISMATCH` sin autorreparación.
+- Los callbacks permisivos existen solo dentro de pruebas CI aisladas;
+  nunca deben utilizarse en un servicio de producción.
+- Pendientes: identidad/autorización real de la PWA, transacción para
+  **primera** asignación (el desarrollo actual cubre reasignación),
+  rutas y ETA reales, notificaciones, observabilidad y pruebas E2E
+  comerciales.
 
 ### Configuración exigida para ejecución interna de Logística
 Definir `TALA_DISPATCH_HMAC_KEY` mediante el administrador de secretos
@@ -109,4 +117,5 @@ del entorno (mínimo 32 bytes aleatorios). Nunca reutilizar la clave
 de CI; rotarla requiere un procedimiento que preserve la verificación
 de reintentos del historial. El servicio de Render actual **no recibe**
 esta configuración ni expone estas funciones. La autenticación GPS y
-del conductor sigue pendiente, al igual que el commit coordinado con M1.
+del conductor sigue pendiente; el commit coordinado de reasignación
+ya existe en LAB, pero NO el despacho inicial coordinado.

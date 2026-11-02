@@ -139,9 +139,14 @@ El adaptador `src/integrations/orders-logistics/verify-pre-pickup.ts`
 es de solo lectura y se prueba con PostgreSQL 16; mantiene ambas
 carpetas de negocio independientes.
 
-**Todavía NO existe el handoff transaccional completo entre módulos**:
-el cambio en la reserva de Logística NO actualiza el conductor asignado
-en el módulo de Pedidos. Tampoco hay autenticación HTTP, permisos GPS
-de la PWA, liquidación financiera, ETA vial o deploy público.
-Prohibido utilizar el servicio como dispatcher comercial hasta
-completar esa transacción multi-módulo y las pruebas E2E.
+**Actualización LAB de seguridad:** la reasignación sí actualiza
+Pedidos y Logística en un solo COMMIT a través de dos callbacks
+confiables `verifyOrdersPrePickup` y `commitOrdersReassignment`.
+Esto incluye el conductor de M1, versión, evento y outbox y evita que
+la reserva cambie sin que Pedidos acepte al sustituto. El inspector
+`inspectDispatchConsistency` permite detectar divergencias existentes.
+
+**Todavía NO existe el handoff completo para la PRIMERA asignación**,
+ni autenticación HTTP, permisos GPS de la PWA, rutas ETA viales,
+liquidación financiera o despliegue público. La reasignación transaccional
+está probada exclusivamente con PostgreSQL 16 desechable de CI.
