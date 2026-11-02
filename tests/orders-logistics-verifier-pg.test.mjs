@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {verifyOrdersPrePickup} from '../src/integrations/orders-logistics/verify-pre-pickup.ts';
+import {commitOrdersReassignment} from '../src/integrations/orders-logistics/commit-reassignment.ts';
 import {enrollCourier,approveCourier,setCourierOnline,recordCourierPosition,
   reserveNearestDelivery,reassignUnavailableDelivery,LogisticsError}
  from '../src/modules/modulo-2-logistica/index.ts';
@@ -19,6 +20,15 @@ async function courier(p,z,id,lat){
  await approveCourier(p,id,true);
  await setCourierOnline(p,id,true);
  await recordCourierPosition(p,id,{latitude:lat,longitude:-103.699},10);
+}
+async function approvedM1Courier(p,id){
+ await p.query(
+  "INSERT INTO tala_core_v2.accounts (id,email,display_name,password_hash,role) "+
+  "VALUES($1,$2,$3,$4,'driver')",
+  [id,randomUUID()+'@lab.test','QA Driver','lab-only-not-a-real-password']
+ );
+ await p.query("INSERT INTO tala_core_v2.driver_profiles(account_id,approved,is_online) "+
+  "VALUES($1,true,true)",[id]);
 }
 async function orderFixture(p,courierId,status='assigned'){
  const id=randomUUID(),restaurantId=randomUUID();
@@ -95,6 +105,7 @@ test('Orders bridge: reroute only with actual pre-pickup M1 order lock',{
   await courier(p,z,original,20.6531);
   await courier(p,z,replacement,20.655);
   const o=await orderFixture(p,original);
+  await approvedM1Courier(p,replacement);
   const r=await reserveNearestDelivery(p,{
    orderId:o.id,restaurantId:o.restaurantId,deliveryZone:z,
    orderStatus:'ready',fulfillment:'delivery'
@@ -102,13 +113,22 @@ test('Orders bridge: reroute only with actual pre-pickup M1 order lock',{
   assert.equal(r.decision,'RESERVED');
   assert.equal(r.courierId,original);
   await setCourierOnline(p,original,false);
-  const changed=await reassignUnavailableDelivery(p,o.id,'1',key(),pickup,20000,verifyOrdersPrePickup);
+  const changed=await reassignUnavailableDelivery(p,o.id,'1',key(),pickup,20000,
+   verifyOrdersPrePickup,commitOrdersReassignment);
   assert.equal(changed.decision,'REASSIGNED');
   assert.equal(changed.courierId,replacement);
   const dbOrder=await p.query(
-   "SELECT status FROM tala_core_v2.orders WHERE id=$1",[o.id]);
-  assert.equal(dbOrder.rows[0].status,'assigned',
-   'Logistics does not mutate an M1 order or driver claim');
+   "SELECT o.status,o.version,a.driver_id FROM tala_core_v2.orders o "+
+   "JOIN tala_core_v2.order_driver_assignments a ON a.order_id=o.id "+
+   "WHERE o.id=$1",[o.id]);
+  assert.equal(dbOrder.rows[0].status,'assigned');
+  assert.equal(dbOrder.rows[0].driver_id,replacement,
+   'Orders and Logistics must commit the SAME replacement');
+  assert.equal(dbOrder.rows[0].version,'2');
+  const audit=await p.query(
+   "SELECT COUNT(*)::int n FROM tala_core_v2.order_events "+
+   "WHERE order_id=$1 AND data->>'courierId'=$2",[o.id,replacement]);
+  assert.equal(audit.rows[0].n,1);
  }finally{await p.end();}
 });
 test('Orders bridge: M1 pickup prevents any mutation in logistics',{
@@ -120,6 +140,7 @@ test('Orders bridge: M1 pickup prevents any mutation in logistics',{
   await courier(p,z,original,20.6531);
   await courier(p,z,replacement,20.655);
   const o=await orderFixture(p,original);
+  await approvedM1Courier(p,replacement);
   const r=await reserveNearestDelivery(p,{
    orderId:o.id,restaurantId:o.restaurantId,deliveryZone:z,
    orderStatus:'ready',fulfillment:'delivery'
@@ -128,7 +149,7 @@ test('Orders bridge: M1 pickup prevents any mutation in logistics',{
   await setCourierOnline(p,original,false);
   await p.query("UPDATE tala_core_v2.orders SET status='picked_up' WHERE id=$1",[o.id]);
   await assert.rejects(reassignUnavailableDelivery(
-   p,o.id,'1',key(),pickup,20000,verifyOrdersPrePickup),
+   p,o.id,'1',key(),pickup,20000,verifyOrdersPrePickup,commitOrdersReassignment),
    rejectCode('LOGISTICS_ORDER_NOT_VERIFIED_PRE_PICKUP'));
   const unchanged=await p.query(
    'SELECT courier_id,version FROM tala_logistics_v2.dispatch_reservations WHERE order_id=$1',[o.id]);
