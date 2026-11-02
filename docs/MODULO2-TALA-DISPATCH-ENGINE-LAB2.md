@@ -16,6 +16,7 @@
 
 | Método | Ruta | Propósito |
 | --- | --- | --- |
+| GET | `/api/v2/driver/logistics` | Resumen de capacidad, presencia y ofertas pendientes **accionables**. No cuenta ofertas que ya no pueden aceptarse (vencidas, pedido modificado, cuenta no apta, heartbeat caducado). El heartbeat se evalúa con el reloj de PostgreSQL. |
 | POST | `/api/v2/driver/heartbeat` | Cuerpo `{}`. Renueva una señal de presencia solo si la sesión es de driver aprobado y online; máximo una actualización cada 10 segundos; caduca a los 90 segundos. No exige ni registra GPS. |
 | GET | `/api/v2/driver/dispatch-offers` | Muestra únicamente ofertas propias vigentes, restaurante y vencimiento; jamás el domicilio ni el nombre del comprador. |
 | POST | `/api/v2/driver/dispatch-offers/:offerId/accept` | Requiere identidad driver y cuerpo JSON `{}`; valida vencimiento, perfil, versión, efectivo y capacidad en una transacción. |
