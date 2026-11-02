@@ -213,3 +213,26 @@ test('Security: changed reroute target/radius on same command key is not a repla
    dbpool,order.orderId,'1',cmd,p(),20000,verify)).replayed,true);
  }finally{await dbpool.end();}
 });
+
+test('Security: original reserve command cannot replay after courier reroute',{
+ skip:!enabled
+},async()=>{
+ const dbpool=pool();
+ try{
+  const zone=z(),old=await setup(dbpool,zone,p(20.6531,-103.699));
+  await setup(dbpool,zone,p(20.655,-103.699));
+  const order=req(zone),originalKey=key();
+  const first=await reserveNearestDelivery(dbpool,order,originalKey,p());
+  assert.equal(first.courierId,old);
+  await setCourierOnline(dbpool,old,false);
+  assert.equal((await reassignUnavailableDelivery(dbpool,order.orderId,'1',key(),p(),20000,verify)).decision,'REASSIGNED');
+  await assert.rejects(
+   reserveNearestDelivery(dbpool,order,originalKey,p()),
+   expectCode('LOGISTICS_RESERVATION_SUPERSEDED')
+  );
+  const evidence=await dbpool.query(
+   "SELECT count(*)::int AS n FROM tala_logistics_v2.dispatch_events WHERE order_id=$1",
+   [order.orderId]);
+  assert.equal(evidence.rows[0].n,2);
+ }finally{await dbpool.end();}
+});
