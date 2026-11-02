@@ -32,6 +32,8 @@ app.get('/ready', async (_req,res) => {
         to_regclass('tala_core_v2.restaurant_memberships') IS NOT NULL AS members_ready,
         to_regclass('tala_core_v2.order_handoffs') IS NOT NULL AS handoff_ready,
         to_regclass('tala_core_v2.driver_profiles') IS NOT NULL AS drivers_ready,
+        to_regclass('tala_core_v2.driver_presence_commands') IS NOT NULL AS presence_ready,
+        to_regclass('tala_core_v2.driver_latest_locations') IS NOT NULL AS location_ready,
         EXISTS(SELECT 1 FROM information_schema.columns
           WHERE table_schema='tala_core_v2' AND table_name='order_handoffs'
             AND column_name='pin_generation_count') AS pin_budget_ready,
@@ -46,7 +48,7 @@ app.get('/ready', async (_req,res) => {
     );
     const schemaReady = result.rows[0]?.orders_ready === true &&
       (process.env.CORE_V2_WRITES_ENABLED!=='true'||
-        ['accounts_ready','sessions_ready','restaurants_ready','catalog_ready','members_ready','handoff_ready','drivers_ready','pin_budget_ready','snapshot_ready','handoff_proof_ready']
+        ['accounts_ready','sessions_ready','restaurants_ready','catalog_ready','members_ready','handoff_ready','drivers_ready','presence_ready','location_ready','pin_budget_ready','snapshot_ready','handoff_proof_ready']
           .every(k=>result.rows[0]?.[k]===true));
     res.status(schemaReady?200:503).json({
       ready:schemaReady,
@@ -86,6 +88,8 @@ if (writesFlag==='true') {
       to_regclass('tala_core_v2.restaurant_memberships') IS NOT NULL AS members_ready,
         to_regclass('tala_core_v2.order_handoffs') IS NOT NULL AS handoff_ready,
         to_regclass('tala_core_v2.driver_profiles') IS NOT NULL AS drivers_ready,
+        to_regclass('tala_core_v2.driver_presence_commands') IS NOT NULL AS presence_ready,
+        to_regclass('tala_core_v2.driver_latest_locations') IS NOT NULL AS location_ready,
         EXISTS(SELECT 1 FROM information_schema.columns
           WHERE table_schema='tala_core_v2' AND table_name='order_handoffs'
             AND column_name='pin_generation_count') AS pin_budget_ready,
@@ -99,7 +103,7 @@ if (writesFlag==='true') {
         ) AS handoff_proof_ready`);
     const row=result.rows[0];
     if(row?.db_name!==dbName||
-      !['orders_ready','accounts_ready','sessions_ready','products_ready','members_ready','handoff_ready','drivers_ready','pin_budget_ready','snapshot_ready','handoff_proof_ready'].every(k=>row?.[k]===true)){
+      !['orders_ready','accounts_ready','sessions_ready','products_ready','members_ready','handoff_ready','drivers_ready','presence_ready','location_ready','pin_budget_ready','snapshot_ready','handoff_proof_ready'].every(k=>row?.[k]===true)){
       throw Error('LAB_SCHEMA_NOT_READY');
     }
   }catch{
