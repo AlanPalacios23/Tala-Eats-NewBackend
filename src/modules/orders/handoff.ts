@@ -139,6 +139,10 @@ export async function availableDriverOrders(pool:Pool,driverId:string){
         JOIN tala_core_v2.accounts a ON a.id=p.account_id
         WHERE p.account_id=$1::uuid AND p.approved=true AND p.is_online=true
           AND a.is_active=true AND a.role='driver')
+      AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers f
+        WHERE f.order_id=o.id AND f.state='offered')
+      AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers f
+        WHERE f.driver_id=$1::uuid AND f.state='offered')
       AND NOT EXISTS(
         SELECT 1 FROM tala_core_v2.order_driver_assignments active
         JOIN tala_core_v2.orders ao ON ao.id=active.order_id
@@ -182,6 +186,13 @@ export async function claimDelivery(pool:Pool,cmd:Command):Promise<Result>{
       return {orderId:order.id,...replay,replayed:true};
     }
     if(!p.rows[0].is_online)throw new OrderServiceError('DRIVER_NOT_AVAILABLE');
+    // An active dispatch offer must be accepted through the dedicated route:
+    // direct self-claim must not steal an order offered to another driver.
+    const offer=await client.query(`
+      SELECT 1 FROM tala_core_v2.dispatch_offers
+      WHERE state='offered' AND (order_id=$1::uuid OR driver_id=$2::uuid)
+      LIMIT 1`,[order.id,cmd.actorId]);
+    if(offer.rowCount)throw new OrderServiceError('DISPATCH_OFFER_PENDING');
     // Serialize claims for DIFFERENT orders through the same profile lock.
     // The order lock alone cannot enforce per-driver capacity.
     const busy=await client.query(`
