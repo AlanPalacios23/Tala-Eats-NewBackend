@@ -74,7 +74,7 @@ export async function expireDispatchOffers(pool:Pool,limit=20){
 /** Trusted scope allows one market/cohort; no arbitrary HTTP-selected scope. */
 export type DispatchScope={orderIds?:string[];driverIds?:string[]};
 /** Worker makes ONE 60-second offer, never auto-assigns an unconsenting driver. */
-export async function dispatchNext(pool:Pool,scope:DispatchScope={}):Promise<
+export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Promise<
   {state:'offered';offerId:string;orderId:string;driverId:string;expiresAt:string}
   |{state:'idle'|'no_driver';orderId?:string}>{
   for(const ids of [scope.orderIds,scope.driverIds]){
@@ -121,8 +121,15 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={}):Promise<
       INSERT INTO tala_core_v2.dispatch_offers
         (order_id,driver_id,expected_order_version,expires_at)
       VALUES($1::uuid,$2::uuid,$3::bigint,now()+($4::int*interval '1 second'))
+      ON CONFLICT DO NOTHING
       RETURNING id,expires_at`,[order.id,driver.account_id,order.version,OFFER_SECONDS]);
-    const offer=rows.rows[0]!;
+    // READ COMMITTED can select a row based on a snapshot just before a
+    // competing worker commits. A uniqueness conflict is not a worker crash.
+    if(!rows.rows[0]){
+      await c.query('ROLLBACK');
+      return retry<3?dispatchNext(pool,scope,retry+1):{state:'idle'};
+    }
+    const offer=rows.rows[0];
     await audit(c,order,offer.id,driver.account_id,'dispatch.offer.created',
       'ready','ready',order.version);
     await c.query('COMMIT');
