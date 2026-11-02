@@ -1,6 +1,9 @@
 -- CORE v2 / TALА DISPATCH ENGINE: private offer queue, LAB ONLY.
 -- AFTER 001-008. No shared/LIVE/Render migration.
 BEGIN;
+ALTER TABLE tala_core_v2.driver_profiles
+  ADD COLUMN dispatch_heartbeat_at timestamptz,
+  ADD COLUMN last_dispatch_offer_at timestamptz;
 CREATE TABLE tala_core_v2.dispatch_offers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id uuid NOT NULL REFERENCES tala_core_v2.orders(id),
