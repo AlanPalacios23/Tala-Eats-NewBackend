@@ -5,8 +5,8 @@
 ## Política de despacho actual
 
 - Pedidos **cash/pending** a domicilio en estado **ready**; se selecciona el más antiguo primero.
-- Un trabajador interno invoca `dispatchNext(pool)`; no hay endpoint HTTP público para iniciar el despacho.
-- Orden de candidatos: repartidor activo, aprobado, online, libre (capacidad=1), sin ofertas pendientes, sin ofertas previas del mismo pedido; prioridad `presence_updated_at`, luego ID para resultados deterministas.
+- Un trabajador interno invoca `dispatchNext(pool)`; no hay endpoint HTTP público para iniciar el despacho. Acepta un `DispatchScope` interno de IDs de pedidos y conductores para cohortes aisladas. Este control no puede enviarlo un cliente HTTP.
+- Orden de candidatos: repartidor activo, aprobado, online, con **heartbeat autenticado de menos de 90 segundos**, libre (capacidad=1), sin ofertas pendientes, sin ofertas previas del mismo pedido; prioridad a quien no tenga ofertas recientes, después `presence_updated_at` e ID. Evita sesiones online abandonadas y distribuye mejor los ofrecimientos.
 - El motor **no fuerza una asignación**: genera una oferta con vencimiento a **60 segundos**. El conductor acepta o rechaza voluntariamente.
 - Una oferta pendiente por pedido y por conductor, garantizado mediante índices únicos parciales PostgreSQL, incluso bajo concurrencia.
 - Después de diez ofertas históricas para un pedido, no se generan nuevas ofertas automáticas; requiere revisión humana. No es una garantía de que exista repartidor.
@@ -16,6 +16,7 @@
 
 | Método | Ruta | Propósito |
 | --- | --- | --- |
+| POST | `/api/v2/driver/heartbeat` | Cuerpo `{}`. Renueva una señal de presencia solo si la sesión es de driver aprobado y online; máximo una actualización cada 10 segundos; caduca a los 90 segundos. No exige ni registra GPS. |
 | GET | `/api/v2/driver/dispatch-offers` | Muestra únicamente ofertas propias vigentes, restaurante y vencimiento; jamás el domicilio ni el nombre del comprador. |
 | POST | `/api/v2/driver/dispatch-offers/:offerId/accept` | Requiere identidad driver y cuerpo JSON `{}`; valida vencimiento, perfil, versión, efectivo y capacidad en una transacción. |
 | POST | `/api/v2/driver/dispatch-offers/:offerId/decline` | Rechazo seguro; un reintento del mismo rechazo es idempotente. |
