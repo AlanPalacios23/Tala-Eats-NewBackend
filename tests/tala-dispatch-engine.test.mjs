@@ -158,7 +158,7 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
         (order_id,driver_id,expected_order_version,state,expires_at,decided_at)
       VALUES($1::uuid,$2::uuid,$3::bigint,'declined',
         now()+interval '60 seconds',now())`,
-      [waiting.orderId,fresh.id,waiting.version]);
+      [waiting.orderId,fresh.id,orders.find(o=>o.id===waiting.orderId).version]);
     const later=await makeOrder();
     const headOfLine=await dispatchNext(pool,{
       orderIds:[waiting.orderId,later.id],driverIds:[fresh.id]
