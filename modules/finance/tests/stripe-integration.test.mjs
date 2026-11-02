@@ -48,7 +48,8 @@ test('M3 isolated SQL: trusted contract, signed capture, replay, concurrency, an
         paymentIntentId:'pi_another_0123456789'}),'INTENT_CONFLICT');
       const signed=event(paymentIntentId,eventId);
       await fail(()=>recordSignedTestCapture(pool,
-        {...signed,signatureHeader:signed.signatureHeader.replace(/.$/,'0')}),
+        {...signed,signatureHeader:signed.signatureHeader.slice(0,-1)+
+          (signed.signatureHeader.endsWith('0')?'1':'0')}),
         'WEBHOOK_SIGNATURE_INVALID');
       await fail(()=>recordSignedTestCapture(pool,
         event(paymentIntentId,'evt_low_amount_123456',30649)),
