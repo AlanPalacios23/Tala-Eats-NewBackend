@@ -277,15 +277,16 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
 
     // Once ten offers have been consumed, report manual review, not idle.
     const reviewOrder=await makeOrder();
-    const reviewer=await seed('driver');
+    // Reuse the already-seeded courier: do not bypass LAB login throttling
+    // just to produce a historical-offer fixture.
     await pool.query(`
       INSERT INTO tala_core_v2.dispatch_offers
         (order_id,driver_id,expected_order_version,state,expires_at,decided_at)
       SELECT $1::uuid,$2::uuid,$3::bigint,'declined',
         clock_timestamp()+interval '60 seconds',clock_timestamp()
-      FROM generate_series(1,10)`,[reviewOrder.id,reviewer.id,reviewOrder.version]);
+      FROM generate_series(1,10)`,[reviewOrder.id,offlineCourier.id,reviewOrder.version]);
     const review=await dispatchNext(pool,{
-      orderIds:[reviewOrder.id],driverIds:[reviewer.id]});
+      orderIds:[reviewOrder.id],driverIds:[offlineCourier.id]});
     assert.deepEqual(review,{state:'needs_review',orderId:reviewOrder.id});
 
     // The pre-acceptance DB deadline must be checked even after waiting
