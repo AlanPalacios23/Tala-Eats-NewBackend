@@ -53,6 +53,10 @@ export async function getDriverLogistics(pool:Pool,driverId:string){
     SELECT count(*)::text AS count FROM tala_core_v2.order_driver_assignments d
     JOIN tala_core_v2.orders o ON o.id=d.order_id
     WHERE d.driver_id=$1::uuid AND o.status IN ('assigned','picked_up','on_the_way')`,[driverId]);
+  const pending=await pool.query<{count:string}>(`
+    SELECT count(*)::text AS count FROM tala_core_v2.dispatch_offers
+    WHERE driver_id=$1::uuid AND state='offered'`,[driverId]);
+  const pendingOffers=Number(pending.rows[0]?.count??0);
   const loc=await pool.query<{received_at:Date}>(`
     SELECT received_at FROM tala_core_v2.driver_latest_locations
     WHERE driver_id=$1::uuid`,[driverId]);
@@ -60,8 +64,8 @@ export async function getDriverLogistics(pool:Pool,driverId:string){
   const hb=p.rows[0].dispatch_heartbeat_at;
   const heartbeatFresh=hb!==null&&Date.now()-new Date(hb).getTime()<=90000;
   return {online:p.rows[0].is_online,presenceVersion:p.rows[0].presence_version,
-    dispatchEligible:p.rows[0].is_online&&heartbeatFresh&&Number(active.rows[0]?.count??0)===0,
-    activeDeliveries:Number(active.rows[0]?.count??0),capacity:1,
+    dispatchEligible:p.rows[0].is_online&&heartbeatFresh&&Number(active.rows[0]?.count??0)===0&&pendingOffers===0,
+    pendingOffers,activeDeliveries:Number(active.rows[0]?.count??0),capacity:1,
     locationFresh:age!==null&&age<=120,locationAgeSeconds:age};
 }
 type Presence={online:boolean;expectedVersion:bigint;commandKey:string};
