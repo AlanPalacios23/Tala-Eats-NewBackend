@@ -147,7 +147,8 @@ export async function reserveDelivery(pool:Pool,
         bad('LOGISTICS_ORDER_CONFLICT');
       if(row.status!=='reserved')bad('LOGISTICS_DISPATCH_FINALIZED');
       const previous=await client.query<{
-        event_type:string;details:{dispatchMethod?:string;commandDigest?:string}
+        event_type:string;details:{dispatchMethod?:string;commandDigest?:string;
+          courierId?:string;version?:string}
       }>(
         `SELECT event_type,details FROM tala_logistics_v2.dispatch_events
          WHERE order_id=$1::uuid AND command_key=$2`,[orderId,commandKey]
@@ -158,6 +159,11 @@ export async function reserveDelivery(pool:Pool,
           bad('LOGISTICS_DISPATCH_MODE_CONFLICT');
         if(previous.rows[0].details?.commandDigest!==digest)
           bad('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT');
+        // An old reservation event must not masquerade as the current
+        // assignment after an independent reroute incremented the version.
+        if(previous.rows[0].details?.courierId!==row.courier_id
+          ||previous.rows[0].details?.version!==row.version)
+          bad('LOGISTICS_RESERVATION_SUPERSEDED');
         await client.query('COMMIT');
         return {decision:'RESERVED',orderId,courierId:row.courier_id,
           status:'reserved',version:row.version,replayed:true};
