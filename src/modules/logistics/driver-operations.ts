@@ -6,7 +6,8 @@ import {createHash} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 
 export class LogisticsError extends Error {
-  constructor(public readonly code:string){super(code);this.name='LogisticsError';}
+  readonly code:string;
+  constructor(code:string){super(code);this.code=code;this.name='LogisticsError';}
 }
 const idPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const keyPattern=/^[A-Za-z0-9_.:-]{16,128}$/;
