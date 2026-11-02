@@ -18,6 +18,8 @@ import {claimDelivery,advanceDelivery,availableDriverOrders,myDriverOrders,
   issueBuyerHandoffPin,attestCash,finishCashOrder} from './handoff.ts';
 import {LogisticsError,getDriverLogistics,changeDriverPresence,recordDriverLocation}
   from '../logistics/driver-operations.ts';
+import {DispatchError,listDriverDispatchOffers,acceptDispatchOffer,declineDispatchOffer}
+  from '../logistics/tala-dispatch-engine.ts';
 
 type Handler=(req:Request,res:Response)=>Promise<void>;
 const wrap=(fn:Handler)=>(req:Request,res:Response,next:NextFunction)=>{
@@ -82,6 +84,11 @@ const statusOf=(error:Error):number=>{
   if(['55P03','57014','40P01','40001'].includes(transport.code??''))return 503;
   if(error instanceof AuthError)return ['AUTH_REQUIRED','INVALID_CREDENTIALS'].includes(error.code)?401:403;
   if(error instanceof z.ZodError)return 400;
+  if(error instanceof DispatchError){
+    if(error.code.endsWith('_INVALID'))return 400;
+    if(error.code.endsWith('_NOT_FOUND'))return 404;
+    return 409;
+  }
   if(error instanceof LogisticsError){
     if(error.code==='LOCATION_RATE_LIMITED')return 429;
     if(error.code==='DRIVER_NOT_AVAILABLE')return 403;
@@ -327,6 +334,20 @@ export function createOrderApp(pool:Pool){
       observedAt:data.observedAt
     }));
   }));
+  app.get('/api/v2/driver/dispatch-offers',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    res.json(await listDriverDispatchOffers(pool,user.id));
+  }));
+  app.post('/api/v2/driver/dispatch-offers/:offerId/accept',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    parse(noInput,req.body);
+    res.json(await acceptDispatchOffer(pool,user.id,uuid.parse(req.params.offerId)));
+  }));
+  app.post('/api/v2/driver/dispatch-offers/:offerId/decline',wrap(async(req,res)=>{
+    const user=await requireAuth(pool,req,'driver');
+    parse(noInput,req.body);
+    res.json(await declineDispatchOffer(pool,user.id,uuid.parse(req.params.offerId)));
+  }));
   app.get('/api/v2/driver/available',wrap(async(req,res)=>{
     const user=await requireAuth(pool,req,'driver');
     res.json(await availableDriverOrders(pool,user.id));
@@ -382,7 +403,7 @@ export function createOrderApp(pool:Pool){
     res.status(status).json({code:status===500?'INTERNAL_ERROR':
       status===503?'ORDER_TEMPORARILY_BUSY':
       status===413?'BODY_TOO_LARGE':
-      err instanceof AuthError||err instanceof OrderServiceError||err instanceof MerchantOrderError||err instanceof LogisticsError
+      err instanceof AuthError||err instanceof OrderServiceError||err instanceof MerchantOrderError||err instanceof LogisticsError||err instanceof DispatchError
         ?err.code:'REQUEST_INVALID'});
   });
   return app;
