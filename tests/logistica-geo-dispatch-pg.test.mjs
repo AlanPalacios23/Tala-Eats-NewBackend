@@ -171,3 +171,39 @@ test('GEO v2: same command key cannot silently switch between geo and legacy pol
   // later, which is correct and cannot reassign an already reserved order.
  }finally{await p.end();}
 });
+
+test('Security: same reserve key with modified pickup point or radius is rejected',{
+ skip:!enabled
+},async()=>{
+ const p=pool();
+ try{
+  const z=zone();await courier(p,z,point());
+  const r=request(z),cmd=key();
+  assert.equal((await reserveNearestDelivery(p,r,cmd,point(),20000)).decision,'RESERVED');
+  await assert.rejects(reserveNearestDelivery(p,r,cmd,point(20.654,-103.699),20000),
+   assertCode('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT'));
+  await assert.rejects(reserveNearestDelivery(p,r,cmd,point(),19000),
+   assertCode('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT'));
+  assert.equal((await reserveNearestDelivery(p,r,cmd,point(),20000)).replayed,true);
+  const ev=await p.query(
+   "SELECT details FROM tala_logistics_v2.dispatch_events WHERE order_id=$1 AND event_type='dispatch.reserved'",
+   [r.orderId]);
+  assert.match(ev.rows[0].details.commandDigest,/^[a-f0-9]{64}$/);
+  assert.equal('latitude' in ev.rows[0].details,false);
+  assert.equal('longitude' in ev.rows[0].details,false);
+ }finally{await p.end();}
+});
+test('Security: finalize replay rejects changed expected version',{
+ skip:!enabled
+},async()=>{
+ const p=pool();
+ try{
+  const z=zone();await courier(p,z,null);
+  const r=request(z),k=key();
+  assert.equal((await reserveDelivery(p,r,key())).decision,'RESERVED');
+  await finalizeDispatch(p,r.orderId,'1',k,'released');
+  await assert.rejects(finalizeDispatch(p,r.orderId,'2',k,'released'),
+   assertCode('LOGISTICS_IDEMPOTENCY_INPUT_CONFLICT'));
+  assert.equal((await finalizeDispatch(p,r.orderId,'1',k,'released')).replayed,true);
+ }finally{await p.end();}
+});
