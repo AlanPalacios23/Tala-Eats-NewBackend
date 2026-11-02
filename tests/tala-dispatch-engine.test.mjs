@@ -241,6 +241,28 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
     assert.equal(offlineView.status,200);
     assert.equal(offlineView.data.pendingOffers,0,'hidden invalid pending offers');
     assert.equal(offlineView.data.dispatchEligible,false);
+    // Regression: reconnecting MUST NOT revive an offer from the old
+    // online session, even after a fresh valid heartbeat.
+    const reconnected=await request('POST','/api/v2/driver/presence',{
+      online:true,expectedVersion:wentOffline.data.presenceVersion,commandKey:key()
+    },offlineCourier.cookie);
+    assert.equal(reconnected.status,200,JSON.stringify(reconnected.data));
+    const rebeat=await request('POST','/api/v2/driver/heartbeat',{},offlineCourier.cookie);
+    assert.equal(rebeat.status,200);
+    assert.equal(rebeat.data.accepted,true);
+    const oldList=await request('GET','/api/v2/driver/dispatch-offers',
+      undefined,offlineCourier.cookie);
+    assert.equal(oldList.status,200);
+    assert.equal(oldList.data.some(x=>x.offerId===disconnected.offerId),false);
+    const reconnectedView=await request('GET','/api/v2/driver/logistics',
+      undefined,offlineCourier.cookie);
+    assert.equal(reconnectedView.data.pendingOffers,0);
+    assert.equal(reconnectedView.data.dispatchEligible,true);
+    const invalidOldOffer=await request('POST',
+      '/api/v2/driver/dispatch-offers/'+disconnected.offerId+'/accept',
+      {},offlineCourier.cookie);
+    assert.equal(invalidOldOffer.status,409,JSON.stringify(invalidOldOffer.data));
+    assert.equal(invalidOldOffer.data.code,'OFFER_SESSION_CHANGED');
     const standbyCourier=await seed('driver');
     const reassignedOffer=await dispatchNext(pool,{
       orderIds:[offlineOrder.id],driverIds:[standbyCourier.id]});
@@ -255,7 +277,7 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
       [disconnected.offerId,createHash('sha256')
         .update('dispatch.offer.expired|'+disconnected.offerId).digest('hex')]);
     assert.equal(closed.rows[0]?.state,'expired');
-    assert.equal(closed.rows[0]?.reason,'courier_unavailable');
+    assert.equal(closed.rows[0]?.reason,'session_changed');
 
     // A stale heartbeat is also an early invalidation, before the 60s TTL.
     const heartbeatOrder=await makeOrder();
