@@ -15,6 +15,9 @@ const key=()=> 'cmd-'+randomUUID();
 const req=zone=>({orderId:randomUUID(),restaurantId:randomUUID(),
  deliveryZone:zone,fulfillment:'delivery',orderStatus:'ready'});
 const expectCode=code=>e=>e instanceof LogisticsError&&e.code===code;
+// Synthetic, test-only Orders pre-pickup approval. Never use in deployed API.
+const verify=async (_client,context)=>Boolean(context.orderId&&context.restaurantId);
+
 async function setup(pool,zone,point){
  const id=randomUUID();
  await enrollCourier(pool,id,zone,1);
@@ -35,10 +38,10 @@ test('Reroute v2: offline courier safely replaced; one order and 2 immutable eve
   assert.equal(initial.courierId,old);
   await setCourierOnline(dbpool,old,false);
   const cmd=key();
-  const rr=await reassignUnavailableDelivery(dbpool,order.orderId,'1',cmd,p());
+  const rr=await reassignUnavailableDelivery(dbpool,order.orderId,'1',cmd,p(),20000,verify);
   assert.deepEqual(rr,{decision:'REASSIGNED',orderId:order.orderId,
    previousCourierId:old,courierId:next,version:'2',replayed:false});
-  assert.deepEqual(await reassignUnavailableDelivery(dbpool,order.orderId,'1',cmd,p()),
+  assert.deepEqual(await reassignUnavailableDelivery(dbpool,order.orderId,'1',cmd,p(),20000,verify),
    {...rr,replayed:true});
   const rows=await dbpool.query(
    "SELECT r.courier_id,r.version,r.status,"+
@@ -70,7 +73,7 @@ test('Reroute v2: active and fresh courier is protected from arbitrary reassignm
   const order=req(zone);
   const initial=await reserveNearestDelivery(dbpool,order,key(),p());
   assert.equal(initial.courierId,old);
-  const result=await reassignUnavailableDelivery(dbpool,order.orderId,'1',key(),p());
+  const result=await reassignUnavailableDelivery(dbpool,order.orderId,'1',key(),p(),20000,verify);
   assert.deepEqual(result,{decision:'STILL_AVAILABLE',orderId:order.orderId,currentCourierId:old});
   const row=await dbpool.query(
    "SELECT version,courier_id FROM tala_logistics_v2.dispatch_reservations WHERE order_id=$1",
@@ -88,7 +91,7 @@ test('Reroute v2: fails closed when no substitute available; no phantom events',
   const order=req(zone),a=await reserveNearestDelivery(dbpool,order,key(),p());
   assert.equal(a.decision,'RESERVED');
   await setCourierOnline(dbpool,old,false);
-  const r=await reassignUnavailableDelivery(dbpool,order.orderId,'1',key(),p());
+  const r=await reassignUnavailableDelivery(dbpool,order.orderId,'1',key(),p(),20000,verify);
   assert.deepEqual(r,{decision:'NO_AVAILABLE_COURIER',orderId:order.orderId,
    currentCourierId:old});
   const q=await dbpool.query(
@@ -110,14 +113,14 @@ test('Reroute v2: rejects stale versions and non-GPS legacy reservations',{
   const order=req(zone);
   await reserveNearestDelivery(dbpool,order,key(),p());
   await setCourierOnline(dbpool,old,false);
-  await assert.rejects(reassignUnavailableDelivery(dbpool,order.orderId,'2',key(),p()),
+  await assert.rejects(reassignUnavailableDelivery(dbpool,order.orderId,'2',key(),p(),20000,verify),
    expectCode('LOGISTICS_VERSION_CONFLICT'));
   const zone2=z();await setup(dbpool,zone2,null);
   const oldOrder=req(zone2);
   await reserveDelivery(dbpool,oldOrder,key());
-  await assert.rejects(reassignUnavailableDelivery(dbpool,oldOrder.orderId,'1',key(),p()),
+  await assert.rejects(reassignUnavailableDelivery(dbpool,oldOrder.orderId,'1',key(),p(),20000,verify),
    expectCode('LOGISTICS_REROUTE_REQUIRES_GEO_RESERVATION'));
-  await assert.rejects(reassignUnavailableDelivery(dbpool,order.orderId,'1',key(),p(91,0)),
+  await assert.rejects(reassignUnavailableDelivery(dbpool,order.orderId,'1',key(),p(91,0),20000,verify),
    expectCode('LOGISTICS_REROUTE_INPUT_INVALID'));
  }finally{await dbpool.end();}
 });
@@ -133,8 +136,8 @@ test('Reroute v2: two simultaneous reroutes cannot assign same order twice',{
   await setCourierOnline(dbpool,old,false);
   const cmd=key();
   const results=await Promise.all([
-   reassignUnavailableDelivery(dbpool,order.orderId,'1',cmd,p()),
-   reassignUnavailableDelivery(dbpool,order.orderId,'1',cmd,p())
+   reassignUnavailableDelivery(dbpool,order.orderId,'1',cmd,p(),20000,verify),
+   reassignUnavailableDelivery(dbpool,order.orderId,'1',cmd,p(),20000,verify)
   ]);
   assert.equal(results.every(x=>x.decision==='REASSIGNED'),true);
   assert.equal(results.every(x=>x.courierId===next),true);
