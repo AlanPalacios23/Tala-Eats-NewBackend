@@ -71,10 +71,17 @@ export async function expireDispatchOffers(pool:Pool,limit=20){
   }
   return expired;
 }
+/** Trusted scope allows one market/cohort; no arbitrary HTTP-selected scope. */
+export type DispatchScope={orderIds?:string[];driverIds?:string[]};
 /** Worker makes ONE 60-second offer, never auto-assigns an unconsenting driver. */
-export async function dispatchNext(pool:Pool):Promise<
+export async function dispatchNext(pool:Pool,scope:DispatchScope={}):Promise<
   {state:'offered';offerId:string;orderId:string;driverId:string;expiresAt:string}
   |{state:'idle'|'no_driver';orderId?:string}>{
+  for(const ids of [scope.orderIds,scope.driverIds]){
+    if(ids!==undefined&&(!Array.isArray(ids)||ids.length>100||
+      ids.some(id=>typeof id!=='string'||!uuid.test(id))))
+      throw new DispatchError('DISPATCH_SCOPE_INVALID');
+  }
   await expireDispatchOffers(pool);
   const c=await pool.connect();
   try{
@@ -88,7 +95,8 @@ export async function dispatchNext(pool:Pool):Promise<
         AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers f
           WHERE f.order_id=o.id AND f.state='offered')
         AND (SELECT count(*) FROM tala_core_v2.dispatch_offers h WHERE h.order_id=o.id)<10
-      ORDER BY o.created_at,o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`);
+        AND ($1::uuid[] IS NULL OR o.id=ANY($1::uuid[]))
+      ORDER BY o.created_at,o.id LIMIT 1 FOR UPDATE OF o SKIP LOCKED`,[scope.orderIds??null]);
     const order=r.rows[0];
     if(!order){await c.query('COMMIT');return {state:'idle'};}
     const ds=await c.query<{account_id:string}>(`
@@ -104,8 +112,9 @@ export async function dispatchNext(pool:Pool):Promise<
           WHERE pending.driver_id=p.account_id AND pending.state='offered')
         AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers previous
           WHERE previous.driver_id=p.account_id AND previous.order_id=$1::uuid)
+        AND ($2::uuid[] IS NULL OR p.account_id=ANY($2::uuid[]))
       ORDER BY p.presence_updated_at,p.account_id
-      LIMIT 1 FOR UPDATE OF p SKIP LOCKED`,[order.id]);
+      LIMIT 1 FOR UPDATE OF p SKIP LOCKED`,[order.id,scope.driverIds??null]);
     const driver=ds.rows[0];
     if(!driver){await c.query('COMMIT');return {state:'no_driver',orderId:order.id};}
     const rows=await c.query<{id:string;expires_at:Date}>(`
