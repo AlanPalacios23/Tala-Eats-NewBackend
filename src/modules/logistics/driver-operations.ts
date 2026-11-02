@@ -11,7 +11,7 @@ export class LogisticsError extends Error {
 }
 const idPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const keyPattern=/^[A-Za-z0-9_.:-]{16,128}$/;
-type Profile={account_id:string;is_online:boolean;presence_version:string;approved:boolean};
+type Profile={account_id:string;is_online:boolean;presence_version:string;approved:boolean;dispatch_heartbeat_at:Date|null};
 type LocationRow={latitude_micro:number;longitude_micro:number;accuracy_m:number;
   sequence:string;observed_at:Date;received_at:Date};
 async function tx(client:PoolClient){
@@ -22,7 +22,7 @@ async function tx(client:PoolClient){
 }
 async function lockProfile(client:PoolClient,id:string):Promise<Profile>{
   const r=await client.query<Profile>(`
-    SELECT p.account_id,p.is_online,p.presence_version,p.approved
+    SELECT p.account_id,p.is_online,p.presence_version,p.approved,p.dispatch_heartbeat_at
     FROM tala_core_v2.driver_profiles p
     JOIN tala_core_v2.accounts a ON a.id=p.account_id
     WHERE p.account_id=$1::uuid AND p.approved=true
@@ -43,7 +43,7 @@ async function hasActive(client:Pick<Pool,'query'>,id:string):Promise<boolean>{
 export async function getDriverLogistics(pool:Pool,driverId:string){
   if(!idPattern.test(driverId))throw new LogisticsError('DRIVER_INVALID');
   const p=await pool.query<Profile>(`
-    SELECT p.account_id,p.is_online,p.presence_version,p.approved
+    SELECT p.account_id,p.is_online,p.presence_version,p.approved,p.dispatch_heartbeat_at
     FROM tala_core_v2.driver_profiles p
     JOIN tala_core_v2.accounts a ON a.id=p.account_id
     WHERE p.account_id=$1::uuid AND p.approved=true
@@ -57,7 +57,10 @@ export async function getDriverLogistics(pool:Pool,driverId:string){
     SELECT received_at FROM tala_core_v2.driver_latest_locations
     WHERE driver_id=$1::uuid`,[driverId]);
   const age=loc.rows[0]?Math.max(0,Math.floor((Date.now()-new Date(loc.rows[0].received_at).getTime())/1000)):null;
+  const hb=p.rows[0].dispatch_heartbeat_at;
+  const heartbeatFresh=hb!==null&&Date.now()-new Date(hb).getTime()<=90000;
   return {online:p.rows[0].is_online,presenceVersion:p.rows[0].presence_version,
+    dispatchEligible:p.rows[0].is_online&&heartbeatFresh&&Number(active.rows[0]?.count??0)===0,
     activeDeliveries:Number(active.rows[0]?.count??0),capacity:1,
     locationFresh:age!==null&&age<=120,locationAgeSeconds:age};
 }
@@ -88,7 +91,8 @@ export async function changeDriverPresence(pool:Pool,id:string,input:Presence){
       throw new LogisticsError('ACTIVE_DELIVERY_MUST_FINISH');
     const updated=await client.query<{presence_version:string}>(`
       UPDATE tala_core_v2.driver_profiles
-      SET is_online=$2,presence_version=presence_version+1,presence_updated_at=now()
+      SET is_online=$2,presence_version=presence_version+1,presence_updated_at=now(),
+        dispatch_heartbeat_at=NULL
       WHERE account_id=$1::uuid RETURNING presence_version`,[id,input.online]);
     const version=updated.rows[0]!.presence_version;
     await client.query(`
@@ -165,4 +169,27 @@ export async function recordDriverLocation(pool:Pool,id:string,fix:Fix){
     return {accepted:true,sequence:String(fix.sequence),replayed:false};
   }catch(e){await client.query('ROLLBACK');throw e;}
   finally{client.release();}
+}
+
+/** Authenticated approved online drivers refresh a server-time heartbeat, no GPS. */
+export async function heartbeatDriver(pool:Pool,id:string){
+  if(!idPattern.test(id))throw new LogisticsError('DRIVER_INVALID');
+  const r=await pool.query(`
+    UPDATE tala_core_v2.driver_profiles p
+    SET dispatch_heartbeat_at=now()
+    FROM tala_core_v2.accounts a
+    WHERE p.account_id=$1::uuid AND a.id=p.account_id
+      AND a.is_active=true AND a.role='driver'
+      AND p.approved=true AND p.is_online=true
+      AND (p.dispatch_heartbeat_at IS NULL
+        OR p.dispatch_heartbeat_at<=now()-interval '10 seconds')
+    RETURNING p.dispatch_heartbeat_at`,[id]);
+  if(r.rows[0])return {online:true,accepted:true,expiresInSeconds:90};
+  const active=await pool.query(`
+    SELECT 1 FROM tala_core_v2.driver_profiles p
+    JOIN tala_core_v2.accounts a ON a.id=p.account_id
+    WHERE p.account_id=$1::uuid AND a.is_active=true AND a.role='driver'
+      AND p.approved=true AND p.is_online=true`,[id]);
+  if(!active.rowCount)throw new LogisticsError('DRIVER_NOT_AVAILABLE');
+  return {online:true,accepted:false,expiresInSeconds:90};
 }
