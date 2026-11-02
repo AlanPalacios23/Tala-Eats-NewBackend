@@ -16,7 +16,8 @@ const OFFER_SECONDS=60;
 type Order={id:string;status:string;fulfillment:'pickup'|'delivery';
   payment_method:'cash'|'stripe';payment_status:string;version:string};
 type Offer={id:string;order_id:string;driver_id:string;state:string;
-  expected_order_version:string;accepted_order_version:string|null;expires_at:Date};
+  expected_order_version:string;accepted_order_version:string|null;expires_at:Date;
+  expired?:boolean;is_live?:boolean};
 async function begin(c:PoolClient){
   await c.query('BEGIN');
   await c.query("SET LOCAL lock_timeout='3000ms'");
@@ -57,9 +58,9 @@ export async function expireDispatchOffers(pool:Pool,limit=20){
       const o=await lockOrder(c,item.order_id,true);
       if(!o){await c.query('ROLLBACK');continue;}
       const r=await c.query<Offer>(
-        'SELECT * FROM tala_core_v2.dispatch_offers WHERE id=$1::uuid FOR UPDATE',[item.id]);
+        'SELECT *, expires_at<=clock_timestamp() AS expired FROM tala_core_v2.dispatch_offers WHERE id=$1::uuid FOR UPDATE',[item.id]);
       const offer=r.rows[0];
-      if(!offer||offer.state!=='offered'||new Date(offer.expires_at).getTime()>Date.now()){
+      if(!offer||offer.state!=='offered'||offer.expired!==true){
         await c.query('COMMIT');continue;
       }
       await c.query(`
@@ -167,7 +168,7 @@ async function lockOffer(c:PoolClient,id:string,driverId:string){
   const order=await lockOrder(c,lookup.rows[0].order_id);
   if(!order)throw new DispatchError('OFFER_NOT_FOUND');
   const rows=await c.query<Offer>(`
-    SELECT * FROM tala_core_v2.dispatch_offers
+    SELECT *, expires_at>clock_timestamp() AS is_live FROM tala_core_v2.dispatch_offers
     WHERE id=$1::uuid AND driver_id=$2::uuid FOR UPDATE`,[id,driverId]);
   if(!rows.rows[0])throw new DispatchError('OFFER_NOT_FOUND');
   return {order,offer:rows.rows[0]};
@@ -187,7 +188,7 @@ export async function acceptDispatchOffer(pool:Pool,driverId:string,offerId:stri
       return {orderId:order.id,status:'assigned',version:offer.accepted_order_version,replayed:true};
     }
     if(offer.state!=='offered')throw new DispatchError('OFFER_ALREADY_CLOSED');
-    if(new Date(offer.expires_at).getTime()<=Date.now())
+    if(offer.is_live!==true)
       throw new DispatchError('OFFER_EXPIRED');
     const p=await c.query<{is_online:boolean}>(`
       SELECT p.is_online FROM tala_core_v2.driver_profiles p
@@ -242,7 +243,7 @@ export async function declineDispatchOffer(pool:Pool,driverId:string,offerId:str
       await c.query('COMMIT');return {declined:true,replayed:true};
     }
     if(offer.state!=='offered')throw new DispatchError('OFFER_ALREADY_CLOSED');
-    if(new Date(offer.expires_at).getTime()<=Date.now())
+    if(offer.is_live!==true)
       throw new DispatchError('OFFER_EXPIRED');
     await c.query(`
       UPDATE tala_core_v2.dispatch_offers SET state='declined',decided_at=now()
@@ -296,7 +297,19 @@ export async function recoverUncollectedAssignment(
         buyer_cash_ack_at IS NOT NULL OR custodian_cash_ack_at IS NOT NULL
         OR custodian_id IS NOT NULL OR pin_hash IS NOT NULL
         OR pin_consumed_at IS NOT NULL OR custody_settled_at IS NOT NULL
-      )`,[orderId]);
+      )
+      UNION ALL
+      SELECT 1 FROM tala_core_v2.order_events
+      WHERE order_id=$1::uuid AND (
+        data ? 'failedAttemptsReset'
+        OR (data ? 'side' AND data ? 'cashAmountMinor')
+        OR new_status IN ('picked_up','on_the_way','delivered')
+      )
+      UNION ALL
+      SELECT 1 FROM tala_core_v2.outbox
+      WHERE aggregate_id=$1::uuid
+        AND event_type IN ('order.pin.issued','order.cash.attested','order.delivered')
+      LIMIT 1`,[orderId]);
     if(proof.rowCount)throw new DispatchError('RECOVERY_CUSTODY_REVIEW_REQUIRED');
     try{transitionOrder({current:'assigned',target:'ready',fulfillment:'delivery',
       paymentMethod:'cash',actor:'system',reassignmentAuthorized:true});}
