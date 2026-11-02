@@ -52,6 +52,8 @@ jobs:
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f src/modules/modulo-2-logistica/migrations/001_logistics_lab.sql
       - name: Apply isolated Module 2 courier position migration
         run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f src/modules/modulo-2-logistica/migrations/002_courier_position_lab.sql
+      - name: Apply isolated Module 2 reroute migration
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f src/modules/modulo-2-logistica/migrations/003_dispatch_reassignment_lab.sql
       - name: Run unit, schema and E2E HTTP tests
         run: npm test
       - name: Smoke isolated merchant and driver seed tools

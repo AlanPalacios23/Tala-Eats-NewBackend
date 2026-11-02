@@ -10,3 +10,5 @@ export type {GeoPoint,GeoCourierCandidate} from './geo.ts';
 export {recordCourierPosition,listNearbyCouriers} from './location-service.ts';
 export {reserveNearestDelivery} from './geo-dispatch-service.ts';
 export type {GeoDispatchOptions} from './dispatch-service.ts';
+export {reassignUnavailableDelivery} from './geo-reroute-service.ts';
+export type {RerouteResult} from './geo-reroute-service.ts';
