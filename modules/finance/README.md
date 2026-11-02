@@ -2,9 +2,9 @@
 
 **LAB0 / estructura independiente / NO-GO comercial.**
 
-Este módulo vive por completo en \`modules/finance/\` dentro de
-\`AlanPalacios23/Tala-Eats-NewBackend\` y trabaja en su propia rama
-\`feat/core-v2-finanzas-foundation\`, basada directamente en \`main\`.
+Este módulo vive por completo en `modules/finance/` dentro de
+`AlanPalacios23/Tala-Eats-NewBackend` y trabaja en su propia rama
+`feat/core-v2-finanzas-foundation`, basada directamente en `main`.
 **No depende de fusionar Pedidos (PR #1) ni Logística (PR #4)**.
 No se debe copiar código entre PR ni hacer un merge cruzado sin resolver contratos.
 
@@ -19,12 +19,12 @@ No se debe copiar código entre PR ni hacer un merge cruzado sin resolver contra
 
 ## Lo que existe en LAB0
 
-1. \`src/ledger.mjs\`: validación monetaria con \`BigInt\`, sin cálculos flotantes,
+1. `src/ledger.mjs`: validación monetaria con `BigInt`, sin cálculos flotantes,
    y propuesta inmutable de asientos balanceados para *capturas Stripe TEST*.
-2. \`migrations/001_finance_foundation.sql\`: esquema **\`tala_finance_v2\`** propio,
+2. `migrations/001_finance_foundation.sql`: esquema **`tala_finance_v2`** propio,
    diario de asientos, restricciones de importe y balance, protección append-only,
    unicidad de (pedido, tipo) y (proveedor TEST, evento).
-3. \`tests/\` y CI propios. No llama a Stripe ni a APIs LIVE.
+3. `tests/` y CI propios. No llama a Stripe ni a APIs LIVE.
 
 **Una propuesta no demuestra que Stripe recibió dinero.** Un límite confiable de
 webhook firmado, captura confirmada y conciliación debe añadirse **antes**
@@ -33,7 +33,7 @@ Kali, PM2, Redis ni a las PWA.
 
 ## Contrato y discrepancia P0
 
-M1 \`src/modules/orders/pricing.ts\` contiene \`pilot-2026-11-v2-17pct\`
+M1 `src/modules/orders/pricing.ts` contiene `pilot-2026-11-v2-17pct`
 (17 % comisión) y tope de servicio de 2,500 centavos. La política comercial
 anteriormente aprobada era 15 % de comisión y 7 % de servicio. No deben
 recalcularse importes históricamente guardados ni elegir una tasa en silencio:
@@ -54,8 +54,8 @@ antes de conectar Finanzas a Pedidos.** M3 valida sumas, no calcula tarifas.
 
 - Sin credenciales LIVE, retiros, transferencias ni mutaciones de Stripe.
 - SQL de laboratorio falla al ejecutarse fuera de bases descartables
-  \`tala_finance_v2_lab\` o \`tala_finance_v2_test\`.
-- No modifica \`tala_core_v2\` ni bases de datos antiguas.
+  `tala_finance_v2_lab` o `tala_finance_v2_test`.
+- No modifica `tala_core_v2` ni bases de datos antiguas.
 - Estado actual: **no usar para liquidaciones comerciales**.
 
-Ejecutar pruebas puras: \`cd modules/finance && npm test\`.
+Ejecutar pruebas puras: `cd modules/finance && npm test`.
