@@ -104,6 +104,7 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
       JOIN tala_core_v2.accounts a ON a.id=p.account_id
       WHERE p.approved=true AND p.is_online=true AND a.is_active=true AND a.role='driver'
         AND p.max_active_deliveries=1
+        AND p.dispatch_heartbeat_at>=now()-interval '90 seconds'
         AND NOT EXISTS(SELECT 1 FROM tala_core_v2.order_driver_assignments own
           JOIN tala_core_v2.orders busy ON busy.id=own.order_id
           WHERE own.driver_id=p.account_id
@@ -113,7 +114,7 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
         AND NOT EXISTS(SELECT 1 FROM tala_core_v2.dispatch_offers previous
           WHERE previous.driver_id=p.account_id AND previous.order_id=$1::uuid)
         AND ($2::uuid[] IS NULL OR p.account_id=ANY($2::uuid[]))
-      ORDER BY p.presence_updated_at,p.account_id
+      ORDER BY p.last_dispatch_offer_at NULLS FIRST,p.presence_updated_at,p.account_id
       LIMIT 1 FOR UPDATE OF p SKIP LOCKED`,[order.id,scope.driverIds??null]);
     const driver=ds.rows[0];
     if(!driver){await c.query('COMMIT');return {state:'no_driver',orderId:order.id};}
@@ -130,6 +131,9 @@ export async function dispatchNext(pool:Pool,scope:DispatchScope={},retry=0):Pro
       return retry<3?dispatchNext(pool,scope,retry+1):{state:'idle'};
     }
     const offer=rows.rows[0];
+    await c.query(
+      'UPDATE tala_core_v2.driver_profiles SET last_dispatch_offer_at=now() WHERE account_id=$1::uuid',
+      [driver.account_id]);
     await audit(c,order,offer.id,driver.account_id,'dispatch.offer.created',
       'ready','ready',order.version);
     await c.query('COMMIT');
@@ -190,6 +194,10 @@ export async function acceptDispatchOffer(pool:Pool,driverId:string,offerId:stri
       WHERE p.account_id=$1::uuid AND p.approved=true AND a.is_active=true AND a.role='driver'
       FOR UPDATE OF p FOR SHARE OF a`,[driverId]);
     if(!p.rows[0]?.is_online)throw new DispatchError('DRIVER_NOT_AVAILABLE');
+    const beat=await c.query(
+      "SELECT 1 FROM tala_core_v2.driver_profiles WHERE account_id=$1::uuid AND dispatch_heartbeat_at>=now()-interval '90 seconds'",
+      [driverId]);
+    if(!beat.rowCount)throw new DispatchError('DRIVER_HEARTBEAT_STALE');
     const busy=await c.query(`
       SELECT 1 FROM tala_core_v2.order_driver_assignments d
       JOIN tala_core_v2.orders o ON o.id=d.order_id
