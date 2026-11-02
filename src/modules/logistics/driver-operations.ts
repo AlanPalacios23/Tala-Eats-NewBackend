@@ -68,7 +68,8 @@ export async function getDriverLogistics(pool:Pool,driverId:string){
       AND o.version=f.expected_order_version
       AND p.approved=true AND p.is_online=true
       AND a.is_active=true AND a.role='driver'
-      AND p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds'`,[driverId]);
+      AND p.dispatch_heartbeat_at>=clock_timestamp()-interval '90 seconds'
+      AND p.presence_updated_at<=f.created_at`,[driverId]);
   const pendingOffers=Number(pending.rows[0]?.count??0);
   const loc=await pool.query<{received_at:Date}>(`
     SELECT received_at FROM tala_core_v2.driver_latest_locations
@@ -109,7 +110,7 @@ export async function changeDriverPresence(pool:Pool,id:string,input:Presence){
       throw new LogisticsError('ACTIVE_DELIVERY_MUST_FINISH');
     const updated=await client.query<{presence_version:string}>(`
       UPDATE tala_core_v2.driver_profiles
-      SET is_online=$2,presence_version=presence_version+1,presence_updated_at=now(),
+      SET is_online=$2,presence_version=presence_version+1,presence_updated_at=clock_timestamp(),
         dispatch_heartbeat_at=NULL
       WHERE account_id=$1::uuid RETURNING presence_version`,[id,input.online]);
     const version=updated.rows[0]!.presence_version;
