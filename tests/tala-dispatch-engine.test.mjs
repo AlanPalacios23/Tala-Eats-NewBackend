@@ -40,7 +40,13 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
         'INSERT INTO tala_core_v2.driver_profiles(account_id,approved,is_online) VALUES($1,true,true)',[id]);
       const login=await request('POST','/api/v2/auth/login',{email,password:pass});
       assert.equal(login.status,200,JSON.stringify(login.data));
-      return {id,cookie:login.cookie};
+      const cookie=login.cookie;
+      if(role==='driver'){
+        const heartbeat=await request('POST','/api/v2/driver/heartbeat',{},cookie);
+        assert.equal(heartbeat.status,200,JSON.stringify(heartbeat.data));
+        assert.equal(heartbeat.data.accepted,true);
+      }
+      return {id,cookie};
     };
     const buyer=await seed('customer'),merchant=await seed('merchant');
     const drivers=[await seed('driver'),await seed('driver')];
@@ -62,6 +68,12 @@ test('TALA DISPATCH LAB2: exclusive offers, acceptance, expiry, safe recovery an
       return {id,version};
     };
     const orders=[await makeOrder(),await makeOrder()];
+    const current=await request('GET','/api/v2/driver/logistics',undefined,drivers[0].cookie);
+    assert.equal(current.status,200);
+    assert.equal(current.data.dispatchEligible,true);
+    const limited=await request('POST','/api/v2/driver/heartbeat',{},drivers[0].cookie);
+    assert.equal(limited.status,200);
+    assert.equal(limited.data.accepted,false,'heartbeat limited to 1 per 10 seconds');
     const scope={orderIds:orders.map(o=>o.id),driverIds:drivers.map(d=>d.id)};
     const [one,two]=await Promise.all([dispatchNext(pool,scope),dispatchNext(pool,scope)]);
     assert.equal(one.state,'offered');assert.equal(two.state,'offered');
