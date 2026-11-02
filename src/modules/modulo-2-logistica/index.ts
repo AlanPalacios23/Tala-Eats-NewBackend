@@ -8,3 +8,5 @@ export type {TalaDispatchEvaluation,TalaDispatchStage} from './tala-dispatch-eng
 export {TALA_GEO_VERSION,validGeoPoint,straightLineMeters,rankGeoCandidates} from './geo.ts';
 export type {GeoPoint,GeoCourierCandidate} from './geo.ts';
 export {recordCourierPosition,listNearbyCouriers} from './location-service.ts';
+export {reserveNearestDelivery} from './geo-dispatch-service.ts';
+export type {GeoDispatchOptions} from './dispatch-service.ts';
