@@ -2,7 +2,7 @@
 import {createHash,createHmac,randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 import {UsersError,canonicalEmail,canonicalDisplayName,
-  eventFingerprint,assertVersion,requireIdempotencyKey} from './domain.js';
+  eventFingerprint,assertVersion,requireIdempotencyKey,requireUserId} from './domain.js';
 
 const LAB=new Set(['tala_users_v2_test','tala_users_v2_lab']);
 const TOKEN=/^[A-Za-z0-9_-]{43}$/;
@@ -279,6 +279,12 @@ export async function changeAuthenticatedPassword(pool:Pool,{
     await c.query(`
       UPDATE tala_users_v2.sessions SET revoked_at=clock_timestamp()
       WHERE account_id=$1::uuid AND revoked_at IS NULL`,[user.id]);
+    const auditKey=randomBytes(32).toString('hex');
+    await c.query(`
+      INSERT INTO tala_users_v2.account_audit
+       (account_id,event_key,request_hash,action,from_status,to_status,actor_id)
+      VALUES($1::uuid,$2,$3,'password_changed','active','active',$1::uuid)`,
+      [user.id,auditKey,hash(['password_changed',user.id,auditKey])]);
     return Object.freeze({passwordChanged:true,sessionsRevoked:true});
   });
 }
@@ -307,4 +313,128 @@ export async function requestAuthenticatedDeletion(pool:Pool,{
         'deletion_requested',$1::uuid)`,[user.id,eventKey,requestHash]);
     return Object.freeze({user:publicUser(r.rows[0]!),sessionsRevoked:true});
   });
+}
+
+
+/**
+ * LAB3: issue a recovery token for an active account. Unknown, locked,
+ * unverified and deleted email addresses all return null. The HTTP adapter
+ * ALWAYS sends a generic acknowledgement regardless of account existence.
+ */
+export async function issueLabPasswordRecovery(pool:Pool,{
+  email,secret
+}:{email:string,secret:Buffer}){
+  const pepper=validSecret(secret);
+  let normalized:string;
+  try{normalized=canonicalEmail(email);}
+  catch{return null;}
+  return tx(pool,async c=>{
+    const r=await c.query<{id:string,email_normalized:string,status:string}>(`
+      SELECT a.id,a.email_normalized,a.status
+      FROM tala_users_v2.accounts a
+      JOIN tala_users_v2.password_credentials p ON p.account_id=a.id
+      WHERE a.email_normalized=$1
+      FOR UPDATE OF a,p`,[normalized]);
+    const user=r.rows[0];
+    if(!user||user.status!=='active')return null;
+    const current=await c.query<{cooldown:boolean}>(`
+      SELECT issued_at>clock_timestamp()-interval '60 seconds' AS cooldown
+      FROM tala_users_v2.password_recovery
+      WHERE account_id=$1::uuid FOR UPDATE`,[user.id]);
+    if(current.rows[0]?.cooldown)return null;
+    const token=randomBytes(32).toString('base64url');
+    const digest=createHmac('sha256',pepper)
+      .update('tala.users.password-recovery.v1\0')
+      .update(user.id).update('\0').update(token).digest('hex');
+    await c.query(`
+      WITH issued AS (SELECT clock_timestamp() AS at)
+      INSERT INTO tala_users_v2.password_recovery
+        (account_id,token_digest,issued_at,expires_at,
+         failed_attempts,consumed_at)
+      SELECT $1::uuid,$2,issued.at,issued.at+interval '10 minutes',0,NULL
+      FROM issued ON CONFLICT(account_id) DO UPDATE SET
+        token_digest=EXCLUDED.token_digest,
+        issued_at=EXCLUDED.issued_at,
+        expires_at=EXCLUDED.expires_at,
+        failed_attempts=0,consumed_at=NULL`,[user.id,digest]);
+    return Object.freeze({userId:user.id,email:user.email_normalized,
+      token,expiresInSeconds:600});
+  });
+}
+
+/**
+ * Recovery token is consumed exactly once within the credential rotation TX.
+ * Invalid attempts commit incremented counters, even though the API fails.
+ * No password verifier or session token is ever returned to the user.
+ */
+export async function resetLabPassword(pool:Pool,{
+  userId,token,newPassword,authSecret,emailSecret
+}:{userId:string,token:string,newPassword:string,
+  authSecret:Buffer,emailSecret:Buffer}){
+  const id=requireUserId(userId);
+  const auth=validSecret(authSecret),mail=validSecret(emailSecret);
+  const next=checkNewPassword(newPassword);
+  if(typeof token!=='string'||!TOKEN.test(token))
+    throw new UsersError('USERS_RECOVERY_INVALID');
+  const digest=createHmac('sha256',mail)
+    .update('tala.users.password-recovery.v1\0')
+    .update(id).update('\0').update(token).digest('hex');
+  const newMaterial=await passwordMaterial(next,auth);
+  const outcome=await tx(pool,async c=>{
+    const user=await c.query<{status:string}>(`
+      SELECT status FROM tala_users_v2.accounts
+      WHERE id=$1::uuid FOR UPDATE`,[id]);
+    if(user.rows[0]?.status!=='active')
+      return {error:'USERS_RECOVERY_INVALID' as const};
+    const r=await c.query<{token_digest:string,failed_attempts:number,
+      consumed_at:Date|null,expired:boolean}>(`
+      SELECT token_digest,failed_attempts,consumed_at,
+        expires_at<=clock_timestamp() AS expired
+      FROM tala_users_v2.password_recovery WHERE account_id=$1::uuid
+      FOR UPDATE`,[id]);
+    const claim=r.rows[0];
+    if(!claim||claim.expired||claim.consumed_at||claim.failed_attempts>=5)
+      return {error:'USERS_RECOVERY_INVALID' as const};
+    const verified=timingSafeEqual(
+      Buffer.from(claim.token_digest,'hex'),Buffer.from(digest,'hex'));
+    if(!verified){
+      await c.query(`
+        UPDATE tala_users_v2.password_recovery
+        SET failed_attempts=LEAST(5,failed_attempts+1)
+        WHERE account_id=$1::uuid`,[id]);
+      return {error:'USERS_RECOVERY_INVALID' as const};
+    }
+    const original=await c.query<{salt_hex:string,verifier_hex:string}>(`
+      SELECT salt_hex,verifier_hex FROM tala_users_v2.password_credentials
+      WHERE account_id=$1::uuid FOR UPDATE`,[id]);
+    if(!original.rows[0])return {error:'USERS_RECOVERY_INVALID' as const};
+    if(await matches(next,original.rows[0].salt_hex,
+      original.rows[0].verifier_hex,auth))
+      return {error:'USERS_PASSWORD_REUSE' as const};
+    await c.query(`
+      UPDATE tala_users_v2.password_recovery
+      SET consumed_at=clock_timestamp()
+      WHERE account_id=$1::uuid`,[id]);
+    await c.query(`
+      UPDATE tala_users_v2.password_credentials
+      SET salt_hex=$2,verifier_hex=$3,
+        failed_attempts=0,locked_until=NULL,
+        updated_at=clock_timestamp()
+      WHERE account_id=$1::uuid`,[id,
+      newMaterial.saltHex,newMaterial.verifierHex]);
+    await c.query(`
+      UPDATE tala_users_v2.sessions
+      SET revoked_at=clock_timestamp()
+      WHERE account_id=$1::uuid AND revoked_at IS NULL`,[id]);
+    const auditKey=createHash('sha256').update(
+      'tala.users.recovery.v1|'+digest).digest('hex');
+    await c.query(`
+      INSERT INTO tala_users_v2.account_audit
+       (account_id,event_key,request_hash,action,from_status,to_status)
+      VALUES($1::uuid,$2,$3,'password_reset','active','active')`,
+      [id,auditKey,hash(['password_reset',id,digest])]);
+    return {passwordReset:true,sessionsRevoked:true};
+  });
+  if('error' in outcome)throw new UsersError(outcome.error);
+  return Object.freeze(outcome);
 }
