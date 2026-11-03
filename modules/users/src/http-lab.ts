@@ -15,7 +15,8 @@ import {issueLabEmailChallenge,issueLabEmailChallengeForAddress,
 import {registerCredentialedPendingUser,loginLabUser,
   readAuthenticatedProfile,logoutLabSession,updateAuthenticatedProfile,
   changeAuthenticatedPassword,requestAuthenticatedDeletion,
-  issueLabPasswordRecovery,resetLabPassword} from './auth.js';
+  issueLabPasswordRecovery,resetLabPassword,listAuthenticatedSessions,
+  revokeAuthenticatedSession,revokeOtherAuthenticatedSessions} from './auth.js';
 
 type VerificationSink=(email:string,token:string,userId:string)=>Promise<void>;
 export type UsersLabHttpConfig={
@@ -191,6 +192,27 @@ export function createUsersLabHttpServer({
           sessionToken:bearer(req),secret:authSecret,
           displayName:string(d.displayName),expectedVersion:integer(d.expectedVersion),
           idempotencyKey:string(d.idempotencyKey)
+        }));
+        return;
+      }
+      if(method==='GET'&&route==='/v1/users/sessions'){
+        reply(res,200,await listAuthenticatedSessions(pool,{
+          sessionToken:bearer(req),secret:authSecret
+        }));
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/sessions/revoke'){
+        const d=fields(await readBody(req),['sessionId']);
+        reply(res,200,await revokeAuthenticatedSession(pool,{
+          sessionToken:bearer(req),secret:authSecret,
+          sessionId:string(d.sessionId)
+        }));
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/sessions/revoke-others'){
+        fields(await readBody(req),[]);
+        reply(res,200,await revokeOtherAuthenticatedSessions(pool,{
+          sessionToken:bearer(req),secret:authSecret
         }));
         return;
       }
