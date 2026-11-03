@@ -134,7 +134,7 @@ test('M4 E2E: secure signup → proof → login → profile → logout → rotat
       WHERE account_id=$1::uuid ORDER BY id`,[account.id]);
     assert.deepEqual(audit.rows.map(x=>x.action),[
       'register_pending','email_verified','profile_updated',
-      'request_deletion','finalize_deletion'
+      'password_changed','request_deletion','finalize_deletion'
     ]);
     assert.ok(!JSON.stringify(audit.rows).includes(pass));
     assert.ok(!JSON.stringify(audit.rows).includes(account.addr));
