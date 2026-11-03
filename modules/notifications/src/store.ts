@@ -92,22 +92,23 @@ export async function readInbox(pool:Pool,{
     throw new NotificationError('NOTIFICATIONS_PAGE_INVALID');
   const cursor=beforeId===undefined?null:uuid(beforeId);
   return transaction(pool,async c=>{
-    let before:Date|null=null,beginId:string|null=null;
     if(cursor){
-      const row=await c.query<{id:string,created_at:Date}>(`
-        SELECT id,created_at FROM tala_notifications_v2.inbox
+      const row=await c.query<{id:string}>(`
+        SELECT id FROM tala_notifications_v2.inbox
         WHERE id=$1::uuid AND recipient_id=$2::uuid AND app=$3`,
         [cursor,id,scope]);
       if(!row.rows[0])throw new NotificationError('NOTIFICATIONS_CURSOR_INVALID');
-      beginId=row.rows[0].id;before=row.rows[0].created_at;
     }
+    // Cursor comparison stays inside PostgreSQL; JS Date loses microseconds.
     const r=await c.query<InboxRow>(`
       SELECT * FROM tala_notifications_v2.inbox
       WHERE recipient_id=$1::uuid AND app=$2 AND dismissed_at IS NULL
-        AND ($3::timestamptz IS NULL OR
-          (created_at,id)<($3::timestamptz,$4::uuid))
-      ORDER BY created_at DESC,id DESC LIMIT $5`,
-      [id,scope,before,beginId,limit+1]);
+        AND ($3::uuid IS NULL OR
+          (created_at,id)<(
+            SELECT created_at,id FROM tala_notifications_v2.inbox
+            WHERE id=$3::uuid AND recipient_id=$1::uuid AND app=$2))
+      ORDER BY created_at DESC,id DESC LIMIT $4`,
+      [id,scope,cursor,limit+1]);
     const rows=r.rows.slice(0,limit);
     const unread=await c.query<{n:number}>(`
       SELECT count(*)::int AS n FROM tala_notifications_v2.inbox
