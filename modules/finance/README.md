@@ -1,7 +1,7 @@
 # TALA EATS CORE v2 — Módulo 3: FINANZAS
 
 **Finanzas exclusivamente. Rama independiente `feat/core-v2-finanzas-foundation` → `main`, PR #5 Draft.**  
-**LAB financiero aislado / NO-GO comercial.**
+**LAB3 financiero aislado / NO-GO comercial.**
 
 ## Responsabilidades propias de M3
 
@@ -52,6 +52,15 @@ modules/finance/
   movimiento compensatorio inmutable, sin borrar el original ni mover dinero.
 - `readMerchantLedgerStatement`: histórico interno por restaurante, paginado,
   con movimientos positivos y compensaciones negativas; saldo disponible cero.
+- `assignLabDriverHeldClaim`: atribución única de la porción **retenida**
+  de logística a un repartidor, sin crear nuevos asientos ni hacerla cobrable;
+  está aislada de cualquier verificación real de entrega.
+- `readDriverHeldBalance`: saldo atribuido y retenido por repartidor;
+  ante reverso contable del pedido deja de contar, siempre disponible cero.
+- `migrations/003_driver_held_subledger.sql`: libro auxiliar inmutable,
+  verificación SQL de repartidor, importe y vínculo con asiento original.
+- `tests/driver-held-db.test.mjs`: doble atribución concurrente,
+  contención contra reversos y ataques SQL de referencias cruzadas.
 - `auditInternalLedger`: verificación de hash, partidas y políticas,
   limitada a un lote de 100 entradas; no equivale a conciliación bancaria.
 
@@ -74,3 +83,5 @@ No hay saldo retirable ni cierre financiero comercial aprobado.
 
 Consulta `docs/MODULO3-FINANZAS-ONLY.md` para el contrato de límites y
 `docs/MODULO3-FINANZAS-LAB2.md` para los reversos y estados de cuenta.
+El avance LAB3, sus límites y el criterio para desarrollar el siguiente
+módulo se documentan en `docs/MODULO3-FINANZAS-LAB3-CRITERIOS.md`.
