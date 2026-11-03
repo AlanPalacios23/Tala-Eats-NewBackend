@@ -67,6 +67,11 @@ jobs:
           FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
         working-directory: modules/finance
         run: node --test tests/stripe-integration.test.mjs
+      - name: Read-only reconciliation and anomaly regression
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/reconciliation.test.mjs
       - name: PostgreSQL ledger double-entry and immutability regression
         env:
           PGPASSWORD: finance_lab_test_only
