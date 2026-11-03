@@ -118,7 +118,8 @@ export async function readInbox(pool:Pool,{
     if(cursor){
       const row=await c.query<{id:string}>(`
         SELECT id FROM tala_notifications_v2.inbox
-        WHERE id=$1::uuid AND recipient_id=$2::uuid AND app=$3`,
+        WHERE id=$1::uuid AND recipient_id=$2::uuid AND app=$3
+          AND visible_in_app AND dismissed_at IS NULL`,
         [cursor,id,scope]);
       if(!row.rows[0])throw new NotificationError('NOTIFICATIONS_CURSOR_INVALID');
     }
