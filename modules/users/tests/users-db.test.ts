@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {randomUUID} from 'node:crypto';
+import {randomBytes,randomUUID} from 'node:crypto';
 import pg from 'pg';
 import {UsersError} from '../src/domain.js';
 import {registerPendingUser,transitionLabUser,updateLabOwnProfile,
-  readLabUser} from '../src/store.js';
+  readLabUser,issueLabEmailChallenge,verifyLabEmailChallenge} from '../src/store.js';
 
 const url=process.env.USERS_CI_URL??'';
 const enabled=/\/tala_users_v2_test(?:$|\?)/.test(url);
@@ -13,6 +13,7 @@ const fail=async(fn:()=>Promise<unknown>,code:string)=>assert.rejects(fn,
   (e:unknown)=>e instanceof UsersError&&e.code===code);
 const pool=()=>new pg.Pool({connectionString:url,max:16,connectionTimeoutMillis:4000});
 const actor=()=>randomUUID();
+const challengeSecret=randomBytes(32);
 
 test('M4 PostgreSQL: concurrent registration, email uniqueness and replay',
   {skip:!enabled,timeout:65000},async()=>{
@@ -65,17 +66,26 @@ test('M4 PostgreSQL: verified activation, profile, suspension and deletion audit
       idempotencyKey:key()
     }),'USERS_PROFILE_STATE_DENIED');
     const verifyKey=key();
-    const verified=await transitionLabUser(db,{userId,actorId:staff,
-      action:'email_verified',expectedVersion:1,idempotencyKey:verifyKey});
-    assert.equal(verified.user.status,'active');
-    assert.equal(verified.user.version,2);
-    const replay=await transitionLabUser(db,{userId,actorId:staff,
-      action:'email_verified',expectedVersion:1,idempotencyKey:verifyKey});
-    assert.equal(replay.replayed,true);
-    assert.equal(replay.appliedStatus,'active');
     await fail(()=>transitionLabUser(db,{userId,actorId:staff,
       action:'email_verified',expectedVersion:1,idempotencyKey:key()
-    }),'USERS_VERSION_CONFLICT');
+    }),'USERS_VERIFICATION_PROOF_REQUIRED');
+    const challenge=await issueLabEmailChallenge(db,{
+      userId,secret:challengeSecret
+    });
+    const verified=await verifyLabEmailChallenge(db,{userId,actorId:userId,
+      token:challenge.token,secret:challengeSecret,
+      expectedVersion:1,idempotencyKey:verifyKey});
+    assert.equal(verified.user.status,'active');
+    assert.equal(verified.user.version,2);
+    const replay=await verifyLabEmailChallenge(db,{userId,actorId:userId,
+      token:challenge.token,secret:challengeSecret,
+      expectedVersion:1,idempotencyKey:verifyKey});
+    assert.equal(replay.replayed,true);
+    assert.equal(replay.appliedStatus,'active');
+    await fail(()=>verifyLabEmailChallenge(db,{userId,actorId:userId,
+      token:challenge.token,secret:challengeSecret,
+      expectedVersion:1,idempotencyKey:key()
+    }),'USERS_VERIFICATION_STATE_DENIED');
     await fail(()=>updateLabOwnProfile(db,{
       userId,actorId:staff,displayName:'Otro nombre',expectedVersion:2,
       idempotencyKey:key()
@@ -135,8 +145,12 @@ test('M4 PostgreSQL: concurrent versions allow exactly one profile change',
       displayName:'Nombre Original',idempotencyKey:key()
     });
     const userId=created.user.id;
-    await transitionLabUser(db,{userId,actorId:actor(),
-      action:'email_verified',expectedVersion:1,idempotencyKey:key()});
+    const issued=await issueLabEmailChallenge(db,{
+      userId,secret:challengeSecret
+    });
+    await verifyLabEmailChallenge(db,{userId,actorId:userId,
+      token:issued.token,secret:challengeSecret,
+      expectedVersion:1,idempotencyKey:key()});
     const concurrent=await Promise.allSettled([
       updateLabOwnProfile(db,{userId,actorId:userId,
         displayName:'Nombre A',expectedVersion:2,idempotencyKey:key()}),
@@ -166,6 +180,7 @@ test('M4 PostgreSQL: direct SQL cannot bypass status, ownership or audit immutab
     const id=created.user.id;
     const invalid=[
       db.query("UPDATE tala_users_v2.accounts SET status='active',version=version+1 WHERE id=$1",[id]),
+      db.query("UPDATE tala_users_v2.accounts SET status='active',email_verified_at=clock_timestamp(),version=version+1 WHERE id=$1",[id]),
       db.query("UPDATE tala_users_v2.accounts SET email_normalized='hijack@example.com',version=version+1 WHERE id=$1",[id]),
       db.query("UPDATE tala_users_v2.accounts SET version=version+2 WHERE id=$1",[id]),
       db.query("DELETE FROM tala_users_v2.accounts WHERE id=$1",[id]),
