@@ -129,3 +129,74 @@ export async function reverseLabHeldAllocation(pool,{orderId,commandKey}={}){
       reversalId:inserted.rows[0].id,status:'fully_reversed',replayed:false});
   });
 }
+
+
+const STATEMENT_KINDS=new Set(['allocation_held','full_held_reversal']);
+const EXACT_TIME=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+function decodeStatementCursor(cursor){
+  if(cursor===null||cursor===undefined)return null;
+  if(typeof cursor!=='string'||cursor.length>300||!(/^[A-Za-z0-9_-]+$/).test(cursor))
+    throw new FinanceError('FINANCE_STATEMENT_CURSOR_INVALID');
+  try{
+    const value=JSON.parse(Buffer.from(cursor,'base64url').toString('utf8'));
+    if(!Array.isArray(value)||value.length!==3||
+       typeof value[0]!=='string'||!EXACT_TIME.test(value[0])||
+       !Number.isFinite(Date.parse(value[0]))||
+       !STATEMENT_KINDS.has(value[2]))
+      throw Error('CURSOR_INVALID');
+    return [value[0],requireId(value[1]),value[2]];
+  }catch{
+    throw new FinanceError('FINANCE_STATEMENT_CURSOR_INVALID');
+  }
+}
+/**
+ * Internal accounting statement for ONE restaurant. Purely pending movements
+ * from HELD entries and full compensations. No financial transfer semantics.
+ * Keyset pagination preserves PostgreSQL's microsecond timestamp precision.
+ */
+export async function readMerchantLedgerStatement(pool,restaurantId,{
+  limit=25,cursor=null
+}={}){
+  const merchant=requireId(restaurantId);
+  if(!Number.isSafeInteger(limit)||limit<1||limit>100)
+    throw new FinanceError('FINANCE_STATEMENT_LIMIT_INVALID');
+  const key=decodeStatementCursor(cursor);
+  return tx(pool,true,async c=>{
+    const rows=await c.query(`
+      WITH movements AS (
+        SELECT id,recorded_at,order_id,restaurant_id,
+          'allocation_held'::text AS entry_kind,
+          (snapshot->>'merchantPayableMinor')::bigint AS delta_minor
+        FROM tala_finance_v2.journals
+        UNION ALL
+        SELECT r.id,r.recorded_at,r.order_id,r.restaurant_id,
+          'full_held_reversal'::text AS entry_kind,
+          -(j.snapshot->>'merchantPayableMinor')::bigint AS delta_minor
+        FROM tala_finance_v2.held_reversals r
+        JOIN tala_finance_v2.journals j ON j.id=r.original_journal_id
+      )
+      SELECT id,order_id,entry_kind,delta_minor::text AS delta_minor,
+        to_char(recorded_at AT TIME ZONE 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS exact_time
+      FROM movements WHERE restaurant_id=$1::uuid
+        AND ($2::timestamptz IS NULL
+          OR (recorded_at,id,entry_kind)<($2::timestamptz,$3::uuid,$4::text))
+      ORDER BY recorded_at DESC,id DESC,entry_kind DESC
+      LIMIT $5`,[merchant,key?.[0]??null,key?.[1]??null,key?.[2]??null,limit+1]);
+    const hasMore=rows.rows.length>limit;
+    const page=rows.rows.slice(0,limit);
+    const entries=page.map(r=>Object.freeze({
+      entryId:r.id,orderId:r.order_id,kind:r.entry_kind,
+      recordedAt:r.exact_time,pendingDeltaMinor:r.delta_minor
+    }));
+    const last=page[page.length-1];
+    const nextCursor=hasMore
+      ?Buffer.from(JSON.stringify([last.exact_time,last.id,last.entry_kind]))
+        .toString('base64url'):null;
+    return Object.freeze({
+      restaurantId:merchant,currency:'MXN',source:'internal_accounting_only',
+      balanceAvailableMinor:'0',withdrawalsAuthorized:false,
+      entries:Object.freeze(entries),hasMore,nextCursor
+    });
+  });
+}
