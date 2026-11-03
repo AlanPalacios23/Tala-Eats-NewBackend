@@ -5,6 +5,21 @@
 import {NotificationError,uuid} from './domain.js';
 import {DeliveryFailure,type EmailMessage,type PushMessage} from './worker.js';
 type ProviderFetch=typeof fetch;
+/** HTTP Retry-After supports delta-seconds and HTTP-date. Bound external
+ * input so a malformed header cannot stall the durable queue indefinitely.
+ */
+function retryAfterSeconds(headers:Headers):number|undefined{
+  const raw=headers.get('retry-after');
+  if(!raw)return undefined;
+  let delay:number;
+  if(/^[0-9]{1,5}$/.test(raw))delay=Number(raw);
+  else{
+    const date=Date.parse(raw);
+    if(!Number.isFinite(date))return undefined;
+    delay=Math.ceil((date-Date.now())/1000);
+  }
+  return Math.max(0,Math.min(3600,delay));
+}
 function requireConfig(value:unknown){
   if(typeof value!=='string'||value.length<12||/[\s\u0000-\u001f]/.test(value))
     throw new NotificationError('NOTIFICATIONS_PROVIDER_CONFIG_INVALID');
@@ -51,10 +66,12 @@ export function createResendEmailSender({
       }catch{/* Retry if provider response format is unknown. */}
       if(code==='invalid_idempotent_request')
         throw new DeliveryFailure('EMAIL_IDEMPOTENCY_MISMATCH',true);
-      throw new DeliveryFailure('EMAIL_IDEMPOTENCY_CONCURRENT',false);
+      throw new DeliveryFailure('EMAIL_IDEMPOTENCY_CONCURRENT',false,
+        retryAfterSeconds(response.headers));
     }
     if(response.status===429||response.status>=500)
-      throw new DeliveryFailure('EMAIL_PROVIDER_TEMPORARY',false);
+      throw new DeliveryFailure('EMAIL_PROVIDER_TEMPORARY',false,
+        retryAfterSeconds(response.headers));
     throw new DeliveryFailure('EMAIL_PROVIDER_REJECTED',true);
   };
 }
@@ -121,7 +138,8 @@ export function createFcmPushSender({
       throw new DeliveryFailure('FCM_PROJECT_OR_ROUTE_NOT_FOUND',false);
     if(response.status===429||response.status>=500||
        response.status===401||response.status===403)
-      throw new DeliveryFailure('FCM_TEMPORARY_OR_CONFIG',false);
+      throw new DeliveryFailure('FCM_TEMPORARY_OR_CONFIG',false,
+        retryAfterSeconds(response.headers));
     throw new DeliveryFailure('FCM_PROVIDER_REJECTED',true);
   };
 }
