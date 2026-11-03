@@ -78,6 +78,11 @@ jobs:
           FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
         working-directory: modules/finance
         run: node --test tests/reversal-db.test.mjs
+      - name: Merchant financial statement keyset paging and isolation regression
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/statement-db.test.mjs
       - name: Reject schema creation on non-finance database
         env:
           PGPASSWORD: finance_lab_test_only
