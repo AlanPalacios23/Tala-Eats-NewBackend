@@ -1,0 +1,119 @@
+name: M3 Finance ONLY — isolated accounting LAB
+on:
+  pull_request:
+    paths:
+      - 'modules/finance/**'
+      - 'docs/MODULO3-FINANZAS-ARQUITECTURA.md'
+      - 'docs/MODULO3-FINANZAS-ONLY.md'
+      - '.github/workflows/module3-finance-ci.yml'
+  push:
+    branches: ['feat/core-v2-finanzas-foundation']
+    paths:
+      - 'modules/finance/**'
+      - 'docs/MODULO3-FINANZAS-ARQUITECTURA.md'
+      - 'docs/MODULO3-FINANZAS-ONLY.md'
+      - '.github/workflows/module3-finance-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  accounting-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: finance_lab
+          POSTGRES_PASSWORD: finance_lab_test_only
+          POSTGRES_DB: tala_finance_v2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U finance_lab -d tala_finance_v2_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install only independent finance dependencies
+        working-directory: modules/finance
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Validate finance-only accounting and pure unit tests
+        working-directory: modules/finance
+        run: npm run check
+      - name: Reject payment provider imports, routes and SDKs from Finance
+        run: |
+          test ! -f modules/finance/src/stripe-test-webhook.mjs
+          test ! -f modules/finance/src/payments.mjs
+          if grep -R -E 'from .*(stripe|checkout|webhook)|payment_intent\.succeeded|api\.stripe\.com' modules/finance/src; then
+            echo "Finanzas must not include payment integrations"
+            exit 1
+          fi
+      - name: Create finance-only schema on disposable PostgreSQL
+        env:
+          PGPASSWORD: finance_lab_test_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
+            -f modules/finance/migrations/001_finance_foundation.sql
+      - name: Apply append-only financial compensation schema
+        env:
+          PGPASSWORD: finance_lab_test_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
+            -f modules/finance/migrations/002_full_held_reversal.sql
+      - name: Build the driver-held auxiliary finance subledger
+        env:
+          PGPASSWORD: finance_lab_test_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
+            -f modules/finance/migrations/003_driver_held_subledger.sql
+      - name: Finance journal SQL constraints and immutability
+        env:
+          PGPASSWORD: finance_lab_test_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
+            -f modules/finance/tests/schema.sql
+      - name: Finance-only PostgreSQL idempotency, wallet and audit integration
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/finance-db.test.mjs
+      - name: Financial full-reversal concurrency and SQL adversarial tests
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/reversal-db.test.mjs
+      - name: Driver-held auxiliary balance and concurrency tests
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/driver-held-db.test.mjs
+      - name: Merchant financial statement keyset paging and isolation regression
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/statement-db.test.mjs
+      - name: Reject schema creation on non-finance database
+        env:
+          PGPASSWORD: finance_lab_test_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d postgres \
+            -c 'CREATE DATABASE not_finance_test'
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d not_finance_test \
+            -f modules/finance/migrations/001_finance_foundation.sql; then
+            echo "Financial migration bypassed isolation guard"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d not_finance_test \
+            -f modules/finance/migrations/002_full_held_reversal.sql; then
+            echo "Compensating migration bypassed isolation guard"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d not_finance_test \
+            -f modules/finance/migrations/003_driver_held_subledger.sql; then
+            echo "Driver-held ledger migration bypassed isolation guard"
+            exit 1
+          fi
+          test "$(psql -At -h 127.0.0.1 -U finance_lab -d not_finance_test \
+            -c "SELECT to_regnamespace('tala_finance_v2') IS NULL")" = "t"
