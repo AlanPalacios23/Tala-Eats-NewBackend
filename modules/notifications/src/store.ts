@@ -80,6 +80,12 @@ export async function publishNotification(pool:Pool,input:PublishInput){
         queued++;
       }
     }
+    // Realtime hint is emitted only on COMMIT. Applications must still fetch
+    // the durable inbox; LISTEN/NOTIFY is never the source of truth.
+    await c.query(`
+      SELECT pg_notify('tala_notifications_v2_new_inbox',$1)`,
+      [JSON.stringify({notificationId:row.id,
+        recipientId:n.recipientId,app:n.app})]);
     return Object.freeze({notification:publicItem(row),replayed:false,
       suppressed:false,deliveriesQueued:queued});
   });
