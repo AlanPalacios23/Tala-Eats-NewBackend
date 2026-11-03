@@ -119,6 +119,28 @@ test('M3 isolated SQL: trusted contract, signed capture, replay, concurrency, an
         'SELECT count(*)::int AS n FROM tala_finance_v2.journals WHERE order_id=$1',
         [raceOrder])).rows[0].n,1);
 
+      // Two different PaymentIntents racing with the SAME signed event ID
+      // must never insert a second capture or leak a raw SQL uniqueness error.
+      const collisionA=randomUUID(),collisionB=randomUUID(),
+        piA='pi_lab_'+randomUUID().replaceAll('-',''),
+        piB='pi_lab_'+randomUUID().replaceAll('-',''),
+        collisionEvent='evt_lab_'+randomUUID().replaceAll('-','');
+      await registerTestIntent(pool,{...registration,orderId:collisionA,paymentIntentId:piA});
+      await registerTestIntent(pool,{...registration,orderId:collisionB,paymentIntentId:piB});
+      const collision=await Promise.allSettled([
+        recordSignedTestCapture(pool,event(piA,collisionEvent)),
+        recordSignedTestCapture(pool,event(piB,collisionEvent))
+      ]);
+      assert.equal(collision.filter(x=>x.status==='fulfilled').length,1);
+      assert.equal(collision.find(x=>x.status==='rejected')?.reason?.code,
+        'WEBHOOK_REPLAY_CONFLICT');
+      assert.equal((await pool.query(
+        'SELECT count(*)::int AS n FROM tala_finance_v2.journals WHERE order_id=ANY($1::uuid[])',
+        [[collisionA,collisionB]])).rows[0].n,1);
+      assert.equal((await pool.query(
+        'SELECT count(*)::int AS n FROM tala_finance_v2.stripe_test_receipts WHERE event_id=$1',
+        [collisionEvent])).rows[0].n,1);
+
       // Provider receipts and internal trusted contracts cannot be rewritten
       // after ingestion; future changes must use append-only compensation.
       await assert.rejects(pool.query(
