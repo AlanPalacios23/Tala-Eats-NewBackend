@@ -17,7 +17,7 @@ import {registerCredentialedPendingUser,loginLabUser,
   changeAuthenticatedPassword,requestAuthenticatedDeletion,
   issueLabPasswordRecovery,resetLabPassword} from './auth.js';
 
-type VerificationSink=(email:string,token:string)=>Promise<void>;
+type VerificationSink=(email:string,token:string,userId:string)=>Promise<void>;
 export type UsersLabHttpConfig={
   pool:Pool;
   authSecret:Buffer;
@@ -140,7 +140,7 @@ export function createUsersLabHttpServer({
           const proof=await issueLabEmailChallenge(pool,{
             userId:result.user.id,secret:emailSecret
           });
-          await sendVerification(result.user.email,proof.token);
+          await sendVerification(result.user.email,proof.token,result.user.id);
         }
         reply(res,202,{userId:result.user.id,status:'pending_verification',
           replayed:result.replayed});
@@ -151,7 +151,7 @@ export function createUsersLabHttpServer({
         const proof=await issueLabEmailChallengeForAddress(pool,{
           email:string(d.email),secret:emailSecret
         });
-        if(proof)await sendVerification(proof.email,proof.token);
+        if(proof)await sendVerification(proof.email,proof.token,proof.userId);
         // No indication whether an account exists, is verified or cooling down.
         reply(res,202,{accepted:true});
         return;
