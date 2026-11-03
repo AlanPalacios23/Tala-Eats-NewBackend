@@ -97,7 +97,8 @@ export async function registerTestIntent(pool,input){
  */
 export async function recordSignedTestCapture(pool,{rawBody,signatureHeader,webhookSecret}={}){
   const event=verifySignedTestEvent(rawBody,signatureHeader,webhookSecret);
-  return transaction(pool,async c=>{
+  try{
+    return await transaction(pool,async c=>{
     const found=await c.query(`
       SELECT order_id,restaurant_id,driver_id,payment_intent_id,snapshot,
         contract_hash,expected_minor
@@ -151,5 +152,18 @@ export async function recordSignedTestCapture(pool,{rawBody,signatureHeader,webh
       VALUES($1,$2,$3::uuid,$4::uuid,$5)`,
       [event.eventId,event.paymentIntentId,verified.orderId,journalId,event.rawHash]);
     return {orderId:verified.orderId,journalId,replayed:false};
-  });
+    });
+  }catch(error){
+    // Two different TEST intents can race using the same provider event ID:
+    // PostgreSQL correctly rejects the duplicate, but expose a stable
+    // finance-domain conflict rather than an unchecked raw SQL error.
+    if(error?.code==='23505'){
+      if(error.constraint==='journals_source_system_source_event_id_key'||
+         error.constraint==='stripe_test_receipts_pkey')
+        throw new FinanceError('WEBHOOK_REPLAY_CONFLICT');
+      if(error.constraint==='journals_order_id_kind_key')
+        throw new FinanceError('ORDER_ALREADY_CAPTURED');
+    }
+    throw error;
+  }
 }
