@@ -1,0 +1,73 @@
+name: M4 Usuarios — isolated identity LAB
+on:
+  pull_request:
+    paths:
+      - 'modules/users/**'
+      - 'docs/MODULO4-USUARIOS-ARQUITECTURA.md'
+      - '.github/workflows/module4-users-ci.yml'
+  push:
+    branches: ['feat/core-v2-usuarios-foundation']
+    paths:
+      - 'modules/users/**'
+      - 'docs/MODULO4-USUARIOS-ARQUITECTURA.md'
+      - '.github/workflows/module4-users-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  users-isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: users_lab
+          POSTGRES_PASSWORD: users_lab_ci_only
+          POSTGRES_DB: tala_users_v2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U users_lab -d tala_users_v2_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install M4-only TypeScript and PostgreSQL dependencies
+        working-directory: modules/users
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: TypeScript strict typecheck and pure domain security tests
+        working-directory: modules/users
+        run: npm run check
+      - name: Assert independent module / no financial or external provider imports
+        run: |
+          if grep -RE 'from .*(modules/(orders|logistics|finance)|stripe|checkout|payment)' modules/users/src; then
+            echo "M4 must remain standalone and payment-free"
+            exit 1
+          fi
+          test ! -e modules/users/src/routes.ts
+      - name: Create isolated users PostgreSQL schema
+        env:
+          PGPASSWORD: users_lab_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
+            -d tala_users_v2_test -f modules/users/migrations/001_users_foundation.sql
+      - name: Test concurrent account lifecycle, audit immutability and deletion
+        env:
+          USERS_CI_URL: postgresql://users_lab:users_lab_ci_only@127.0.0.1:5432/tala_users_v2_test
+        working-directory: modules/users
+        run: npm test
+      - name: Reject M4 migrations on unrelated databases
+        env:
+          PGPASSWORD: users_lab_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab -d postgres \
+            -c 'CREATE DATABASE unrelated_users_test'
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
+            -d unrelated_users_test -f modules/users/migrations/001_users_foundation.sql; then
+            echo "M4 violated isolated lab DB constraint"
+            exit 1
+          fi
+          test "$(psql -At -h 127.0.0.1 -U users_lab \
+            -d unrelated_users_test -c "SELECT to_regnamespace('tala_users_v2') IS NULL")" = "t"
