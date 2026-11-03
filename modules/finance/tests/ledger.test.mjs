@@ -1,85 +1,100 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FinanceError,validateFinancialSnapshot,proposeCaptureJournal} from '../src/ledger.mjs';
+import {FinanceError,validateFinancialSnapshot,proposeHeldAllocation,
+  financeSnapshotHash} from '../src/ledger.mjs';
 
-const orderId='11111111-1111-4111-8111-111111111111';
-const restaurantId='22222222-2222-4222-8222-222222222222';
-const driverId='33333333-3333-4333-8333-333333333333';
-const evidence={sourceSystem:'stripe_test',kind:'capture_verified',
-  eventId:'evt_test_1234567890'};
-const snap={
+export const orderId='11111111-1111-4111-8111-111111111111';
+export const restaurantId='22222222-2222-4222-8222-222222222222';
+export const snap={
   currency:'MXN',policyVersion:'pilot-contract-pending',fulfillment:'delivery',
   itemsMinor:'25000',merchantCommissionMinor:'3750',merchantPayableMinor:'21250',
   serviceFeeMinor:'1750',deliveryFeeMinor:'3900',driverPayableMinor:'3200',
   tipMinor:'0',totalMinor:'30650',platformGrossMinor:'6200'
 };
-const capture=(override={})=>proposeCaptureJournal({
-  orderId,restaurantId,driverId,snapshot:snap,evidence,...override});
-const reject=(fn,code)=>assert.throws(fn,e=>e instanceof FinanceError&&e.code===code);
+const proposal=(override={})=>proposeHeldAllocation({
+  orderId,restaurantId,snapshot:snap,
+  commandKey:'finance-lab-command-000001',...override
+});
+const reject=(fn,code)=>assert.throws(fn,e=>
+  e instanceof FinanceError&&e.code===code);
 
-test('journal is balanced in integer centavos, MXN, no transfer side effects',()=>{
-  const j=capture();
-  assert.equal(j.currency,'MXN');
-  assert.equal(j.lines.length,4);
-  assert.equal(j.sourceSystem,'stripe_test');
-  assert.equal(j.lines.filter(x=>x.side==='debit').reduce((n,x)=>n+BigInt(x.amountMinor),0n),
-    j.lines.filter(x=>x.side==='credit').reduce((n,x)=>n+BigInt(x.amountMinor),0n));
-  assert.equal(j.lines.find(x=>x.accountCode==='liability.merchant_pending').amountMinor,'21250');
-  assert.equal(j.lines.find(x=>x.accountCode==='liability.driver_held').amountMinor,'3200');
-  assert.equal(j.lines.find(x=>x.accountCode==='liability.platform_pending').amountMinor,'6200');
+test('finance-only ledger is provider-neutral; holds every allocation',()=>{
+  const p=proposal();
+  assert.equal(p.kind,'allocation_held');
+  assert.equal(p.currency,'MXN');
+  assert.equal(p.lines.length,4);
+  assert.deepEqual(p.lines.map(x=>x.accountCode),[
+    'asset.external_clearing_pending',
+    'liability.merchant_pending',
+    'liability.delivery_held',
+    'liability.platform_pending'
+  ]);
+  assert.equal(p.lines.find(x=>x.accountCode==='liability.delivery_held').partyId,undefined);
+  assert.equal(p.lines.some(x=>/available|stripe|revenue|payable/.test(x.accountCode)),false);
+  const debit=p.lines.filter(x=>x.side==='debit')
+    .reduce((n,x)=>n+BigInt(x.amountMinor),0n);
+  const credit=p.lines.filter(x=>x.side==='credit')
+    .reduce((n,x)=>n+BigInt(x.amountMinor),0n);
+  assert.equal(debit,credit);
+  assert.equal(credit,30650n);
 });
-test('deterministic idempotency fingerprint for equal payload',()=>{
-  assert.equal(capture().snapshotHash,capture().snapshotHash);
-  assert.notEqual(capture().snapshotHash,capture({evidence:{...evidence,eventId:'evt_test_other123'}}).snapshotHash);
-  assert.notEqual(capture().snapshotHash,capture({snapshot:{...snap,policyVersion:'other-policy'}}).snapshotHash);
+test('same command yields deterministic idempotency hash',()=>{
+  assert.equal(proposal().eventKey,proposal().eventKey);
+  assert.notEqual(proposal().eventKey,
+    proposal({commandKey:'finance-lab-command-000002'}).eventKey);
+  assert.notEqual(proposal().snapshotHash,
+    proposal({snapshot:{...snap,policyVersion:'other-policy'}}).snapshotHash);
+  assert.equal(proposal().snapshotHash,financeSnapshotHash(orderId,restaurantId,snap));
 });
-test('reject negative, decimal, leading zeros and large money strings',()=>{
-  for(const invalid of ['-1','3.14','01',15,NaN,'1000000000001']){
-    reject(()=>validateFinancialSnapshot({...snap,serviceFeeMinor:invalid}),'MONEY_FORMAT_INVALID'===(
-      typeof invalid==='string'&&invalid==='1000000000001'?'MONEY_OUT_OF_RANGE':'MONEY_FORMAT_INVALID')
-      ? 'MONEY_FORMAT_INVALID':'MONEY_OUT_OF_RANGE');
+test('detects merchant share arithmetic error',()=>reject(()=>
+  proposal({snapshot:{...snap,merchantPayableMinor:'22000'}}),
+  'FINANCE_MERCHANT_SHARE_INVALID'));
+test('detects total arithmetic error',()=>reject(()=>
+  proposal({snapshot:{...snap,totalMinor:'30649'}}),
+  'FINANCE_CUSTOMER_TOTAL_INVALID'));
+test('detects impossible allocations',()=>reject(()=>
+  proposal({snapshot:{...snap,driverPayableMinor:'9000'}}),
+  'FINANCE_ALLOCATION_INVALID'));
+test('rejects extra fields in a financial contract',()=>reject(()=>
+  proposal({snapshot:{...snap,stripePaymentIntentId:'pi_not_allowed'}}),
+  'FINANCE_SNAPSHOT_INVALID'));
+test('rejects missing snapshot fields',()=>reject(()=>{
+  const v={...snap};delete v.platformGrossMinor;
+  proposal({snapshot:v});
+},'FINANCE_SNAPSHOT_INVALID'));
+test('rejects unsafe centavo types, negative, decimals and zeros with padding',()=>{
+  for(const bad of [-1,'-1','3.14',10,'01',null]){
+    reject(()=>validateFinancialSnapshot({...snap,serviceFeeMinor:bad}),
+      'FINANCE_MONEY_INVALID');
   }
 });
-test('reject inaccurate merchant share',()=>reject(()=>
-  capture({snapshot:{...snap,merchantPayableMinor:'22000'}}),'MERCHANT_BALANCE_INVALID'));
-test('reject mismatched customer total',()=>reject(()=>
-  capture({snapshot:{...snap,totalMinor:'30649'}}),'CUSTOMER_TOTAL_INVALID'));
-test('reject negative net platform disguised by payouts',()=>reject(()=>
-  capture({snapshot:{...snap,driverPayableMinor:'10000'}}),'PAYOUT_BALANCE_INVALID'));
-test('reject pickup with delivery income',()=>reject(()=>
-  capture({snapshot:{...snap,fulfillment:'pickup'}}),'PICKUP_FINANCE_INVALID'));
-test('holds courier share at capture even without a selected driver',()=>{
-  const j=capture({driverId:null});
-  assert.equal(j.lines.find(x=>x.accountCode==='liability.driver_held').amountMinor,'3200');
-  assert.equal(j.lines.some(x=>x.accountCode==='liability.driver_payable'),false);
-  assert.equal(j.lines.some(x=>x.accountCode==='income.platform_gross'),false);
-  assert.equal(j.lines.some(x=>x.partyId===driverId),false);
+test('rejects centavos beyond maximum',()=>reject(()=>
+  proposal({snapshot:{...snap,itemsMinor:'1000000000001'}}),
+  'FINANCE_MONEY_OUT_OF_RANGE'));
+test('pickup has no courier or delivery allocation',()=>{
+  const pickup={...snap,fulfillment:'pickup',deliveryFeeMinor:'0',
+    driverPayableMinor:'0',tipMinor:'0',totalMinor:'26750',
+    platformGrossMinor:'5500'};
+  const p=proposal({snapshot:pickup});
+  assert.equal(p.lines.length,3);
+  assert.equal(p.lines.some(x=>x.accountCode==='liability.delivery_held'),false);
+  assert.equal(p.lines.find(x=>x.accountCode==='liability.merchant_pending')
+    .amountMinor,'21250');
 });
-test('reject invalid driver IDs',()=>reject(()=>
-  capture({driverId:'invalid'}),'DRIVER_ID_INVALID'));
-test('reject invalid order or merchant UUID',()=>reject(()=>
-  capture({orderId:'forged'}),'ACTOR_ID_INVALID'));
-test('reject live or unverified provider evidence',()=>{
-  reject(()=>capture({evidence:{...evidence,sourceSystem:'stripe_live'}}),'EVIDENCE_INVALID');
-  reject(()=>capture({evidence:{...evidence,kind:'payment_intent_created'}}),'EVIDENCE_INVALID');
-});
-test('valid pickup proposal has no driver liability',()=>{
-  const pickup={...snap,fulfillment:'pickup',deliveryFeeMinor:'0',driverPayableMinor:'0',
-    totalMinor:'26750',platformGrossMinor:'5500'};
-  const j=capture({snapshot:pickup,driverId:null});
-  assert.equal(j.lines.some(x=>x.accountCode==='liability.driver_held'),false);
-  assert.equal(j.lines.length,3);
-});
-test('pickup amounts remain held until a separate fulfillment gate',()=>{
-  const pickup={...snap,fulfillment:'pickup',deliveryFeeMinor:'0',driverPayableMinor:'0',
-    totalMinor:'26750',platformGrossMinor:'5500'};
-  const j=capture({snapshot:pickup,driverId:null});
-  assert.equal(j.lines.some(x=>x.accountCode==='liability.driver_held'),false);
-  assert.equal(j.lines.find(x=>x.accountCode==='liability.platform_pending').amountMinor,'5500');
-});
-test('proposal output is immutable and uses no floating point',()=>{
-  const j=capture();
-  assert.equal(Object.isFrozen(j.lines),true);
-  assert.equal(Object.isFrozen(j.lines[0]),true);
-  assert.equal(typeof j.lines[0].amountMinor,'string');
+test('pickup cannot include delivery or tip',()=>reject(()=>
+  proposal({snapshot:{...snap,fulfillment:'pickup'}}),
+  'FINANCE_PICKUP_INVALID'));
+test('delivery must have a nonzero logistics allocation',()=>reject(()=>
+  proposal({snapshot:{...snap,driverPayableMinor:'0',platformGrossMinor:'9400'}}),
+  'FINANCE_DELIVERY_INVALID'));
+test('strict order and restaurant identity',()=>reject(()=>
+  proposal({restaurantId:'not-uuid'}),'FINANCE_ID_INVALID'));
+test('strict command idempotency key',()=>reject(()=>
+  proposal({commandKey:'short'}),'FINANCE_COMMAND_INVALID'));
+test('immutable proposal cannot be mutated after construction',()=>{
+  const p=proposal();
+  assert.ok(Object.isFrozen(p));
+  assert.ok(Object.isFrozen(p.lines));
+  assert.ok(Object.isFrozen(p.snapshot));
+  assert.ok(p.lines.every(Object.isFrozen));
 });
