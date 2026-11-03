@@ -134,6 +134,56 @@ test('M3 isolated SQL: trusted contract, signed capture, replay, concurrency, an
         'DELETE FROM tala_finance_v2.test_intents WHERE order_id=$1',
         [orderId]),/FINANCE_JOURNAL_IMMUTABLE/);
 
+      // Customers may pay before the courier is chosen by M2. Preserve
+      // the courier allocation in an unallocated liability, never a wallet.
+      const unassignedOrder=randomUUID();
+      const unassignedPI='pi_lab_'+randomUUID().replaceAll('-','');
+      const unassignedEvent='evt_lab_'+randomUUID().replaceAll('-','');
+      await registerTestIntent(pool,{...registration,orderId:unassignedOrder,
+        driverId:null,paymentIntentId:unassignedPI});
+      const unassigned=await recordSignedTestCapture(pool,
+        event(unassignedPI,unassignedEvent));
+      assert.equal(unassigned.replayed,false);
+      const unallocated=await pool.query(
+        'SELECT account_code,party_id,amount_minor::text FROM tala_finance_v2.postings WHERE order_id=$1',
+        [unassignedOrder]);
+      assert.ok(unallocated.rows.some(x=>x.account_code==='liability.driver_held'&&
+        x.party_id===null&&x.amount_minor==='3200'));
+      assert.ok(unallocated.rows.some(x=>x.account_code==='liability.merchant_pending'));
+      assert.ok(unallocated.rows.some(x=>x.account_code==='liability.platform_pending'));
+      assert.equal(unallocated.rows.some(x=>x.account_code.includes('payable')||
+        x.account_code.startsWith('income.')),false);
+
+      // Direct SQL must not link a receipt to a real but WRONG order's
+      // journal or intent. Composite foreign keys enforce this at DB level.
+      const danglingOrder=randomUUID(),danglingEvent='evt_anchor_123456789';
+      const orphan=await pool.query(`
+        INSERT INTO tala_finance_v2.journals
+          (order_id,kind,source_system,source_event_id,snapshot_hash,lines)
+        VALUES($1::uuid,'capture','stripe_test',$2,$3,$4::jsonb)
+        RETURNING id`,[danglingOrder,danglingEvent,'a'.repeat(64),
+        JSON.stringify([
+          {accountCode:'asset.stripe_test_clearing',side:'debit',amountMinor:'100'},
+          {accountCode:'liability.merchant_pending',partyId:restaurantId,
+            side:'credit',amountMinor:'80'},
+          {accountCode:'liability.platform_pending',side:'credit',amountMinor:'20'}
+        ])]);
+      const orphanId=orphan.rows[0].id;
+      await assert.rejects(pool.query(`
+        INSERT INTO tala_finance_v2.stripe_test_receipts
+          (event_id,payment_intent_id,order_id,journal_id,raw_hash)
+        VALUES($1,$2,$3::uuid,$4::uuid,$5)`,
+        [danglingEvent,paymentIntentId,orderId,orphanId,'a'.repeat(64)]),
+        e=>e.code==='23503');
+      await assert.rejects(pool.query(`
+        INSERT INTO tala_finance_v2.stripe_test_receipts
+          (event_id,payment_intent_id,order_id,journal_id,raw_hash)
+        VALUES($1,$2,$3::uuid,$4::uuid,$5)`,
+        [danglingEvent,paymentIntentId,danglingOrder,orphanId,'a'.repeat(64)]),
+        e=>e.code==='23503');
+      assert.equal((await pool.query(
+        'SELECT count(*)::int AS n FROM tala_finance_v2.stripe_test_receipts WHERE event_id=$1',
+        [danglingEvent])).rows[0].n,0);
       const intents=await pool.query(
         'SELECT count(*)::int AS n FROM tala_finance_v2.test_intents WHERE order_id=$1',
         [orderId]);
