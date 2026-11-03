@@ -19,15 +19,20 @@ Render, Stripe LIVE, PWAs ni el backend Node operativo.
   sumas exactas, unicidad por orden de captura y evento.
 - `migrations/002_test_webhook_inbox.sql`: registro inmutable de TEST intents
   y recibos firmados, propio esquema `tala_finance_v2`.
+- `migrations/003_receipt_integrity.sql`: claves foráneas compuestas
+  que obligan a que `order_id`, `payment_intent_id`, `event_id` y `journal_id`
+  correspondan a la misma operación; bloquea cruces de pedidos incluso si
+  un cliente SQL intenta insertar un recibo falso sobre registros existentes.
 - `tests/stripe-integration.test.mjs`: base PostgreSQL 16 real; 8 webhooks
   concurrentes, un único asiento, reenvío idempotente, importe incorrecto,
   segundo evento para la misma orden, hash distinto, intent inexistente,
-  contrato duplicado/incompatible, firma falsa.
+  contrato duplicado/incompatible, firma falsa, checkout sin conductor,
+  protección contra enlaces cruzados entre recibos y comprobación append-only.
 - `tests/webhook.test.mjs`: firma válida, cuerpo modificado, clave equivocada,
   timestamp viejo/futuro, LIVE, eventos distintos y moneda incorrecta.
 
 El CI instala solamente las dependencias de Finanzas. En la base de pruebas
-`tala_finance_v2_test` aplica 001/002 y ejecuta pruebas de transacciones.
+`tala_finance_v2_test` aplica 001/002/003 y ejecuta pruebas de transacciones.
 Verifica también que migraciones sean rechazadas en otra base.
 Para pruebas locales: `cd modules/finance && npm install && npm test`;
 el test PostgreSQL se omite sin `FINANCE_CI_URL`, por lo que **la suite
@@ -46,11 +51,18 @@ ni que el comprador haya pagado. Tampoco se expone por HTTP; conectar ese
 contrato a M1 requerirá autenticación interna, snapshot firmado, creación
 de PaymentIntent en Stripe TEST y asociación segura al pedido.
 
-Un saldo contable registrado **no es un saldo disponible**. El laboratorio
-todavía no define estados retenido/disponible, liquidaciones, custodia,
-impuestos, refund, reversos ni la elegibilidad para pagar a repartidores.
-En especial, no activar wallets ni transferencias basándose solo en el
-asiento de captura.
+**Corrección LAB1.1:** los asientos de captura solo abonan a
+`liability.merchant_pending`, `liability.driver_held` y
+`liability.platform_pending` (si sus importes no son cero); ninguna
+captura crea saldos `payable` ni reconoce ingresos de plataforma.
+El saldo del repartidor se mantiene **sin asignar**, incluso si un
+identificador de conductor aparece en un contrato; se admiten compras
+pagadas antes de que M2 seleccione un repartidor.
+
+Un saldo contable registrado **no es dinero disponible**: falta un
+evento de entrega/custodia autenticado desde M2, así como las reglas
+para liberar, revertir y conciliar las obligaciones pendientes.
+No activar wallets ni transferencias basándose solo en un asiento de captura.
 
 ## Problema abierto P0 — política de tarifas
 
