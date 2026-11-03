@@ -205,3 +205,32 @@ test('M5 explicitly UNREGISTERED push token is revoked; subsequent jobs skip it'
     assert.deepEqual(hist.rows.map(x=>x.error_code),['FCM_UNREGISTERED']);
   }finally{await pool.end();}
 });
+
+
+test('M5 durable outbox honors provider Retry-After without shortening exponential delay',
+ {skip:!enabled,timeout:70000},async()=>{
+  const pool=db();
+  try{
+    const posted=await publishNotification(pool,{
+      recipientId:key(),sourceEventId:key(),app:'customer',
+      eventType:'order.confirmed'
+    });
+    const result=await processDeliveryBatch(pool,{
+      ...deps,sendEmail:async msg=>{
+        if(msg.notificationId===posted.notification?.id)
+          throw new DeliveryFailure('EMAIL_PROVIDER_TEMPORARY',false,120);
+      }
+    },{limit:50});
+    assert.ok(result.retried>=1);
+    const row=await pool.query(
+      'SELECT status,attempts,extract(epoch FROM '+
+      '(next_attempt_at-clock_timestamp())) AS seconds_left '+
+      'FROM tala_notifications_v2.deliveries WHERE notification_id=$1',
+      [posted.notification!.id]);
+    assert.equal(row.rows[0]?.status,'retry');
+    assert.equal(row.rows[0]?.attempts,1);
+    assert.ok(Number(row.rows[0]?.seconds_left)>=110,
+      'Provider-specified 120s retry window must persist in PostgreSQL');
+    assert.ok(Number(row.rows[0]?.seconds_left)<=125);
+  }finally{await pool.end();}
+});
