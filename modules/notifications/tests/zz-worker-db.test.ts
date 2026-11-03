@@ -167,3 +167,41 @@ test('M5 exhausted worker crash lease becomes dead-letter, never stays leased fo
     assert.equal((await requeueDeadLetter(pool,{deliveryId:target.id})).requeued,true);
   }finally{await pool.end();}
 });
+
+
+test('M5 explicitly UNREGISTERED push token is revoked; subsequent jobs skip it',
+  {skip:!enabled,timeout:70000},async()=>{
+  const pool=db();
+  try{
+    const recipientId=key();
+    const device=await registerDevice(pool,{
+      recipientId,app:'courier',platform:'android',token:token(),secret});
+    const posted=await publishNotification(pool,{
+      recipientId,sourceEventId:key(),app:'courier',eventType:'courier.offer'});
+    assert.equal(posted.deliveriesQueued,1);
+    const results=await processDeliveryBatch(pool,{
+      ...deps,sendPush:async msg=>{
+        if(msg.notificationId===posted.notification?.id)
+          throw new DeliveryFailure('FCM_UNREGISTERED',true);
+      }},{limit:50});
+    assert.ok(results.deadLetter>=1);
+    const delivery=await pool.query(
+      'SELECT status,last_error_code FROM tala_notifications_v2.deliveries '+
+      'WHERE notification_id=$1',[posted.notification!.id]);
+    assert.equal(delivery.rows[0]?.status,'dead_letter');
+    assert.equal(delivery.rows[0]?.last_error_code,'FCM_UNREGISTERED');
+    const stored=await pool.query(
+      'SELECT revoked_at FROM tala_notifications_v2.devices WHERE id=$1',
+      [device.id]);
+    assert.ok(stored.rows[0]?.revoked_at instanceof Date);
+    const next=await publishNotification(pool,{
+      recipientId,sourceEventId:key(),app:'courier',eventType:'courier.offer'});
+    assert.equal(next.deliveriesQueued,0);
+    assert.ok(next.notification);
+    const hist=await pool.query(
+      'SELECT result,error_code FROM tala_notifications_v2.delivery_attempts '+
+      'WHERE delivery_id IN (SELECT id FROM tala_notifications_v2.deliveries '+
+      'WHERE notification_id=$1)',[posted.notification!.id]);
+    assert.deepEqual(hist.rows.map(x=>x.error_code),['FCM_UNREGISTERED']);
+  }finally{await pool.end();}
+});
