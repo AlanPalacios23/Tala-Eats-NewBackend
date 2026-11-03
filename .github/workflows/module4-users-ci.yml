@@ -109,6 +109,12 @@ jobs:
             echo "Untrusted M4 role bypassed account_roles restriction"
             exit 1
           fi
+      - name: Apply durable cross-instance request rate limiter
+        env:
+          PGPASSWORD: users_lab_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
+            -d tala_users_v2_test -f modules/users/migrations/009_distributed_rate_limit.sql
       - name: Test concurrent account lifecycle, audit immutability and deletion
         env:
           USERS_CI_URL: postgresql://users_lab:users_lab_ci_only@127.0.0.1:5432/tala_users_v2_test
@@ -158,6 +164,11 @@ jobs:
           if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
             -d unrelated_users_test -f modules/users/migrations/008_least_privilege_lab.sql; then
             echo "M4 privilege migration violated isolated DB constraint"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
+            -d unrelated_users_test -f modules/users/migrations/009_distributed_rate_limit.sql; then
+            echo "M4 rate migration violated isolated DB constraint"
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U users_lab \
