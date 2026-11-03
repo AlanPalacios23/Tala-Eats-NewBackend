@@ -1,71 +1,79 @@
-# M4 Usuarios — TALA EATS CORE v2
+# TALA EATS CORE v2 — Módulo 4: Usuarios
 
-Módulo de identidades y perfiles, autónomo. **LAB0 — NO-GO comercial**.
+**LAB3 · identidad, perfiles, credenciales y sesiones — NO-GO comercial.**
 
-- Rama: `feat/core-v2-usuarios-foundation`, derivada de `main`.
-- Paquete: `modules/users/`, TypeScript estricto + Node 24.
-- Persistencia: esquema `tala_users_v2` en PostgreSQL 16 descartable.
-- CI: `.github/workflows/module4-users-ci.yml`, sin builds de M1/M2/M3.
-- Documento de límites: `docs/MODULO4-USUARIOS-ARQUITECTURA.md`.
+La implementación está aislada en `modules/users/` y en la rama
+`feat/core-v2-usuarios-foundation` (PR #6, base `main`).
+No depende del código ni de las tablas de Pedidos, Logística, Finanzas o Pagos.
 
-## Operaciones internas
+## Funcionalidades propias de Usuarios
 
-| Función | Resultado |
+| Componente | Capacidades |
 | --- | --- |
-| `canonicalEmail` | Correo ASCII normalizado, validación restrictiva y sin ambigüedad |
-| `registerPendingUser` | Registra una cuenta **pendiente de verificación**; no autentica |
-| `transitionLabUser` | Suspensión, reactivación y eliminación, pero **NO** verificación directa |
-| `issueLabEmailChallenge` | Genera token criptográfico de un solo uso para entrega por un servicio futuro |
-| `verifyLabEmailChallenge` | Consume la prueba de correo con HMAC, caducidad y máximo cinco errores |
-| `updateLabOwnProfile` | Actualiza el nombre si la cuenta está activa y la versión coincide |
-| `readLabUser` | Consulta interna de una cuenta; contiene PII, no publicar |
+| `src/domain.ts` | Identidades, correos, nombres, estados y versión de perfil |
+| `src/store.ts` | Registro pendiente, verificación interna de correo, auditoría y eliminación |
+| `src/auth.ts` | Registro con contraseña protegida, login, sesiones, perfil autenticado, logout, cambio y recuperación de contraseña |
+| `src/http-lab.ts` | API HTTP limitada a loopback, usada en pruebas de extremo a extremo |
+| `migrations/001...004.sql` | PostgreSQL propio; versiones, pruebas, verificador scrypt, sesiones y recuperación |
+| `tests/` | Pruebas unitarias, SQL, concurrencia, ataques y recorridos HTTP |
 
-Las escrituras se realizan mediante transacciones SQL. El correo es único,
-la operación admite reintentos idempotentes y la cuenta usa una versión
-incremental para impedir conflictos de actualización. Los eventos de auditoría
-son inmutables. La eliminación es lógica/seu­donimizada: conserva identificador
-y auditoría; la eliminación completa de copias conectadas y backups sigue pendiente.
+### Recorrido completo validable en laboratorio
 
-## Pruebas
+```
+Registro → cuenta pendiente y contraseña cifrada mediante KDF
+→ emisión de token de correo → entrega simulada
+→ verificación única → inicio de sesión → perfil
+→ edición de perfil → cierre de sesión
+→ cambio o recuperación de contraseña
+→ revocación de sesiones antiguas
+→ solicitud de eliminación → estado bloqueado
+→ finalización interna de eliminación con limpieza de secretos
+```
 
-```sh
+La contraseña no se guarda en texto: se almacena un verificador derivado
+con `scrypt`, sal aleatoria y secreto de aplicación. La sesión entrega un
+bearer opaco de 256 bits, guarda solo su HMAC y vence en 12 horas. La
+cuenta pierde sesiones activas al suspenderse, solicitar eliminación o
+cambiar/restablecer contraseña. Los comprobantes de correo y recuperación
+duran 10 minutos, con límite de cinco errores.
+
+**Atención:** las pruebas de correo usan un adaptador de envío simulado.
+No hay SMTP ni verificación de un correo real. Las APIs HTTP solo se montan
+en `127.0.0.1` durante la CI. Nunca ejecutar `http-lab.ts` directamente
+como servicio público. Ninguna operación se ha publicado en las PWA.
+
+## Ejecutar pruebas
+
+```bash
 cd modules/users
 npm install
 npm run check
 ```
 
-Los tests de PostgreSQL requieren la variable `USERS_CI_URL` con una base
-independiente denominada `tala_users_v2_test`. El workflow la crea y
-ejecuta los tests automáticamente, aplicando 001 y
-`migrations/002_email_challenge.sql` antes de la suite. **No pasarle una BD de producción**.
-La migración se niega en cualquier BD distinta de las variantes `_lab`
-o `_test`.
+Las suites con PostgreSQL requieren `USERS_CI_URL` apuntando a una
+base **descartable** `tala_users_v2_test` con migraciones 001→004
+aplicadas. Sin esta variable, se ejecutan las pruebas puras y las pruebas
+que requieren PostgreSQL se omiten. La CI del repositorio crea la base
+aislada, aplica migraciones y ejecuta la batería completa.
 
-## Siguientes fases de M4
+`npm run test:e2e` ejecuta específicamente las pruebas de recorrido
+interno, HTTP simulado y recuperación; también necesita la BD descartable.
 
-1. Autenticación real (contraseñas con KDF moderno/passkeys, sesiones,
-   verificación de correo, recuperación, revocación y controles antiabuso).
-2. Autorización: roles separados de clientes, restaurantes, repartidores
-   y staff, privilegios definidos por servidor, sin autoescalado a admin.
-3. Dirección de entrega y contactos del usuario, preferencias y privacidad.
-4. Borrado/retención legal y exportación de datos; control PII por endpoint.
-5. Tests E2E desde clientes reales, rate limits, monitoreo y migraciones.
+## Bloqueos antes de producción
 
-**La verificación de correo sigue siendo interna de laboratorio.**
-Los tokens son 32 bytes aleatorios y se guarda únicamente su HMAC-SHA256
-con una clave secreta proporcionada por el servicio; el token expira en 10
-minutos, hay cooldown de emisión de 60 segundos, máximo cinco errores,
-consumo único y registro de activación auditado. Los intentos erróneos se
-confirman en la base de datos antes de devolver el error. La función
-de emisión devuelve el token **una sola vez al llamador confiable**:
-todavía no existe servidor SMTP, enlace enviado ni prueba de posesión
-de correo con un proveedor real. No almacenar, registrar ni devolver tokens
-a una PWA directamente. La clave HMAC debe conservarse fuera del código.
+No existe despliegue ni endpoints comerciales. Faltan servicio real de
+correo, secretos gestionados fuera de la aplicación, TLS y gateway,
+rate limiting distribuido, autorización con roles, MFA/passkeys,
+protección administrativa, privacidad de datos de perfil, recuperación
+ante pérdida del dispositivo, revisión de permisos SQL, telemetría,
+migración segura y E2E desde Android/iOS.
 
-**No hay rutas HTTP ni integración con aplicaciones actuales**.
-El parámetro `actorId` no acredita identidad ni autoridad: las mutaciones
-deberán quedar protegidas por un futuro adaptador autenticado; nunca
-publicarlas tal cual en la red.
+El adaptador LAB limita el tamaño del cuerpo y rechaza parámetros
+inesperados, pero **no es un servidor público endurecido**. Las
+primitivas `transitionLabUser` y `readLabUser` son internas:
+`actorId` no constituye autorización.
 
-Sin Stripe, tarjetas, wallets financieros, pedidos, despacho, cambios en Kali
-ni exposición de claves LIVE.
+Ver detalles y criterios de aceptación:
+[`docs/MODULO4-USUARIOS-LAB3-E2E.md`](../../docs/MODULO4-USUARIOS-LAB3-E2E.md).
+
+Sin cambios al backend LIVE Kali, Stripe, M1, M2 o M3.
