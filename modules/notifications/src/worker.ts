@@ -40,28 +40,44 @@ export async function claimDueDeliveries(pool:Pool,{limit=10}:{limit?:number}={}
   if(!Number.isSafeInteger(limit)||limit<1||limit>50)
     throw new NotificationError('NOTIFICATIONS_CLAIM_LIMIT_INVALID');
   return transaction(pool,async c=>{
-    // Exhausted crashed leases must become dead-letter, not remain stuck.
-    const exhausted=await c.query<{id:string,attempts:number,retry_cycle:number}>(`
-      UPDATE tala_notifications_v2.deliveries SET
-        status='dead_letter',lease_token=NULL,lease_until=NULL,
-        last_error_code='LEASE_EXHAUSTED',updated_at=clock_timestamp()
+    // Keep expired-lease recovery bounded. A crash is itself an audited
+    // attempt; otherwise attempts=2 can exist without an attempt=1 record.
+    // We lock only 100 expired jobs at a time to avoid holding a table-wide
+    // lock or timing out when a worker fleet has been offline.
+    const expired=await c.query<{
+      id:string,attempts:number,retry_cycle:number
+    }>(`
+      SELECT id,attempts,retry_cycle
+      FROM tala_notifications_v2.deliveries
       WHERE status='leased' AND lease_until<=clock_timestamp()
-        AND attempts>=$1
-      RETURNING id,attempts,retry_cycle`,[MAX_ATTEMPTS]);
-    for(const row of exhausted.rows){
+      ORDER BY lease_until,id
+      FOR UPDATE SKIP LOCKED LIMIT 100`);
+    const expiredIds=expired.rows.map(x=>x.id);
+    if(expiredIds.length){
       await c.query(`
         INSERT INTO tala_notifications_v2.delivery_attempts
           (delivery_id,retry_cycle,attempt_number,result,error_code)
-        VALUES($1::uuid,$2,$3,'dead_letter','LEASE_EXHAUSTED')
+        SELECT id,retry_cycle,attempts,
+          CASE WHEN attempts>=$2 THEN 'dead_letter' ELSE 'retry' END,
+          CASE WHEN attempts>=$2 THEN 'LEASE_EXHAUSTED' ELSE 'LEASE_EXPIRED' END
+        FROM tala_notifications_v2.deliveries
+        WHERE id=ANY($1::uuid[])
         ON CONFLICT(delivery_id,retry_cycle,attempt_number) DO NOTHING`,
-        [row.id,row.retry_cycle,row.attempts]);
+        [expiredIds,MAX_ATTEMPTS]);
+      await c.query(`
+        UPDATE tala_notifications_v2.deliveries
+        SET status='dead_letter',lease_token=NULL,lease_until=NULL,
+          last_error_code='LEASE_EXHAUSTED',updated_at=clock_timestamp()
+        WHERE id=ANY($1::uuid[]) AND attempts>=$2`,
+        [expiredIds,MAX_ATTEMPTS]);
     }
     const result=await c.query<Claim>(`
       WITH due AS (
         SELECT id FROM tala_notifications_v2.deliveries
         WHERE attempts<$1 AND (
           (status IN ('queued','retry') AND next_attempt_at<=clock_timestamp())
-          OR (status='leased' AND lease_until<=clock_timestamp()))
+          OR (status='leased' AND lease_until<=clock_timestamp()
+              AND id=ANY($3::uuid[])))
         ORDER BY next_attempt_at,updated_at,id
         FOR UPDATE SKIP LOCKED LIMIT $2
       )
@@ -72,7 +88,8 @@ export async function claimDueDeliveries(pool:Pool,{limit=10}:{limit?:number}={}
         updated_at=clock_timestamp()
       FROM due WHERE d.id=due.id
       RETURNING d.id,d.notification_id,d.channel,d.device_id,
-        d.attempts,d.retry_cycle,d.lease_token`,[MAX_ATTEMPTS,limit]);
+        d.attempts,d.retry_cycle,d.lease_token`,
+        [MAX_ATTEMPTS,limit,expiredIds]);
     return result.rows.map(x=>Object.freeze(x));
   });
 }
