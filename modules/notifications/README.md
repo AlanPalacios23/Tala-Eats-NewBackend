@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 5: Notificaciones
 
-**LAB0 independiente · NO-GO comercial.** Rama `feat/core-v2-notificaciones-foundation`,
+**LAB4 independiente · NO-GO comercial.** Rama `feat/core-v2-notificaciones-foundation`,
 PR #7 (Draft), base `main`. No importa código ni tablas de Pedidos,
 Logística, Finanzas, Usuarios ni Pagos. No utiliza los servicios LIVE del
 servidor Kali, Firebase, Stripe ni el backend anterior.
@@ -99,12 +99,42 @@ npm run check
 ```
 
 Los tests de integración PostgreSQL necesitan una BD descartable llamada
-`tala_notifications_v2_test`, la migración `001` aplicada y
+`tala_notifications_v2_test`, las migraciones `001`→`004` aplicadas y
 `NOTIFICATIONS_CI_URL`. La CI propia del PR las prepara y rechaza
 migraciones en otras bases. Se prueban contratos, inyección de audiencia,
 consentimientos, ausencia de PII, cifrado, carrera de publicación,
 paginación, reintentos, dead-letter, lease agotada, adapters simulados,
 lectura HTTP autorizada y señales PG en tiempo real.
+
+## LAB4 — resistencia, prioridad, seguridad y operaciones
+
+- **Preferencias independientes:** una promoción con opt-in de correo no
+  aparece automáticamente en la bandeja de la app si in-app está desactivado.
+  La decisión de suprimir un evento queda registrada en
+  `publication_receipts` para impedir reenvíos históricos al cambiar
+  preferencias. La visibilidad del inbox se limita a los avisos autorizados.
+- **Dispositivos:** máximo 20 tokens activos por usuario/app con bloqueo
+  transaccional frente a registros concurrentes. Un token con respuesta FCM
+  explícita `UNREGISTERED` se revoca; errores genéricos de proyecto,
+  permisos o petición no deben cancelar tokens válidos.
+- **Priorización:** el catálogo determina automáticamente el orden de cola:
+  seguridad 100, ofertas de repartidor 95, pedido nuevo 90, estados urgentes
+  80, transaccionales 60, promociones 10. El cliente no puede autodeclararse
+  urgente. Migración 004 y pruebas de precedencia en PostgreSQL.
+- **Resiliencia:** recuperación de leases vencidos acotada a lotes;
+  un intento interrumpido genera una entrada de auditoría
+  `LEASE_EXPIRED` antes de reintentar. Se conserva la trazabilidad
+  hasta dead-letter y reenvío manual, sin declarar entrega exacta.
+- **Operación:** `readNotificationOperations` produce conteos por
+  canal/estado, atraso, leases vencidos y entregas/errores de 24h, sin
+  identificadores de destinatarios ni tokens.
+- **Retención:** el barrido de laboratorio `redactExpiredNotificationData`
+  limita lotes y redacta secretos de dispositivos revocados y el contenido
+  de notificaciones antiguas terminales, conservando la auditoría.
+  No sustituye el borrado legal ni la política de respaldos.
+
+Los cambios anteriores se prueban con los adaptadores de correo y
+Firebase simulados, nunca con tokens, claves ni clientes LIVE.
 
 ## No-Go: requisitos para producción
 
