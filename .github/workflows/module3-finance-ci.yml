@@ -1,24 +1,23 @@
-name: M3 Finance isolated LAB
+name: M3 Finance ONLY — isolated accounting LAB
 on:
   pull_request:
     paths:
       - 'modules/finance/**'
       - 'docs/MODULO3-FINANZAS-ARQUITECTURA.md'
+      - 'docs/MODULO3-FINANZAS-ONLY.md'
       - '.github/workflows/module3-finance-ci.yml'
   push:
-    branches:
-      - 'feat/core-v2-finanzas-foundation'
+    branches: ['feat/core-v2-finanzas-foundation']
     paths:
       - 'modules/finance/**'
       - 'docs/MODULO3-FINANZAS-ARQUITECTURA.md'
+      - 'docs/MODULO3-FINANZAS-ONLY.md'
       - '.github/workflows/module3-finance-ci.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  finance-lab:
+  accounting-lab:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -28,8 +27,7 @@ jobs:
           POSTGRES_USER: finance_lab
           POSTGRES_PASSWORD: finance_lab_test_only
           POSTGRES_DB: tala_finance_v2_test
-        ports:
-          - 5432:5432
+        ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U finance_lab -d tala_finance_v2_test"
           --health-interval 3s --health-timeout 3s --health-retries 20
@@ -38,66 +36,47 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install standalone M3 dependencies (never root M1/M2)
+      - name: Install only independent finance dependencies
         working-directory: modules/finance
         run: npm install --ignore-scripts --no-audit --no-fund
-      - name: Pure finance, signatures and money integrity tests
+      - name: Validate finance-only accounting and pure unit tests
+        working-directory: modules/finance
+        run: npm run check
+      - name: Reject payment provider imports, routes and SDKs from Finance
         run: |
-          cd modules/finance
-          npm run check
-      - name: Apply isolated finance migration
+          test ! -f modules/finance/src/stripe-test-webhook.mjs
+          test ! -f modules/finance/src/payments.mjs
+          if grep -R -E 'from .*(stripe|checkout|webhook)|payment_intent\.succeeded|api\.stripe\.com' modules/finance/src; then
+            echo "Finanzas must not include payment integrations"
+            exit 1
+          fi
+      - name: Create finance-only schema on disposable PostgreSQL
         env:
           PGPASSWORD: finance_lab_test_only
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
             -f modules/finance/migrations/001_finance_foundation.sql
-      - name: Apply durable Stripe TEST finance inbox migration
-        env:
-          PGPASSWORD: finance_lab_test_only
-        run: |
-          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test             -f modules/finance/migrations/002_test_webhook_inbox.sql
-      - name: Enforce receipt to journal and intent cross-order integrity
-        env:
-          PGPASSWORD: finance_lab_test_only
-        run: |
-          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
-            -f modules/finance/migrations/003_receipt_integrity.sql
-      - name: Signed Stripe TEST webhook idempotency and concurrency integration
-        env:
-          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
-        working-directory: modules/finance
-        run: node --test tests/stripe-integration.test.mjs
-      - name: Read-only reconciliation and anomaly regression
-        env:
-          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
-        working-directory: modules/finance
-        run: node --test tests/reconciliation.test.mjs
-      - name: PostgreSQL ledger double-entry and immutability regression
+      - name: Finance journal SQL constraints and immutability
         env:
           PGPASSWORD: finance_lab_test_only
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
             -f modules/finance/tests/schema.sql
-      - name: Reject finance migration on unrelated disposable DB
+      - name: Finance-only PostgreSQL idempotency, wallet and audit integration
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/finance-db.test.mjs
+      - name: Reject schema creation on non-finance database
         env:
           PGPASSWORD: finance_lab_test_only
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d postgres \
-            -c 'CREATE DATABASE unrelated_lab'
-          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d unrelated_lab \
-             -f modules/finance/migrations/001_finance_foundation.sql; then
-            echo 'ERROR: migration bypassed FINANCE_LAB_ONLY guard'
+            -c 'CREATE DATABASE not_finance_test'
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d not_finance_test \
+            -f modules/finance/migrations/001_finance_foundation.sql; then
+            echo "Financial migration bypassed isolation guard"
             exit 1
           fi
-          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d unrelated_lab \
-            -f modules/finance/migrations/002_test_webhook_inbox.sql; then
-            echo 'ERROR: migration 002 bypassed FINANCE_LAB_ONLY guard'
-            exit 1
-          fi
-          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d unrelated_lab \
-            -f modules/finance/migrations/003_receipt_integrity.sql; then
-            echo 'ERROR: migration 003 bypassed FINANCE_LAB_ONLY guard'
-            exit 1
-          fi
-          test "$(psql -At -h 127.0.0.1 -U finance_lab -d unrelated_lab \
+          test "$(psql -At -h 127.0.0.1 -U finance_lab -d not_finance_test \
             -c "SELECT to_regnamespace('tala_finance_v2') IS NULL")" = "t"
