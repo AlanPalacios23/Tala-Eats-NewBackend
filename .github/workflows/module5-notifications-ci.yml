@@ -1,0 +1,75 @@
+name: M5 Notificaciones — isolated delivery LAB
+on:
+  pull_request:
+    paths:
+      - 'modules/notifications/**'
+      - 'docs/MODULO5-NOTIFICACIONES-ARQUITECTURA.md'
+      - '.github/workflows/module5-notifications-ci.yml'
+  push:
+    branches: ['feat/core-v2-notificaciones-foundation']
+    paths:
+      - 'modules/notifications/**'
+      - 'docs/MODULO5-NOTIFICACIONES-ARQUITECTURA.md'
+      - '.github/workflows/module5-notifications-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  notifications-isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: notif_lab
+          POSTGRES_PASSWORD: notif_lab_ci_only
+          POSTGRES_DB: tala_notifications_v2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U notif_lab -d tala_notifications_v2_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install isolated M5 TypeScript dependencies
+        working-directory: modules/notifications
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: TypeScript strict typecheck and pure notification/security tests
+        working-directory: modules/notifications
+        run: npm run check
+      - name: Enforce independent modules and no payment provider imports
+        run: |
+          if grep -RE 'from .*(modules/(orders|logistics|finance|users|payments)|stripe|checkout)' modules/notifications/src; then
+            echo "M5 cannot import other modules or payment providers"
+            exit 1
+          fi
+      - name: Apply isolated notifications PostgreSQL 16 foundation
+        env:
+          PGPASSWORD: notif_lab_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab \
+            -d tala_notifications_v2_test \
+            -f modules/notifications/migrations/001_notifications_foundation.sql
+      - name: Execute PostgreSQL lifecycle, concurrency, outbox and E2E tests
+        env:
+          NOTIFICATIONS_CI_URL: postgresql://notif_lab:notif_lab_ci_only@127.0.0.1:5432/tala_notifications_v2_test
+        working-directory: modules/notifications
+        run: npm test
+      - name: Reject migrations outside M5 disposable database
+        env:
+          PGPASSWORD: notif_lab_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab -d postgres \
+            -c 'CREATE DATABASE unrelated_notifications_test'
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab \
+            -d unrelated_notifications_test \
+            -f modules/notifications/migrations/001_notifications_foundation.sql; then
+            echo "M5 violated isolated lab database guard"
+            exit 1
+          fi
+          test "$(psql -At -h 127.0.0.1 -U notif_lab \
+            -d unrelated_notifications_test \
+            -c "SELECT to_regnamespace('tala_notifications_v2') IS NULL")" = "t"
