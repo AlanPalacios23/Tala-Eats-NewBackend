@@ -127,7 +127,14 @@ export function render(input:PublishInput){
   const resourceId=input.resourceId===undefined?null:uuid(input.resourceId);
   const data=resourceId?{resourceId}:{} as {resourceId?:string};
   const deepLink=definition.route+(resourceId?'?ref='+resourceId:'');
-  return Object.freeze({recipientId,sourceEventId,app,eventType,
+  // Strictly catalog-derived priority. No user-supplied "urgent" flag.
+  const priority=definition.category==='security'?100:
+    (['courier.offer','courier.assigned'] as string[]).includes(eventType)?95:
+    (['restaurant.new_order','courier.pickup_ready'] as string[]).includes(eventType)?90:
+    (['order.ready','order.picked_up','order.delivered',
+      'order.cancelled','order.refund_status'] as string[]).includes(eventType)?80:
+    definition.category==='marketing'?10:60;
+  return Object.freeze({recipientId,sourceEventId,app,eventType,priority,
     category:definition.category,title:definition.title,body:definition.body,
     deepLink,data,channelPush:definition.push,channelEmail:definition.email,
     contentFingerprint:hash([app,eventType,resourceId])});
