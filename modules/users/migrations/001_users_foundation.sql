@@ -84,7 +84,7 @@ BEGIN
   IF NEW.status<>OLD.status THEN
     IF NOT (
       (OLD.status='pending_verification' AND
-       NEW.status IN ('active','suspended','deletion_requested')) OR
+       NEW.status IN ('active','deletion_requested')) OR
       (OLD.status='active' AND
        NEW.status IN ('suspended','deletion_requested')) OR
       (OLD.status='suspended' AND
@@ -93,7 +93,7 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'USERS_STATE_TRANSITION_DENIED' USING ERRCODE='23514';
     END IF;
-    IF NEW.display_name<>OLD.display_name THEN
+    IF NEW.status<>'deleted' AND NEW.display_name<>OLD.display_name THEN
       RAISE EXCEPTION 'USERS_PROFILE_TRANSITION_CONFLICT' USING ERRCODE='23514';
     END IF;
   ELSIF OLD.status<>'active' THEN
@@ -107,6 +107,9 @@ BEGIN
   ELSIF NEW.email_normalized<>OLD.email_normalized OR
         NEW.deleted_at IS DISTINCT FROM OLD.deleted_at THEN
     RAISE EXCEPTION 'USERS_EMAIL_IMMUTABLE' USING ERRCODE='23514';
+  END IF;
+  IF NEW.status='active' AND NEW.email_verified_at IS NULL THEN
+    RAISE EXCEPTION 'USERS_ACTIVE_NEEDS_VERIFICATION' USING ERRCODE='23514';
   END IF;
   IF NEW.email_verified_at IS DISTINCT FROM OLD.email_verified_at AND
      NOT (OLD.status='pending_verification' AND NEW.status='active'
