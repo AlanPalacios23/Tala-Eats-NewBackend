@@ -4,6 +4,7 @@
  * A trusted future module must authorize every source fact before calling.
  */
 import {FinanceError,proposeHeldAllocation,proposeFullHeldReversal,requireId} from './ledger.mjs';
+import {createHash} from 'node:crypto';
 
 const LAB=new Set(['tala_finance_v2_test','tala_finance_v2_lab']);
 const tx=async(pool,readOnly,work)=>{
@@ -198,5 +199,80 @@ export async function readMerchantLedgerStatement(pool,restaurantId,{
       balanceAvailableMinor:'0',withdrawalsAuthorized:false,
       entries:Object.freeze(entries),hasMore,nextCursor
     });
+  });
+}
+
+
+/**
+ * FINANZAS-only LAB auxiliary ownership of a pre-existing driver HELD share.
+ * The caller is an internal TEST fixture: this does NOT validate M2 delivery,
+ * employee identity, cash custody, earned money, or an external payout.
+ * Assigning a claim cannot change the general ledger or create new value.
+ */
+export async function assignLabDriverHeldClaim(pool,{
+  orderId,driverId,commandKey
+}={}){
+  const order=requireId(orderId),driver=requireId(driverId);
+  if(typeof commandKey!=='string'||!/^[A-Za-z0-9_.:-]{16,128}$/.test(commandKey))
+    throw new FinanceError('FINANCE_COMMAND_INVALID');
+  const eventKey=createHash('sha256')
+    .update('finance.driver-held-claim.v1|'+order+'|'+commandKey).digest('hex');
+  return tx(pool,false,async c=>{
+    const source=await c.query(`
+      SELECT j.id,j.order_id,j.restaurant_id,j.snapshot,
+        EXISTS (SELECT 1 FROM tala_finance_v2.held_reversals r
+          WHERE r.original_journal_id=j.id) AS reversed
+      FROM tala_finance_v2.journals j
+      WHERE j.order_id=$1::uuid AND j.kind='allocation_held'
+      FOR UPDATE OF j`,[order]);
+    if(source.rowCount!==1)
+      throw new FinanceError('FINANCE_ALLOCATION_NOT_FOUND');
+    const j=source.rows[0];
+    if(j.reversed)throw new FinanceError('FINANCE_ALREADY_REVERSED');
+    if(j.snapshot?.fulfillment!=='delivery'||
+       !/^[1-9][0-9]*$/.test(j.snapshot?.driverPayableMinor??''))
+      throw new FinanceError('FINANCE_NO_DRIVER_HELD');
+    const minor=j.snapshot.driverPayableMinor;
+    const inserted=await c.query(`
+      INSERT INTO tala_finance_v2.driver_held_claims
+       (original_journal_id,order_id,restaurant_id,driver_id,amount_minor,event_key)
+      VALUES($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::bigint,$6)
+      ON CONFLICT DO NOTHING RETURNING id`,
+      [j.id,order,j.restaurant_id,driver,minor,eventKey]);
+    if(inserted.rowCount)return Object.freeze({
+      orderId:order,driverId:driver,claimId:inserted.rows[0].id,
+      heldMinor:minor,replayed:false,availableMinor:'0'
+    });
+    const existing=await c.query(`
+      SELECT id,original_journal_id,order_id,driver_id,event_key,
+        amount_minor::text AS amount_minor
+      FROM tala_finance_v2.driver_held_claims
+      WHERE order_id=$1::uuid OR event_key=$2 FOR UPDATE`,
+      [order,eventKey]);
+    if(existing.rowCount!==1)
+      throw new FinanceError('FINANCE_DRIVER_CLAIM_CONFLICT');
+    const old=existing.rows[0];
+    if(old.order_id!==order||old.original_journal_id!==j.id||
+       old.driver_id!==driver||old.event_key!==eventKey||
+       old.amount_minor!==minor)
+      throw new FinanceError('FINANCE_DRIVER_CLAIM_CONFLICT');
+    return Object.freeze({
+      orderId:order,driverId:driver,claimId:old.id,
+      heldMinor:minor,replayed:true,availableMinor:'0'
+    });
+  });
+}
+
+/** Driver pending is only attributed, not delivered/earned/withdrawable. */
+export async function readDriverHeldBalance(pool,driverId){
+  const id=requireId(driverId);
+  return tx(pool,true,async c=>{
+    const r=await c.query(`
+      SELECT pending_minor::text FROM tala_finance_v2.driver_held_balances
+      WHERE driver_id=$1::uuid`,[id]);
+    return Object.freeze({driverId:id,currency:'MXN',
+      pendingHeldMinor:r.rows[0]?.pending_minor??'0',
+      availableMinor:'0',withdrawable:false,
+      source:'internal_accounting_only'});
   });
 }
