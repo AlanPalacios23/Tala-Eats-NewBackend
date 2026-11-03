@@ -80,8 +80,8 @@ export async function publishNotification(pool:Pool,input:PublishInput){
     let queued=0;
     if(viaEmail){
       const result=await c.query(`
-        INSERT INTO tala_notifications_v2.deliveries(notification_id,channel)
-        VALUES($1::uuid,'email')`,[row.id]);
+        INSERT INTO tala_notifications_v2.deliveries(notification_id,channel,priority)
+        VALUES($1::uuid,'email',$2)`,[row.id,n.priority]);
       queued+=result.rowCount??0;
     }
     if(viaPush){
@@ -92,8 +92,8 @@ export async function publishNotification(pool:Pool,input:PublishInput){
       for(const device of devices.rows){
         await c.query(`
           INSERT INTO tala_notifications_v2.deliveries
-            (notification_id,channel,device_id)
-          VALUES($1::uuid,'push',$2::uuid)`,[row.id,device.id]);
+            (notification_id,channel,device_id,priority)
+          VALUES($1::uuid,'push',$2::uuid,$3)`,[row.id,device.id,n.priority]);
         queued++;
       }
     }
