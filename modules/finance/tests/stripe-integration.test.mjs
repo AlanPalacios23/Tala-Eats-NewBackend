@@ -22,8 +22,8 @@ const sign=(raw)=>{
 };
 const event=(pi,id,minor=30650)=>{
   const raw=Buffer.from(JSON.stringify({
-    id,livemode:false,type:'payment_intent.succeeded',
-    data:{object:{id:pi,object:'payment_intent',currency:'mxn',status:'succeeded',
+    id,object:'event',livemode:false,type:'payment_intent.succeeded',
+    data:{object:{id:pi,object:'payment_intent',livemode:false,currency:'mxn',status:'succeeded',
       amount:minor,amount_received:minor}}
   }));
   return {rawBody:raw,signatureHeader:sign(raw),webhookSecret:secret};
@@ -89,8 +89,8 @@ test('M3 isolated SQL: trusted contract, signed capture, replay, concurrency, an
       // A valid signature for different raw bytes with the same eventId
       // must not be accepted as a harmless replay.
       const altered=Buffer.from(JSON.stringify({
-        id:eventId,livemode:false,type:'payment_intent.succeeded',
-        data:{object:{id:paymentIntentId,object:'payment_intent',currency:'mxn',
+        id:eventId,object:'event',livemode:false,type:'payment_intent.succeeded',
+        data:{object:{id:paymentIntentId,object:'payment_intent',livemode:false,currency:'mxn',
           status:'succeeded',amount:30650,amount_received:30650,
           metadata:{arbitrary:'difference'}}}
       }));
