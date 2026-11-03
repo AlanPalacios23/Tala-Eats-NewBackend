@@ -3,7 +3,7 @@
  * Distinguishes "awaiting payment" from broken accounting. Does not grant
  * balance availability, release funds or call Stripe/M1/M2.
  */
-import {FinanceError} from './ledger.mjs';
+import {FinanceError,validateFinancialSnapshot} from './ledger.mjs';
 import {sha256} from './stripe-test-webhook.mjs';
 
 const DB=new Set(['tala_finance_v2_test','tala_finance_v2_lab']);
@@ -20,13 +20,16 @@ function validMoney(value) {
 }
 function canonicalContract(row) {
   const snapshot=row.snapshot;
-  if(!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot)||
-     snapshot.currency!=='MXN'||
-     !['pickup','delivery'].includes(snapshot.fulfillment)||
-     typeof snapshot.policyVersion!=='string'||
-     !/^[A-Za-z0-9_.:-]{1,96}$/.test(snapshot.policyVersion)||
+  if(!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot))
+    return null;
+  const expectedKeys=['currency','policyVersion','fulfillment',...AMOUNTS];
+  if(Object.keys(snapshot).sort().join('|')!==expectedKeys.sort().join('|')||
      !AMOUNTS.every(key=>validMoney(snapshot[key])))
     return null;
+  // A matching checksum alone is insufficient: a forged SQL writer could
+  // rehash an arithmetically invalid but superficially well-formed snapshot.
+  try{validateFinancialSnapshot(snapshot);}
+  catch{return null;}
   return sha256(Buffer.from(JSON.stringify([
     row.order_id,row.restaurant_id,row.driver_id??null,row.payment_intent_id,
     snapshot.currency,snapshot.policyVersion,snapshot.fulfillment,
