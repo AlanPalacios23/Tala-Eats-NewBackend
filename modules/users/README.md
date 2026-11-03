@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 4: Usuarios
 
-**LAB3 · identidad, perfiles, credenciales y sesiones — NO-GO comercial.**
+**LAB4 · identidad, perfiles, credenciales y control de sesiones — NO-GO comercial.**
 
 La implementación está aislada en `modules/users/` y en la rama
 `feat/core-v2-usuarios-foundation` (PR #6, base `main`).
@@ -12,9 +12,9 @@ No depende del código ni de las tablas de Pedidos, Logística, Finanzas o Pagos
 | --- | --- |
 | `src/domain.ts` | Identidades, correos, nombres, estados y versión de perfil |
 | `src/store.ts` | Registro pendiente, verificación interna de correo, auditoría y eliminación |
-| `src/auth.ts` | Registro con contraseña protegida, login, sesiones, perfil autenticado, logout, cambio y recuperación de contraseña |
+| `src/auth.ts` | Registro con contraseña protegida, login, sesiones, inventario de dispositivos, revocación selectiva y global de otras sesiones, perfil autenticado, cambio y recuperación de contraseña |
 | `src/http-lab.ts` | API HTTP limitada a loopback, usada en pruebas de extremo a extremo |
-| `migrations/001...004.sql` | PostgreSQL propio; versiones, pruebas, verificador scrypt, sesiones y recuperación |
+| `migrations/001...005.sql` | PostgreSQL propio; versiones, pruebas, verificador scrypt, sesiones, recuperación e identificadores aleatorios independientes de sesión |
 | `tests/` | Pruebas unitarias, SQL, concurrencia, ataques y recorridos HTTP |
 
 ### Recorrido completo validable en laboratorio
@@ -51,7 +51,7 @@ npm run check
 ```
 
 Las suites con PostgreSQL requieren `USERS_CI_URL` apuntando a una
-base **descartable** `tala_users_v2_test` con migraciones 001→004
+base **descartable** `tala_users_v2_test` con migraciones 001→005
 aplicadas. Sin esta variable, se ejecutan las pruebas puras y las pruebas
 que requieren PostgreSQL se omiten. La CI del repositorio crea la base
 aislada, aplica migraciones y ejecuta la batería completa.
@@ -77,3 +77,16 @@ Ver detalles y criterios de aceptación:
 [`docs/MODULO4-USUARIOS-LAB3-E2E.md`](../../docs/MODULO4-USUARIOS-LAB3-E2E.md).
 
 Sin cambios al backend LIVE Kali, Stripe, M1, M2 o M3.
+
+## LAB4 — dispositivos y sesiones
+
+El titular autenticado puede consultar `GET /v1/users/sessions`, cerrar
+una sesión por ID aleatorio mediante `POST /v1/users/sessions/revoke`
+(`{ "sessionId": "UUID" }`) y cerrar todos los otros dispositivos con
+`POST /v1/users/sessions/revoke-others` (`{}`). El identificador público
+de sesión es un UUID generado por PostgreSQL y **no** es el bearer token ni
+su HMAC. Las consultas filtran sesiones vencidas y revocadas, y la
+revocación exige que la sesión objetivo pertenezca a la misma cuenta.
+La lista se limita a 100 sesiones activas; la limpieza/retención de
+sesiones históricas sigue pendiente. Todos los endpoints permanecen
+exclusivos del servidor HTTP de laboratorio en loopback.
