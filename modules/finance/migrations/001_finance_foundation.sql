@@ -13,6 +13,8 @@ CREATE SCHEMA tala_finance_v2;
 -- One complete append-only transaction per immutable row: no orphaned
 -- journal headers or half-written postings. All amounts are decimal strings
 -- representing nonnegative BIGINT centavos, never JSON floating point.
+-- All credited allocations at capture are HELD/PENDING, never spendable
+-- or recognized revenue. M2 delivery/cash evidence is not integrated yet.
 CREATE FUNCTION tala_finance_v2.valid_lines(lines jsonb)
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $fn$
 DECLARE
@@ -39,6 +41,10 @@ BEGIN
       OR jsonb_typeof(line->'side')<>'string' THEN
       RETURN false;
     END IF;
+    -- Reject hidden metadata/party substitutions in accounting lines.
+    IF (line - 'accountCode' - 'side' - 'amountMinor' - 'partyId')<>'{}'::jsonb THEN
+      RETURN false;
+    END IF;
     amount_minor := (line->>'amountMinor')::numeric;
     IF amount_minor>1000000000000 THEN RETURN false; END IF;
     code := line->>'accountCode';
@@ -49,14 +55,14 @@ BEGIN
       IF side<>'debit' OR line ? 'partyId' THEN RETURN false; END IF;
       debit:=debit+amount_minor;
       debit_lines:=debit_lines+1;
-    ELSIF code IN ('liability.merchant_payable','liability.driver_payable') THEN
+    ELSIF code IN ('liability.merchant_pending') THEN
       IF side<>'credit' OR (line->>'partyId') IS NULL
         OR (line->>'partyId') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
         RETURN false;
       END IF;
       credit:=credit+amount_minor;
       credit_lines:=credit_lines+1;
-    ELSIF code='income.platform_gross' THEN
+    ELSIF code IN ('liability.driver_held','liability.platform_pending') THEN
       IF side<>'credit' OR line ? 'partyId' THEN RETURN false; END IF;
       credit:=credit+amount_minor;
       credit_lines:=credit_lines+1;
