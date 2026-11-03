@@ -1,92 +1,66 @@
-# TALA EATS CORE v2 — Módulo 4: Usuarios
+# TALA EATS — Módulo 4 Usuarios LAB9
 
-**LAB4 · identidad, perfiles, credenciales y control de sesiones — NO-GO comercial.**
+**Estado:** desarrollo autónomo en PostgreSQL descartable, PR #6 Draft,
+**NO-GO producción**. Rama `feat/core-v2-usuarios-foundation` desde
+`main`. No toca Pedidos, Logística, Finanzas, Pagos, Stripe ni Kali LIVE.
 
-La implementación está aislada en `modules/users/` y en la rama
-`feat/core-v2-usuarios-foundation` (PR #6, base `main`).
-No depende del código ni de las tablas de Pedidos, Logística, Finanzas o Pagos.
+## Qué funciona en LAB
 
-## Funcionalidades propias de Usuarios
+- Registro con contraseña protegida mediante scrypt, identidades únicas,
+  idempotencia, estado pendiente, comprobantes de correo HMAC de un uso.
+- Inicio de sesión, recuperación de contraseña, cambio de contraseña y
+  revocación de sesiones con prueba de extremo a extremo HTTP en loopback.
+- Roles de identidad: customer predeterminado; merchant/courier/staff/owner
+  solo por provisión de confianza fuera de la API de usuario.
+- MFA TOTP cifrado con AES-256-GCM; personal privilegiado requiere factor
+  confirmado; cambio de rol revoca todas las sesiones anteriores.
+- Libro de direcciones privado, preferencia de idioma, consentimiento
+  de marketing desactivado por defecto y exportación del usuario autenticado.
+- Solicitud de eliminación, seudonimización y limpieza de datos privados,
+  secretos/credenciales, sesiones y pruebas transitorias.
+- Gestión de sesiones y dispositivos, limpieza de sesiones y tokens caducados.
+- Limitación de peticiones por minuto con PostgreSQL y claves HMAC de
+  ruta/IP compartidas entre instancias; no se persiste IP en claro.
+- Adaptador de correo Resend sobre HTTPS, configuración separada, reintentos
+  y clave idempotente. Las pruebas usan `fetch` simulado; no se envía correo.
 
-| Componente | Capacidades |
-| --- | --- |
-| `src/domain.ts` | Identidades, correos, nombres, estados y versión de perfil |
-| `src/store.ts` | Registro pendiente, verificación interna de correo, auditoría y eliminación |
-| `src/auth.ts` | Registro con contraseña protegida, login, sesiones, inventario de dispositivos, revocación selectiva y global de otras sesiones, perfil autenticado, cambio y recuperación de contraseña |
-| `src/http-lab.ts` | API HTTP limitada a loopback, usada en pruebas de extremo a extremo |
-| `migrations/001...005.sql` | PostgreSQL propio; versiones, pruebas, verificador scrypt, sesiones, recuperación e identificadores aleatorios independientes de sesión |
-| `tests/` | Pruebas unitarias, SQL, concurrencia, ataques y recorridos HTTP |
-
-### Recorrido completo validable en laboratorio
-
-```
-Registro → cuenta pendiente y verificador de contraseña derivado con KDF
-→ emisión de token de correo → entrega simulada
-→ verificación única → inicio de sesión → perfil
-→ edición de perfil → cierre de sesión
-→ cambio o recuperación de contraseña
-→ revocación de sesiones antiguas
-→ solicitud de eliminación → estado bloqueado
-→ finalización interna de eliminación con limpieza de secretos
-```
-
-La contraseña no se guarda en texto: se almacena un verificador derivado
-con `scrypt`, sal aleatoria y secreto de aplicación. La sesión entrega un
-bearer opaco de 256 bits, guarda solo su HMAC y vence en 12 horas. La
-cuenta pierde sesiones activas al suspenderse, solicitar eliminación o
-cambiar/restablecer contraseña. Los comprobantes de correo y recuperación
-duran 10 minutos, con límite de cinco errores.
-
-**Atención:** las pruebas de correo usan un adaptador de envío simulado.
-No hay SMTP ni verificación de un correo real. Las APIs HTTP solo se montan
-en `127.0.0.1` durante la CI. Nunca ejecutar `http-lab.ts` directamente
-como servicio público. Ninguna operación se ha publicado en las PWA.
-
-## Ejecutar pruebas
+## Cómo probar
 
 ```bash
 cd modules/users
-npm install
+npm install --ignore-scripts
 npm run check
 ```
 
-Las suites con PostgreSQL requieren `USERS_CI_URL` apuntando a una
-base **descartable** `tala_users_v2_test` con migraciones 001→005
-aplicadas. Sin esta variable, se ejecutan las pruebas puras y las pruebas
-que requieren PostgreSQL se omiten. La CI del repositorio crea la base
-aislada, aplica migraciones y ejecuta la batería completa.
+Las pruebas de PostgreSQL requieren una DB **descartable**
+`tala_users_v2_test`, las migraciones 001–009 aplicadas y la variable
+`USERS_CI_URL`. La CI hace esto automáticamente en PostgreSQL 16.
+`npm run test:e2e` ejecuta los recorridos completos, también en LAB.
 
-`npm run test:e2e` ejecuta específicamente las pruebas de recorrido
-interno, HTTP simulado y recuperación; también necesita la BD descartable.
+Las funciones `src/auth.ts`, `src/private-profile.ts`,
+`src/mail-resend.ts`, `src/maintenance.ts`, `src/rate-limit.ts`
+y `src/totp.ts` solo abarcan datos y acceso a la identidad. El
+adaptador `src/http-lab.ts` **solo** debe vincularse a loopback, y se
+niega a ejecutarse con `NODE_ENV=production`.
 
-## Bloqueos antes de producción
+No hay endpoints comerciales publicados ni conexión con apps móviles.
 
-No existe despliegue ni endpoints comerciales. Faltan servicio real de
-correo, secretos gestionados fuera de la aplicación, TLS y gateway,
-rate limiting distribuido, autorización con roles, MFA/passkeys,
-protección administrativa, privacidad de datos de perfil, recuperación
-ante pérdida del dispositivo, revisión de permisos SQL, telemetría,
-migración segura y E2E desde Android/iOS.
+## Seguridad y alcance del cierre
 
-El adaptador LAB limita el tamaño del cuerpo y rechaza parámetros
-inesperados, pero **no es un servidor público endurecido**. Las
-primitivas `transitionLabUser` y `readLabUser` son internas:
-`actorId` no constituye autorización.
+Migración 008 añade el rol SQL `tala_users_v2_runtime`, sin LOGIN y sin
+permisos para modificar `account_roles`; el trigger de cliente
+predeterminado usa propietario definido y search_path fijado. La CI verifica
+que la cuenta de aplicación no puede asignarse el rol owner.
 
-Ver detalles y criterios de aceptación:
-[`docs/MODULO4-USUARIOS-LAB3-E2E.md`](../../docs/MODULO4-USUARIOS-LAB3-E2E.md).
+El rol de negocio no equivale a ser propietario de un restaurante ni
+a tener habilitación logística; esos permisos requieren sus propias
+pruebas fuera del Módulo 4.
 
-Sin cambios al backend LIVE Kali, Stripe, M1, M2 o M3.
+Para envío real faltan API key, dominio validado y páginas HTTPS
+configuradas con secretos fuera del repositorio. Para producción faltan
+gateway TLS, rotación/vault de secretos, recuperación de MFA,
+validación de correo y tráfico reales, protección anti-enumeración,
+worker programado de retención, privacidad en backups, análisis de
+seguridad y E2E en Android/iOS. No declarar apto para producción sin ellos.
 
-## LAB4 — dispositivos y sesiones
-
-El titular autenticado puede consultar `GET /v1/users/sessions`, cerrar
-una sesión por ID aleatorio mediante `POST /v1/users/sessions/revoke`
-(`{ "sessionId": "UUID" }`) y cerrar todos los otros dispositivos con
-`POST /v1/users/sessions/revoke-others` (`{}`). El identificador público
-de sesión es un UUID generado por PostgreSQL y **no** es el bearer token ni
-su HMAC. Las consultas filtran sesiones vencidas y revocadas, y la
-revocación exige que la sesión objetivo pertenezca a la misma cuenta.
-La lista se limita a 100 sesiones activas; la limpieza/retención de
-sesiones históricas sigue pendiente. Todos los endpoints permanecen
-exclusivos del servidor HTTP de laboratorio en loopback.
+**Criterios completos:** [LAB9 y pendientes](../../docs/MODULO4-USUARIOS-LAB9-ENTREGA.md).
