@@ -169,3 +169,44 @@ test('M4 password recovery endpoint is enumeration-safe with injected test mailb
     await pool.end();
   }
 });
+
+
+test('M4 password recovery expires and is unavailable for deleted-request accounts',
+  {skip:!enabled,timeout:70000},async()=>{
+  const pool=new pg.Pool({connectionString:url,max:8});
+  try{
+    const account=await active(pool);
+    const challenge=await issueLabPasswordRecovery(pool,{
+      email:account.email,secret:mailSecret
+    });
+    assert.ok(challenge);
+    await pool.query(`
+      UPDATE tala_users_v2.password_recovery
+      SET issued_at=clock_timestamp()-interval '11 minutes',
+          expires_at=clock_timestamp()-interval '1 minute'
+      WHERE account_id=$1::uuid`,[account.id]);
+    await fail(()=>resetLabPassword(pool,{
+      userId:account.id,token:challenge!.token,newPassword,
+      authSecret,emailSecret:mailSecret
+    }),'USERS_RECOVERY_INVALID');
+    const logged=await loginLabUser(pool,{
+      email:account.email,password:first,secret:authSecret
+    });
+    const {requestAuthenticatedDeletion}=await import('../src/auth.js');
+    await requestAuthenticatedDeletion(pool,{
+      sessionToken:logged.sessionToken,secret:authSecret,
+      expectedVersion:2,idempotencyKey:key()
+    });
+    assert.equal(await issueLabPasswordRecovery(pool,{
+      email:account.email,secret:mailSecret
+    }),null);
+    await fail(()=>resetLabPassword(pool,{
+      userId:account.id,token:challenge!.token,newPassword,
+      authSecret,emailSecret:mailSecret
+    }),'USERS_RECOVERY_INVALID');
+    assert.equal((await pool.query(`
+      SELECT count(*)::int AS n FROM tala_users_v2.account_audit
+      WHERE account_id=$1::uuid AND action='password_reset'`,
+      [account.id])).rows[0].n,0);
+  }finally{await pool.end();}
+});
