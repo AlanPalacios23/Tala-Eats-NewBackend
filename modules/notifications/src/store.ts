@@ -18,56 +18,73 @@ const publicItem=(r:InboxRow)=>Object.freeze({
 export async function publishNotification(pool:Pool,input:PublishInput){
   const n=render(input);
   return transaction(pool,async c=>{
-    // Serialize same recipient's decisions and guard the UNIQUE event envelope.
-    // All event content is created by M5's allowlisted template catalog.
-    const existing=await c.query<InboxRow>(`
-      SELECT * FROM tala_notifications_v2.inbox
-      WHERE recipient_id=$1::uuid AND source_event_id=$2::uuid FOR UPDATE`,
-      [n.recipientId,n.sourceEventId]);
-    if(existing.rows[0]){
-      if(existing.rows[0].content_fingerprint!==n.contentFingerprint||
-         existing.rows[0].app!==n.app)
+    // A suppressed message still consumes its source event ID. A later
+    // preference change must NOT replay yesterday's promotion.
+    // Unique insert also serializes concurrent publishers across processes.
+    const owner=await c.query<{source_event_id:string}>(`
+      INSERT INTO tala_notifications_v2.publication_receipts
+        (recipient_id,source_event_id,app,content_fingerprint,suppressed)
+      VALUES($1::uuid,$2::uuid,$3,$4,true)
+      ON CONFLICT(recipient_id,source_event_id) DO NOTHING
+      RETURNING source_event_id`,
+      [n.recipientId,n.sourceEventId,n.app,n.contentFingerprint]);
+    if(!owner.rowCount){
+      const existing=await c.query<{app:App,content_fingerprint:string,
+        suppressed:boolean,notification_id:string|null}>(`
+        SELECT app,content_fingerprint,suppressed,notification_id
+        FROM tala_notifications_v2.publication_receipts
+        WHERE recipient_id=$1::uuid AND source_event_id=$2::uuid`,
+        [n.recipientId,n.sourceEventId]);
+      const decision=existing.rows[0];
+      if(!decision||decision.app!==n.app||
+         decision.content_fingerprint!==n.contentFingerprint)
         throw new NotificationError('NOTIFICATIONS_IDEMPOTENCY_CONFLICT');
-      return Object.freeze({notification:publicItem(existing.rows[0]),
+      if(decision.suppressed)return Object.freeze({notification:null,
+        replayed:true,suppressed:true,deliveriesQueued:0});
+      const row=await c.query<InboxRow>(`
+        SELECT * FROM tala_notifications_v2.inbox
+        WHERE id=$1::uuid AND recipient_id=$2::uuid`,
+        [decision.notification_id,n.recipientId]);
+      if(!row.rows[0])throw new NotificationError('NOTIFICATIONS_RECEIPT_INVALID');
+      return Object.freeze({notification:publicItem(row.rows[0]),
         replayed:true,suppressed:false,deliveriesQueued:0});
     }
-    if(!await isEnabled(c,{recipientId:n.recipientId,app:n.app,
-      channel:'in_app',category:n.category})){
+    // Consent is checked INDEPENDENTLY for each channel. An opted-in email
+    // must work even when the in-app inbox itself is disabled.
+    const inApp=await isEnabled(c,{recipientId:n.recipientId,app:n.app,
+      channel:'in_app',category:n.category});
+    const viaEmail=n.channelEmail&&await isEnabled(c,{
+      recipientId:n.recipientId,app:n.app,channel:'email',category:n.category});
+    const viaPush=n.channelPush&&await isEnabled(c,{
+      recipientId:n.recipientId,app:n.app,channel:'push',category:n.category});
+    if(!inApp&&!viaEmail&&!viaPush)
       return Object.freeze({notification:null,replayed:false,
         suppressed:true,deliveriesQueued:0});
-    }
+    // Inbox record also owns the durable delivery jobs, but only visible
+    // records are returned to the consumer's notification center.
     const created=await c.query<InboxRow>(`
       INSERT INTO tala_notifications_v2.inbox
         (source_event_id,recipient_id,app,category,event_type,
-         content_fingerprint,title,body,deep_link,data)
-      VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
-      ON CONFLICT(recipient_id,source_event_id) DO NOTHING
+         content_fingerprint,title,body,deep_link,data,visible_in_app)
+      VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)
       RETURNING *`,
       [n.sourceEventId,n.recipientId,n.app,n.category,n.eventType,
-        n.contentFingerprint,n.title,n.body,n.deepLink,JSON.stringify(n.data)]);
-    let row=created.rows[0];
-    if(!row){
-      // A concurrent commit won the UNIQUE key while our INSERT waited.
-      const winner=await c.query<InboxRow>(`
-        SELECT * FROM tala_notifications_v2.inbox
-        WHERE recipient_id=$1::uuid AND source_event_id=$2::uuid`,
-        [n.recipientId,n.sourceEventId]);
-      row=winner.rows[0];
-      if(!row||row.content_fingerprint!==n.contentFingerprint||row.app!==n.app)
-        throw new NotificationError('NOTIFICATIONS_IDEMPOTENCY_CONFLICT');
-      return Object.freeze({notification:publicItem(row),replayed:true,
-        suppressed:false,deliveriesQueued:0});
-    }
+        n.contentFingerprint,n.title,n.body,n.deepLink,JSON.stringify(n.data),
+        inApp]);
+    const row=created.rows[0]!;
+    await c.query(`
+      UPDATE tala_notifications_v2.publication_receipts SET
+        suppressed=false,notification_id=$3::uuid
+      WHERE recipient_id=$1::uuid AND source_event_id=$2::uuid`,
+      [n.recipientId,n.sourceEventId,row.id]);
     let queued=0;
-    if(n.channelEmail&&await isEnabled(c,{
-      recipientId:n.recipientId,app:n.app,channel:'email',category:n.category})){
+    if(viaEmail){
       const result=await c.query(`
         INSERT INTO tala_notifications_v2.deliveries(notification_id,channel)
         VALUES($1::uuid,'email')`,[row.id]);
       queued+=result.rowCount??0;
     }
-    if(n.channelPush&&await isEnabled(c,{
-      recipientId:n.recipientId,app:n.app,channel:'push',category:n.category})){
+    if(viaPush){
       const devices=await c.query<{id:string}>(`
         SELECT id FROM tala_notifications_v2.devices WHERE
         recipient_id=$1::uuid AND app=$2 AND revoked_at IS NULL
@@ -82,7 +99,7 @@ export async function publishNotification(pool:Pool,input:PublishInput){
     }
     // Realtime hint is emitted only on COMMIT. Applications must still fetch
     // the durable inbox; LISTEN/NOTIFY is never the source of truth.
-    await c.query(`
+    if(inApp)await c.query(`
       SELECT pg_notify('tala_notifications_v2_new_inbox',$1)`,
       [JSON.stringify({notificationId:row.id,
         recipientId:n.recipientId,app:n.app})]);
@@ -109,7 +126,7 @@ export async function readInbox(pool:Pool,{
     const r=await c.query<InboxRow>(`
       SELECT * FROM tala_notifications_v2.inbox
       WHERE recipient_id=$1::uuid AND app=$2 AND dismissed_at IS NULL
-        AND ($3::uuid IS NULL OR
+        AND visible_in_app AND ($3::uuid IS NULL OR
           (created_at,id)<(
             SELECT created_at,id FROM tala_notifications_v2.inbox
             WHERE id=$3::uuid AND recipient_id=$1::uuid AND app=$2))
@@ -119,7 +136,7 @@ export async function readInbox(pool:Pool,{
     const unread=await c.query<{n:number}>(`
       SELECT count(*)::int AS n FROM tala_notifications_v2.inbox
       WHERE recipient_id=$1::uuid AND app=$2 AND dismissed_at IS NULL
-        AND read_at IS NULL`,[id,scope]);
+        AND visible_in_app AND read_at IS NULL`,[id,scope]);
     return Object.freeze({items:Object.freeze(rows.map(publicItem)),
       unreadCount:unread.rows[0]?.n??0,
       nextCursor:r.rows.length>limit?rows[rows.length-1]!.id:null});
@@ -134,7 +151,7 @@ export async function markNotificationRead(pool:Pool,{
       UPDATE tala_notifications_v2.inbox SET
         read_at=COALESCE(read_at,clock_timestamp())
       WHERE id=$1::uuid AND recipient_id=$2::uuid AND app=$3
-        AND dismissed_at IS NULL`,[target,id,scope]);
+        AND dismissed_at IS NULL AND visible_in_app`,[target,id,scope]);
     return Object.freeze({found:r.rowCount===1});
   });
 }
@@ -146,7 +163,8 @@ export async function markAllNotificationsRead(pool:Pool,{
     const r=await c.query(`
       UPDATE tala_notifications_v2.inbox SET read_at=clock_timestamp()
       WHERE recipient_id=$1::uuid AND app=$2
-        AND read_at IS NULL AND dismissed_at IS NULL`,[id,scope]);
+        AND read_at IS NULL AND dismissed_at IS NULL
+        AND visible_in_app`,[id,scope]);
     return Object.freeze({readCount:r.rowCount??0});
   });
 }
@@ -158,7 +176,8 @@ export async function dismissNotification(pool:Pool,{
     const r=await c.query(`
       UPDATE tala_notifications_v2.inbox SET
         dismissed_at=COALESCE(dismissed_at,clock_timestamp())
-      WHERE id=$1::uuid AND recipient_id=$2::uuid AND app=$3`,
+      WHERE id=$1::uuid AND recipient_id=$2::uuid AND app=$3
+        AND visible_in_app`,
       [target,id,scope]);
     return Object.freeze({found:r.rowCount===1});
   });
