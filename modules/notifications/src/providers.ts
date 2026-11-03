@@ -95,9 +95,33 @@ export function createFcmPushSender({
         signal:AbortSignal.timeout(8000)
       });
     if(response.ok)return;
+    // An HTTP 404 alone is not proof of an expired device token (e.g. an
+    // invalid project path). Only Firebase's explicit UNREGISTERED signal
+    // authorizes disabling a token. Never inspect or log the error message.
+    if(response.status===404||response.status===400){
+      try{
+        const payload=await response.json() as {
+          error?:{status?:unknown,details?:Array<{
+            '@type'?:unknown,errorCode?:unknown
+          }>}
+        };
+        const fcm=payload.error?.details?.find(x=>
+          x['@type']==='type.googleapis.com/google.firebase.fcm.v1.FcmError');
+        if(fcm?.errorCode==='UNREGISTERED'||
+          (response.status===404&&payload.error?.status==='UNREGISTERED'))
+          throw new DeliveryFailure('FCM_UNREGISTERED',true);
+      }catch(error){
+        if(error instanceof DeliveryFailure)throw error;
+        // Unexpected response body is not proof that the token is invalid.
+      }
+    }
+    if(response.status===400)
+      throw new DeliveryFailure('FCM_INVALID_ARGUMENT',true);
+    if(response.status===404)
+      throw new DeliveryFailure('FCM_PROJECT_OR_ROUTE_NOT_FOUND',false);
     if(response.status===429||response.status>=500||
        response.status===401||response.status===403)
       throw new DeliveryFailure('FCM_TEMPORARY_OR_CONFIG',false);
-    throw new DeliveryFailure('FCM_INVALID_RECIPIENT',true);
+    throw new DeliveryFailure('FCM_PROVIDER_REJECTED',true);
   };
 }
