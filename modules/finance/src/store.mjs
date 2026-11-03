@@ -27,8 +27,9 @@ const normalize=(input={})=>{
   const pi=input.paymentIntentId;
   if(typeof pi!=='string'||!PI.test(pi))throw new FinanceError('PAYMENT_INTENT_INVALID');
   const m=validateFinancialSnapshot(input.snapshot);
-  if((m.driverPayableMinor>0n&&!driverId)||m.totalMinor<=0n)
-    throw new FinanceError('INTENT_CONTRACT_INVALID');
+  // Most customers pay before Dispatch assigns a courier. Never require
+  // or credit a specific driver at payment time; those funds remain held.
+  if(m.totalMinor<=0n)throw new FinanceError('INTENT_CONTRACT_INVALID');
   const snapshot={currency:m.currency,policyVersion:m.policyVersion,fulfillment:m.fulfillment,
     ...Object.fromEntries(AMOUNTS.map(k=>[k,m[k].toString()]))};
   const canonical=JSON.stringify([orderId,restaurantId,driverId,pi,
