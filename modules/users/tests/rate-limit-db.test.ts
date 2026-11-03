@@ -32,7 +32,7 @@ test('M4 durable rate limiter shares quota across two instances and retains no r
       "UPDATE tala_users_v2.request_rate_buckets "+
       "SET window_started_at=clock_timestamp()-interval '3 days' "+
       "WHERE requests=3 RETURNING subject_hash");
-    assert.ok(old.rowCount>=1);
+    assert.ok((old.rowCount??0)>=1);
     const cleaned=await cleanupLabExpiredIdentityData(a);
     assert.ok(cleaned.staleRateBucketsDeleted>=1);
   }finally{await a.end();await b.end();}
