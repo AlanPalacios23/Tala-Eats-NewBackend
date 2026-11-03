@@ -12,7 +12,7 @@ CREATE SCHEMA tala_notifications_v2;
 CREATE TABLE tala_notifications_v2.preferences (
  recipient_id uuid NOT NULL,
  app text NOT NULL CHECK(app IN ('customer','restaurant','courier','admin')),
- channel text NOT NULL CHECK(channel IN ('push','email')),
+ channel text NOT NULL CHECK(channel IN ('in_app','push','email')),
  category text NOT NULL CHECK(category IN ('transactional','marketing')),
  enabled boolean NOT NULL,
  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
