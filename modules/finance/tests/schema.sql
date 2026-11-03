@@ -44,6 +44,12 @@ BEGIN
   IF tala_finance_v2.valid_snapshot(
      s||'{"paymentProvider":"stripe"}'::jsonb)
   THEN RAISE EXCEPTION 'PAYMENT_PROVIDER_FIELD_ACCEPTED'; END IF;
+  IF tala_finance_v2.valid_snapshot(
+     jsonb_set(s,'{policyVersion}','123'::jsonb))
+  THEN RAISE EXCEPTION 'NONSTRING_POLICY_VERSION_ACCEPTED'; END IF;
+  IF tala_finance_v2.valid_held_lines(
+     jsonb_set(good,'{1}',good->1 - 'partyId'),s,merchant)
+  THEN RAISE EXCEPTION 'MISSING_MERCHANT_PARTY_ACCEPTED'; END IF;
   INSERT INTO tala_finance_v2.journals
     (order_id,restaurant_id,event_key,snapshot_hash,snapshot,lines)
   VALUES('11111111-1111-4111-8111-111111111111',merchant,
