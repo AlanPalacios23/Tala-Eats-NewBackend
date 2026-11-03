@@ -25,7 +25,7 @@ test('M5 rejects forged app audience, arbitrary PII fields, invalid identifiers 
     e instanceof NotificationError&&e.code==='NOTIFICATIONS_AUDIENCE_MISMATCH');
   assert.throws(()=>render({...args,app:'customer',eventType:'hack.anything' as never}),
     (e:unknown)=>e instanceof NotificationError&&e.code==='NOTIFICATIONS_EVENT_UNKNOWN');
-  assert.throws(()=>render({...args,app:'customer',email:'pii@example.com'}),
+  assert.throws(()=>render({...args,app:'customer',email:'pii@example.com'} as never),
     (e:unknown)=>e instanceof NotificationError&&e.code==='NOTIFICATIONS_EVENT_INVALID');
   assert.throws(()=>uuid('not-a-uuid'));
   const a=render({...args,app:'customer',resourceId:randomUUID()});
