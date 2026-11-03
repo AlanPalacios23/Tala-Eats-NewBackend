@@ -110,13 +110,13 @@ export type PublishInput={
   resourceId?:string
 };
 export function render(input:PublishInput){
-  const recipientId=uuid(input.recipientId);
-  const sourceEventId=uuid(input.sourceEventId);
-  const app=appValue(input.app);
-  if(!input||typeof input!=='object'||
+  if(!input||typeof input!=='object'||Array.isArray(input)||
      Object.keys(input).some(k=>!['sourceEventId','recipientId','app',
        'eventType','resourceId'].includes(k)))
     throw new NotificationError('NOTIFICATIONS_EVENT_INVALID');
+  const recipientId=uuid(input.recipientId);
+  const sourceEventId=uuid(input.sourceEventId);
+  const app=appValue(input.app);
   if(typeof input.eventType!=='string'||
      !Object.hasOwn(EVENT_CATALOG,input.eventType))
     throw new NotificationError('NOTIFICATIONS_EVENT_UNKNOWN');
