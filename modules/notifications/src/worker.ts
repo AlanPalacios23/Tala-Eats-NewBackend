@@ -28,7 +28,7 @@ export class DeliveryFailure extends Error{
   }
 }
 type Claim={id:string,notification_id:string,channel:'email'|'push',
- device_id:string|null,attempts:number,lease_token:string};
+ device_id:string|null,attempts:number,retry_cycle:number,lease_token:string};
 type WorkRow={id:string,recipient_id:string,app:App,category:Category,
  event_type:string,title:string,body:string,deep_link:string,
  data:{resourceId?:string},device_id:string|null,platform:Platform|null,
@@ -40,6 +40,22 @@ export async function claimDueDeliveries(pool:Pool,{limit=10}:{limit?:number}={}
   if(!Number.isSafeInteger(limit)||limit<1||limit>50)
     throw new NotificationError('NOTIFICATIONS_CLAIM_LIMIT_INVALID');
   return transaction(pool,async c=>{
+    // Exhausted crashed leases must become dead-letter, not remain stuck.
+    const exhausted=await c.query<{id:string,attempts:number,retry_cycle:number}>(`
+      UPDATE tala_notifications_v2.deliveries SET
+        status='dead_letter',lease_token=NULL,lease_until=NULL,
+        last_error_code='LEASE_EXHAUSTED',updated_at=clock_timestamp()
+      WHERE status='leased' AND lease_until<=clock_timestamp()
+        AND attempts>=$1
+      RETURNING id,attempts,retry_cycle`,[MAX_ATTEMPTS]);
+    for(const row of exhausted.rows){
+      await c.query(`
+        INSERT INTO tala_notifications_v2.delivery_attempts
+          (delivery_id,retry_cycle,attempt_number,result,error_code)
+        VALUES($1::uuid,$2,$3,'dead_letter','LEASE_EXHAUSTED')
+        ON CONFLICT(delivery_id,retry_cycle,attempt_number) DO NOTHING`,
+        [row.id,row.retry_cycle,row.attempts]);
+    }
     const result=await c.query<Claim>(`
       WITH due AS (
         SELECT id FROM tala_notifications_v2.deliveries
@@ -56,7 +72,7 @@ export async function claimDueDeliveries(pool:Pool,{limit=10}:{limit?:number}={}
         updated_at=clock_timestamp()
       FROM due WHERE d.id=due.id
       RETURNING d.id,d.notification_id,d.channel,d.device_id,
-        d.attempts,d.lease_token`,[MAX_ATTEMPTS,limit]);
+        d.attempts,d.retry_cycle,d.lease_token`,[MAX_ATTEMPTS,limit]);
     return result.rows.map(x=>Object.freeze(x));
   });
 }
@@ -86,9 +102,9 @@ async function settleDelivery(pool:Pool,claim:Claim,{
     if(!row.rowCount)return Object.freeze({settled:false,status:'lease_lost'});
     await c.query(`
       INSERT INTO tala_notifications_v2.delivery_attempts
-        (delivery_id,attempt_number,result,error_code)
-      VALUES($1::uuid,$2,$3,$4)`,
-      [claim.id,claim.attempts,status,error]);
+        (delivery_id,retry_cycle,attempt_number,result,error_code)
+      VALUES($1::uuid,$2,$3,$4,$5)`,
+      [claim.id,claim.retry_cycle,claim.attempts,status,error]);
     return Object.freeze({settled:true,status});
   });
 }
@@ -181,7 +197,7 @@ export async function requeueDeadLetter(pool:Pool,{deliveryId}:{deliveryId:strin
   return transaction(pool,async c=>{
     const r=await c.query(`
       UPDATE tala_notifications_v2.deliveries SET status='queued',
-        attempts=0,next_attempt_at=clock_timestamp(),
+        attempts=0,retry_cycle=retry_cycle+1,next_attempt_at=clock_timestamp(),
         last_error_code=NULL,updated_at=clock_timestamp()
       WHERE id=$1::uuid AND status='dead_letter'`,[id]);
     return Object.freeze({requeued:r.rowCount===1});
