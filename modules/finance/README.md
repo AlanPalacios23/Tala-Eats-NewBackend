@@ -31,10 +31,13 @@ modules/finance/
 │   ├── store.mjs             # diario PostgreSQL + proyección wallet
 │   └── reconciliation.mjs    # auditoría contable interna solo lectura
 ├── migrations/
-│   └── 001_finance_foundation.sql
+│   ├── 001_finance_foundation.sql
+│   └── 002_full_held_reversal.sql
 ├── tests/
 │   ├── ledger.test.mjs
 │   ├── finance-db.test.mjs
+│   ├── reversal-db.test.mjs
+│   ├── statement-db.test.mjs
 │   └── schema.sql
 └── package.json
 ```
@@ -44,7 +47,11 @@ modules/finance/
 - `recordLabHeldAllocation` es una función **interna de laboratorio**; no
   confirma que el cliente pagó, que un pedido se entregó, ni autoriza
   un retiro. No se expone por HTTP.
-- `readMerchantFinancialBalance`: saldo *pendiente* derivado de asientos.
+- `readMerchantFinancialBalance`: saldo *pendiente neto* de compensaciones.
+- `reverseLabHeldAllocation`: reverso **completo y único** por asignación, con
+  movimiento compensatorio inmutable, sin borrar el original ni mover dinero.
+- `readMerchantLedgerStatement`: histórico interno por restaurante, paginado,
+  con movimientos positivos y compensaciones negativas; saldo disponible cero.
 - `auditInternalLedger`: verificación de hash, partidas y políticas,
   limitada a un lote de 100 entradas; no equivale a conciliación bancaria.
 
@@ -65,4 +72,5 @@ y su versión; no cambiar ni recalcular los pedidos históricos.
 Ningún servicio de LIVE, Kali, stripe, banco ni PWA fue modificado.
 No hay saldo retirable ni cierre financiero comercial aprobado.
 
-Consulta `docs/MODULO3-FINANZAS-ONLY.md` para el contrato de límites.
+Consulta `docs/MODULO3-FINANZAS-ONLY.md` para el contrato de límites y
+`docs/MODULO3-FINANZAS-LAB2.md` para los reversos y estados de cuenta.
