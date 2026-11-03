@@ -160,3 +160,71 @@ test('M4 loopback HTTP rejects malformed input, spoofing, invalid bearer and unk
     await pool.end();
   }
 });
+
+
+test('M4 HTTP: failed mail delivery can be retried without duplicate signup or user enumeration',
+  {skip:!enabled,timeout:70000},async()=>{
+  const pool=new pg.Pool({connectionString:url,max:10});
+  const sent:Array<{email:string,userId:string,token:string}>=[];
+  let failFirst=true;
+  const server=createUsersLabHttpServer({
+    pool,authSecret:randomBytes(32),emailSecret:randomBytes(32),
+    async sendVerification(email,token,userId){
+      if(failFirst){failFirst=false;throw Error('simulated sender unavailable');}
+      sent.push({email,token,userId});
+    }
+  });
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const base='http://127.0.0.1:'+(server.address() as AddressInfo).port;
+  async function post(route:string,data:Record<string,unknown>){
+    const response=await fetch(base+route,{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify(data)
+    });
+    return {status:response.status,body:await response.json() as Record<string,unknown>};
+  }
+  try{
+    const email='resend.'+randomUUID()+'@example.com';
+    const registered=await post('/v1/users/register',{
+      email,displayName:'Alicia García',
+      password,idempotencyKey:key()
+    });
+    assert.equal(registered.status,500,'outbound failure must not imply verified signup');
+    assert.deepEqual(registered.body,{error:'USERS_INTERNAL_ERROR'});
+    const account=await pool.query(`
+      SELECT id,status FROM tala_users_v2.accounts WHERE email_normalized=$1`,
+      [email]);
+    assert.equal(account.rows.length,1);
+    assert.equal(account.rows[0].status,'pending_verification');
+    const initial=await post('/v1/users/resend-verification',{email});
+    const absent=await post('/v1/users/resend-verification',{
+      email:'absent.'+randomUUID()+'@example.com'
+    });
+    assert.equal(initial.status,202);
+    assert.deepEqual(initial.body,absent.body);
+    assert.equal(sent.length,0,'cooldown prevents immediate spam');
+    await pool.query(`
+      UPDATE tala_users_v2.email_challenges
+      SET issued_at=issued_at-interval '2 minutes'
+      WHERE account_id=$1::uuid`,[account.rows[0].id]);
+    const retried=await post('/v1/users/resend-verification',{email});
+    assert.equal(retried.status,202);
+    assert.deepEqual(retried.body,{accepted:true});
+    assert.equal(sent.length,1);
+    assert.equal(sent[0]?.email,email);
+    assert.equal(sent[0]?.userId,account.rows[0].id);
+    assert.equal(JSON.stringify(retried.body).includes(sent[0]!.token),false);
+    const verified=await post('/v1/users/verify-email',{
+      userId:sent[0]!.userId,token:sent[0]!.token,
+      expectedVersion:1,idempotencyKey:key()
+    });
+    assert.equal(verified.status,200);
+    assert.equal(verified.body.status,'active');
+    assert.equal((await post('/v1/users/resend-verification',{email})).status,202);
+    assert.equal(sent.length,1,'active account cannot be issued more proofs');
+  }finally{
+    await new Promise<void>((resolve,reject)=>
+      server.close(err=>err?reject(err):resolve()));
+    await pool.end();
+  }
+});
