@@ -46,8 +46,9 @@ test('M4 LAB email tokens are hashed, one-time, never accepted as forged SQL pro
       UPDATE tala_users_v2.accounts SET
       status='active',email_verified_at=clock_timestamp(),
       version=version+1,updated_at=clock_timestamp()
-      WHERE id=$1`,[id]),e=>e.code==='23514'&&
-        String(e.message).includes('USERS_VERIFICATION_PROOF_REQUIRED'));
+      WHERE id=$1`,[id]),(e:unknown)=>
+        e instanceof Error && 'code' in e && e.code==='23514' &&
+        e.message.includes('USERS_VERIFICATION_PROOF_REQUIRED'));
     await fail(()=>transitionLabUser(pool,{
       userId:id,actorId:id,action:'email_verified',expectedVersion:1,
       idempotencyKey:key()
