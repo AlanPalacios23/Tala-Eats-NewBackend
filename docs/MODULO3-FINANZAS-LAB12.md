@@ -45,6 +45,12 @@ información de clientes, secretos HMAC o payloads crudos.
   dos eventos distintos para la misma orden y el mismo ID de evento
   simultáneo sobre **dos PaymentIntents distintos**. El último caso se
   transforma en `WEBHOOK_REPLAY_CONFLICT`, nunca doble abono.
+- El parser valida el formato `object: event` de los webhooks snapshot y
+  exige `livemode: false` **tanto en el sobre del evento como en el
+  PaymentIntent**. Rechaza `event.account` (Connect), porque aún no existe
+  un contrato de cuentas conectadas autorizado y conciliado para M3.
+  Esto es una política de rechazo explícita hasta definir flujos Stripe
+  Connect; no significa que Stripe Connect esté soportado.
 - Sigue vigente el bloqueo M3 LAB1.1: fondos pendientes/retenidos al capturar,
   sin saldos gastables; claves compuestas de recibo/intent/orden/asiento.
 
