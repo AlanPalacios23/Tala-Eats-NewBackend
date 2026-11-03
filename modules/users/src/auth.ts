@@ -438,3 +438,60 @@ export async function resetLabPassword(pool:Pool,{
   if('error' in outcome)throw new UsersError(outcome.error);
   return Object.freeze(outcome);
 }
+
+/** Session inventory exposes random IDs, never bearer tokens or their digests. */
+export async function listAuthenticatedSessions(pool:Pool,{
+  sessionToken,secret
+}:{sessionToken:string,secret:Buffer}){
+  const pepper=validSecret(secret),digest=tokenHash(validToken(sessionToken),pepper);
+  return tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper);
+    const result=await c.query<{
+      session_id:string,created_at:Date,expires_at:Date,is_current:boolean
+    }>(`
+      SELECT session_id,created_at,expires_at,
+        (token_digest=$2) AS is_current
+      FROM tala_users_v2.sessions
+      WHERE account_id=$1::uuid AND revoked_at IS NULL
+        AND expires_at>clock_timestamp()
+      ORDER BY created_at DESC,session_id DESC
+      LIMIT 100`,[user.id,digest]);
+    return Object.freeze({sessions:result.rows.map(r=>Object.freeze({
+      id:r.session_id,createdAt:r.created_at.toISOString(),
+      expiresAt:r.expires_at.toISOString(),current:r.is_current
+    }))});
+  },true);
+}
+
+/** Only the account owner can revoke a selected session; no foreign rows. */
+export async function revokeAuthenticatedSession(pool:Pool,{
+  sessionToken,secret,sessionId
+}:{sessionToken:string,secret:Buffer,sessionId:string}){
+  const pepper=validSecret(secret),id=requireUserId(sessionId);
+  return tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper,true);
+    const result=await c.query<{token_digest:string}>(`
+      UPDATE tala_users_v2.sessions
+      SET revoked_at=clock_timestamp()
+      WHERE session_id=$1::uuid AND account_id=$2::uuid
+        AND revoked_at IS NULL AND expires_at>clock_timestamp()
+      RETURNING token_digest`,[id,user.id]);
+    return Object.freeze({revoked:result.rowCount===1});
+  });
+}
+
+/** Revoke all OTHER sessions; current bearer stays valid. */
+export async function revokeOtherAuthenticatedSessions(pool:Pool,{
+  sessionToken,secret
+}:{sessionToken:string,secret:Buffer}){
+  const pepper=validSecret(secret),digest=tokenHash(validToken(sessionToken),pepper);
+  return tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper,true);
+    const result=await c.query(`
+      UPDATE tala_users_v2.sessions SET revoked_at=clock_timestamp()
+      WHERE account_id=$1::uuid AND token_digest<>$2
+        AND revoked_at IS NULL AND expires_at>clock_timestamp()`,
+      [user.id,digest]);
+    return Object.freeze({revokedCount:result.rowCount??0});
+  });
+}
