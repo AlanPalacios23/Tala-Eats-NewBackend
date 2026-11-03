@@ -32,6 +32,9 @@ BEGIN
        'deliveryFeeMinor','driverPayableMinor','tipMinor','totalMinor',
        'platformGrossMinor'])<>'{}'::jsonb OR
      (SELECT count(*) FROM jsonb_object_keys(s))<>12 OR
+     jsonb_typeof(s->'currency') IS DISTINCT FROM 'string' OR
+     jsonb_typeof(s->'fulfillment') IS DISTINCT FROM 'string' OR
+     jsonb_typeof(s->'policyVersion') IS DISTINCT FROM 'string' OR
      s->>'currency'<>'MXN' OR
      s->>'fulfillment' NOT IN ('pickup','delivery') OR
      (s->>'policyVersion') !~ '^[A-Za-z0-9_.:-]{1,96}$' THEN
