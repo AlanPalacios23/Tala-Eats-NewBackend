@@ -117,3 +117,52 @@ test('M3 driver claim fails closed for pickup, reversal and forged SQL',
     assert.equal(unknown.availableMinor,'0');
   }finally{await pool.end();}
 });
+
+
+test('M3 distinct couriers competing for ONE held share cannot double-attribute',
+ {skip:!enabled,timeout:70000},async()=>{
+  const pool=new Pool({connectionString:url,max:12,connectionTimeoutMillis:3000});
+  try{
+    const orderId=randomUUID(),restaurantId=randomUUID(),
+      drivers=[randomUUID(),randomUUID()];
+    await recordLabHeldAllocation(pool,{
+      orderId,restaurantId,snapshot:snap,commandKey:key()
+    });
+    const results=await Promise.allSettled(drivers.map(driverId=>
+      assignLabDriverHeldClaim(pool,{orderId,driverId,commandKey:key()})));
+    assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+    assert.equal(results.find(x=>x.status==='rejected')?.reason?.code,
+      'FINANCE_DRIVER_CLAIM_CONFLICT');
+    const balances=await Promise.all(drivers.map(driverId=>
+      readDriverHeldBalance(pool,driverId)));
+    assert.equal(balances.reduce((s,x)=>s+BigInt(x.pendingHeldMinor),0n),3200n);
+    assert.ok(balances.every(x=>x.availableMinor==='0'&&!x.withdrawable));
+    assert.equal((await pool.query(
+      'SELECT count(*)::int AS n FROM tala_finance_v2.driver_held_claims WHERE order_id=$1',
+      [orderId])).rows[0].n,1);
+  }finally{await pool.end();}
+});
+
+test('M3 reversal racing driver attribution never leaves outstanding driver funds',
+ {skip:!enabled,timeout:70000},async()=>{
+  const pool=new Pool({connectionString:url,max:12,connectionTimeoutMillis:3000});
+  try{
+    const orderId=randomUUID(),restaurantId=randomUUID(),driverId=randomUUID();
+    await recordLabHeldAllocation(pool,{
+      orderId,restaurantId,snapshot:snap,commandKey:key()
+    });
+    const [claim,reversal]=await Promise.allSettled([
+      assignLabDriverHeldClaim(pool,{orderId,driverId,commandKey:key()}),
+      reverseLabHeldAllocation(pool,{orderId,commandKey:key()})
+    ]);
+    assert.equal(reversal.status,'fulfilled');
+    if(claim.status==='rejected')
+      assert.equal(claim.reason?.code,'FINANCE_ALREADY_REVERSED');
+    assert.equal((await readDriverHeldBalance(pool,driverId)).pendingHeldMinor,'0');
+    assert.equal((await readDriverHeldBalance(pool,driverId)).availableMinor,'0');
+    assert.equal((await readMerchantFinancialBalance(pool,restaurantId)).pendingMinor,'0');
+    assert.equal((await pool.query(
+      'SELECT count(*)::int AS n FROM tala_finance_v2.held_reversals WHERE order_id=$1',
+      [orderId])).rows[0].n,1);
+  }finally{await pool.end();}
+});
