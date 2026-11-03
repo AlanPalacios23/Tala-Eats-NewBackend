@@ -14,8 +14,8 @@ VALUES (
  '11111111-1111-4111-8111-111111111111','capture','stripe_test',
  'evt_test_finance_100',repeat('a',64),
  '[{"accountCode":"asset.stripe_test_clearing","side":"debit","amountMinor":"100"},
-   {"accountCode":"liability.merchant_payable","partyId":"22222222-2222-4222-8222-222222222222","side":"credit","amountMinor":"80"},
-   {"accountCode":"income.platform_gross","side":"credit","amountMinor":"20"}]'::jsonb
+   {"accountCode":"liability.merchant_pending","partyId":"22222222-2222-4222-8222-222222222222","side":"credit","amountMinor":"80"},
+   {"accountCode":"liability.platform_pending","side":"credit","amountMinor":"20"}]'::jsonb
 );
 DO $test$
 BEGIN
@@ -33,7 +33,7 @@ BEGIN
     VALUES('33333333-3333-4333-8333-333333333333','capture','stripe_test',
       'evt_test_finance_unbalanced',repeat('b',64),
       '[{"accountCode":"asset.stripe_test_clearing","side":"debit","amountMinor":"100"},
-        {"accountCode":"income.platform_gross","side":"credit","amountMinor":"99"}]'::jsonb);
+        {"accountCode":"liability.platform_pending","side":"credit","amountMinor":"99"}]'::jsonb);
     RAISE EXCEPTION 'UNBALANCED_JOURNAL_WAS_ACCEPTED';
   EXCEPTION WHEN check_violation THEN NULL;
   END;
