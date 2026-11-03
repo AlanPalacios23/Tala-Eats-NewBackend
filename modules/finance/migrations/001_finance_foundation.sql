@@ -26,7 +26,7 @@ DECLARE
   total numeric;
   platform numeric;
 BEGIN
-  IF s IS NULL OR jsonb_typeof(s)<>'object' OR
+  IF s IS NULL OR jsonb_typeof(s) IS DISTINCT FROM 'object' OR
      (s - ARRAY['currency','fulfillment','policyVersion','itemsMinor',
        'merchantCommissionMinor','merchantPayableMinor','serviceFeeMinor',
        'deliveryFeeMinor','driverPayableMinor','tipMinor','totalMinor',
@@ -41,7 +41,7 @@ BEGIN
     'merchantPayableMinor','serviceFeeMinor','deliveryFeeMinor',
     'driverPayableMinor','tipMinor','totalMinor','platformGrossMinor']
   LOOP
-    IF jsonb_typeof(s->key)<>'string'
+    IF jsonb_typeof(s->key) IS DISTINCT FROM 'string'
       OR (s->>key) !~ '^(0|[1-9][0-9]{0,15})$' THEN RETURN false; END IF;
     money:=(s->>key)::numeric;
     IF money>1000000000000 THEN RETURN false; END IF;
@@ -84,15 +84,15 @@ DECLARE
   clearing_count integer:=0;
 BEGIN
   IF NOT tala_finance_v2.valid_snapshot(s)
-    OR lines IS NULL OR jsonb_typeof(lines)<>'array'
+    OR lines IS NULL OR jsonb_typeof(lines) IS DISTINCT FROM 'array'
     OR jsonb_array_length(lines) NOT BETWEEN 2 AND 4 THEN RETURN false; END IF;
   FOR line IN SELECT value FROM jsonb_array_elements(lines)
   LOOP
-    IF jsonb_typeof(line)<>'object' OR
+    IF jsonb_typeof(line) IS DISTINCT FROM 'object' OR
       (line - ARRAY['accountCode','side','amountMinor','partyId'])<>'{}'::jsonb OR
-      jsonb_typeof(line->'accountCode')<>'string' OR
-      jsonb_typeof(line->'side')<>'string' OR
-      jsonb_typeof(line->'amountMinor')<>'string' OR
+      jsonb_typeof(line->'accountCode') IS DISTINCT FROM 'string' OR
+      jsonb_typeof(line->'side') IS DISTINCT FROM 'string' OR
+      jsonb_typeof(line->'amountMinor') IS DISTINCT FROM 'string' OR
       (line->>'amountMinor') !~ '^[1-9][0-9]{0,15}$' THEN RETURN false; END IF;
     code:=line->>'accountCode';
     side:=line->>'side';
@@ -104,7 +104,7 @@ BEGIN
         OR amount<>(s->>'totalMinor')::numeric THEN RETURN false; END IF;
       clearing_count:=clearing_count+1;
     ELSIF code='liability.merchant_pending' THEN
-      IF side<>'credit' OR (line->>'partyId')<>merchant::text
+      IF side<>'credit' OR (line->>'partyId') IS DISTINCT FROM merchant::text
         OR amount<>(s->>'merchantPayableMinor')::numeric THEN RETURN false; END IF;
       merchant_count:=merchant_count+1;
     ELSIF code='liability.delivery_held' THEN
