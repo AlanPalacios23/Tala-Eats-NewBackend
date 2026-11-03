@@ -19,7 +19,7 @@ const LAB=new Set(['tala_users_v2_lab','tala_users_v2_test']);
 const hash=(input:unknown)=>createHash('sha256').update(JSON.stringify(input)).digest('hex');
 const requirePg=async(c:PoolClient)=>{
   const d=await c.query<{name:string}>('SELECT current_database() AS name');
-  if(!LAB.has(d.rows[0]?.name))throw new UsersError('USERS_LAB_ONLY');
+  if(!LAB.has(d.rows[0]?.name??''))throw new UsersError('USERS_LAB_ONLY');
 };
 async function transaction<T>(pool:Pool,work:(c:PoolClient)=>Promise<T>,readOnly=false):Promise<T>{
   const c=await pool.connect();
@@ -93,8 +93,10 @@ export async function transitionLabUser(pool:Pool,input:TransitionUser){
   const actorId=requireUserId(input.actorId);
   const expectedVersion=assertVersion(input.expectedVersion);
   const action=input.action;
-  if(!(action in ({email_verified:1,suspend:1,reinstate:1,
-    request_deletion:1,finalize_deletion:1})))
+  if(typeof action!=='string'||!Object.hasOwn({
+    email_verified:1,suspend:1,reinstate:1,
+    request_deletion:1,finalize_deletion:1
+  },action))
     throw new UsersError('USERS_ACTION_INVALID');
   const eventKey=eventFingerprint(input.idempotencyKey,'transition');
   const requestHash=hash(['transition',eventKey,userId,actorId,action,expectedVersion]);
