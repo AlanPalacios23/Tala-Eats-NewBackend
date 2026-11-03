@@ -27,6 +27,10 @@ basada directamente en `main`.
   disponible = 0 por diseño hasta integrar hechos confiables de cumplimiento.
 - **Auditoría contable interna:** detecta inconsistencias entre snapshot,
   huellas y partidas. Solo lectura, acotada por orden o lote.
+- **Reverso contable total:** `held_reversals` conserva una compensación
+  inmutable, única por asignación. No efectúa devolución con proveedor.
+- **Estado de cuenta financiero interno:** consulta por restaurante y páginas
+  de movimientos retenidos y compensados; saldo disponible sigue en cero.
 
 La función de registro `recordLabHeldAllocation` crea **asignaciones
 contables de laboratorio**, no pagos. No está montada en HTTP y
@@ -73,3 +77,5 @@ Estos nombres son **contratos propuestos, no integraciones existentes**.
 
 Los prototipos previos de Stripe se conservan en el historial Git, pero
 sus archivos no forman parte del estado actual del Módulo 3.
+
+Avance LAB2 y pruebas: [Compensaciones y estado de cuenta](MODULO3-FINANZAS-LAB2.md).
