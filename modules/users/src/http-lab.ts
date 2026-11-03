@@ -71,8 +71,7 @@ function reply(res:ServerResponse,status:number,value:unknown){
     'Cache-Control':'no-store',
     'X-Content-Type-Options':'nosniff',
     'Referrer-Policy':'no-referrer',
-    'Content-Security-Policy':"default-src 'none'",
-    'Access-Control-Allow-Origin':'null'
+    'Content-Security-Policy':"default-src 'none'"
   });
   res.end(body);
 }
