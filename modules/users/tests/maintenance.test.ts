@@ -10,7 +10,7 @@ import {cleanupLabExpiredIdentityData} from '../src/maintenance.js';
 const url=process.env.USERS_CI_URL??'';
 const enabled=/\/tala_users_v2_test(?:$|\?)/.test(url);
 const authSecret=randomBytes(32),emailSecret=randomBytes(32),totpSecret=randomBytes(32);
-const pass='Contrasena#2026Tala-Buena';
+const pass='TalaSegura#2026-Cafeteria';
 const key=()=> 'users-maintain-'+randomUUID();
 async function create(db:pg.Pool,activate:boolean){
   const email='maintenance.'+randomUUID()+'@example.com';
