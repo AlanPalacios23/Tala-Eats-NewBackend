@@ -7,8 +7,8 @@ import {verifySignedTestEvent} from '../src/stripe-test-webhook.mjs';
 const secret='whsec_unit_test_key_0123456789abcdef';
 const at=Math.floor(Date.now()/1000);
 const build=()=>({
-  id:'evt_lab_1234567890',livemode:false,type:'payment_intent.succeeded',
-  data:{object:{id:'pi_lab_1234567890',object:'payment_intent',
+  id:'evt_lab_1234567890',object:'event',livemode:false,type:'payment_intent.succeeded',
+  data:{object:{id:'pi_lab_1234567890',object:'payment_intent',livemode:false,
     status:'succeeded',amount:30650,amount_received:30650,currency:'mxn'}}
 });
 const sign=(raw,t=at,key=secret)=>'t='+t+',v1='+
