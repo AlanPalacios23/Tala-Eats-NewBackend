@@ -53,6 +53,13 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab \
             -d tala_notifications_v2_test \
             -f modules/notifications/migrations/001_notifications_foundation.sql
+      - name: Apply independent channel and suppressed-event receipts migration
+        env:
+          PGPASSWORD: notif_lab_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab \
+            -d tala_notifications_v2_test \
+            -f modules/notifications/migrations/002_channel_independence_receipts.sql
       - name: Execute PostgreSQL lifecycle, concurrency, outbox and E2E tests
         env:
           NOTIFICATIONS_CI_URL: postgresql://notif_lab:notif_lab_ci_only@127.0.0.1:5432/tala_notifications_v2_test
@@ -68,6 +75,12 @@ jobs:
             -d unrelated_notifications_test \
             -f modules/notifications/migrations/001_notifications_foundation.sql; then
             echo "M5 violated isolated lab database guard"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab \
+            -d unrelated_notifications_test \
+            -f modules/notifications/migrations/002_channel_independence_receipts.sql; then
+            echo "M5 second migration violated isolated lab database guard"
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U notif_lab \
