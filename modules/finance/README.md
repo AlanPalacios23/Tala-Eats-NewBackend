@@ -26,6 +26,10 @@ No se debe copiar código entre PR ni hacer un merge cruzado sin resolver contra
    El verificador acepta únicamente eventos TEST `payment_intent.succeeded`.
 3. `migrations/002_test_webhook_inbox.sql`: contratos internos y comprobantes
    webhook append-only ligados al diario de captura.
+   `migrations/003_receipt_integrity.sql` vincula pedido, PaymentIntent,
+   evento y diario mediante claves compuestas, evitando recibos cruzados.
+   Las capturas se registran como responsabilidades **pendientes/retenidas**;
+   aún no existen wallets disponibles ni liberación de fondos por entrega.
 4. `tests/webhook.test.mjs` y `tests/stripe-integration.test.mjs`:
    pruebas de seguridad y 8 solicitudes simultáneas contra PostgreSQL 16.
 5. `migrations/001_finance_foundation.sql`: esquema **`tala_finance_v2`** propio,
