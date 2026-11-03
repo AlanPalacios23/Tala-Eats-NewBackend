@@ -64,6 +64,7 @@ CREATE TABLE tala_notifications_v2.deliveries (
  status text NOT NULL DEFAULT 'queued'
    CHECK(status IN ('queued','leased','retry','delivered','suppressed','dead_letter')),
  attempts integer NOT NULL DEFAULT 0 CHECK(attempts BETWEEN 0 AND 12),
+ retry_cycle integer NOT NULL DEFAULT 0 CHECK(retry_cycle BETWEEN 0 AND 10000),
  next_attempt_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  lease_token uuid,
  lease_until timestamptz,
@@ -88,11 +89,12 @@ CREATE INDEX ix_m5_claim_due ON tala_notifications_v2.deliveries
 CREATE TABLE tala_notifications_v2.delivery_attempts (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  delivery_id uuid NOT NULL REFERENCES tala_notifications_v2.deliveries(id),
+ retry_cycle integer NOT NULL DEFAULT 0 CHECK(retry_cycle BETWEEN 0 AND 10000),
  attempt_number integer NOT NULL CHECK(attempt_number BETWEEN 1 AND 12),
  result text NOT NULL CHECK(result IN ('delivered','retry','dead_letter','suppressed')),
  error_code text CHECK(error_code IS NULL OR error_code ~ '^[A-Z0-9_]{2,60}$'),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
- UNIQUE(delivery_id,attempt_number)
+ UNIQUE(delivery_id,retry_cycle,attempt_number)
 );
 CREATE FUNCTION tala_notifications_v2.block_attempt_tampering()
 RETURNS trigger LANGUAGE plpgsql AS $fn$
