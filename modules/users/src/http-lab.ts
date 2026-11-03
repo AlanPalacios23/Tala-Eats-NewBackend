@@ -13,7 +13,8 @@ import {UsersError} from './domain.js';
 import {issueLabEmailChallenge,verifyLabEmailChallenge} from './store.js';
 import {registerCredentialedPendingUser,loginLabUser,
   readAuthenticatedProfile,logoutLabSession,updateAuthenticatedProfile,
-  changeAuthenticatedPassword,requestAuthenticatedDeletion} from './auth.js';
+  changeAuthenticatedPassword,requestAuthenticatedDeletion,
+  issueLabPasswordRecovery,resetLabPassword} from './auth.js';
 
 type VerificationSink=(email:string,token:string)=>Promise<void>;
 export type UsersLabHttpConfig={
@@ -21,6 +22,7 @@ export type UsersLabHttpConfig={
   authSecret:Buffer;
   emailSecret:Buffer;
   sendVerification:VerificationSink;
+  sendPasswordReset?:(email:string,token:string,userId:string)=>Promise<void>;
 };
 const VALID_BEARER=/^Bearer ([A-Za-z0-9_-]{43})$/;
 const MAX_BYTES=16384;
@@ -78,7 +80,8 @@ function reply(res:ServerResponse,status:number,value:unknown){
 function errorStatus(error:UsersError):number{
   const code=error.code;
   if(code==='USERS_INVALID_CREDENTIALS'||code==='USERS_SESSION_INVALID'||
-     code==='USERS_VERIFICATION_INVALID'||code==='USERS_NOT_FOUND')
+     code==='USERS_VERIFICATION_INVALID'||code==='USERS_RECOVERY_INVALID'||
+     code==='USERS_NOT_FOUND')
     return 401;
   if(code==='USERS_VERIFICATION_COOLDOWN')return 429;
   if(code==='USERS_PAYLOAD_TOO_LARGE')return 413;
@@ -90,7 +93,7 @@ function errorStatus(error:UsersError):number{
   return 400;
 }
 export function createUsersLabHttpServer({
-  pool,authSecret,emailSecret,sendVerification
+  pool,authSecret,emailSecret,sendVerification,sendPasswordReset
 }:UsersLabHttpConfig){
   if(process.env.NODE_ENV==='production'||
      !Buffer.isBuffer(authSecret)||authSecret.length<32||
@@ -185,6 +188,32 @@ export function createUsersLabHttpServer({
         reply(res,200,await logoutLabSession(pool,{
           sessionToken:bearer(req),secret:authSecret
         }));
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/forgot-password'){
+        const d=fields(await readBody(req),['email']);
+        const email=string(d.email);
+        if(!sendPasswordReset){
+          reply(res,503,{error:'USERS_UNAVAILABLE'});
+          return;
+        }
+        const proof=await issueLabPasswordRecovery(pool,{
+          email,secret:emailSecret
+        });
+        if(proof)await sendPasswordReset(proof.email,proof.token,proof.userId);
+        // Identical response for missing, unverified, locked, and valid users.
+        reply(res,202,{accepted:true});
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/reset-password'){
+        const d=fields(await readBody(req),[
+          'userId','token','newPassword']);
+        const done=await resetLabPassword(pool,{
+          userId:string(d.userId),token:string(d.token),
+          newPassword:string(d.newPassword),
+          authSecret,emailSecret
+        });
+        reply(res,200,done);
         return;
       }
       if(method==='POST'&&route==='/v1/users/change-password'){
