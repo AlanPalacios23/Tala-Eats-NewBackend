@@ -155,3 +155,44 @@ firmados. El borrado/portabilidad de datos debe validarse a nivel
 plataforma y copias de seguridad; un barrido de retención no sustituye
 una orden legal de eliminación. Faltan pruebas de recuperación ante
 caída de servicios, carga sostenida y observabilidad real.
+
+## LAB3 — Fiabilidad, seguridad y operación (3 noviembre 2026)
+
+Esta evolución conserva el módulo **aislado**, sin accesos a datos LIVE.
+
+- **Consentimiento independiente por canal:** desactivar `in_app` no cancela
+  correo o push autorizado. Un evento oculto conserva el rastreo
+  transaccional sin aparecer como no leído en el centro de notificaciones.
+- **Recibos de publicación:** `publication_receipts` conserva también
+  los eventos suprimidos, impidiendo revivir promociones antiguas al
+  cambiar las preferencias.
+- **Límite de dispositivos:** máximo 20 activos por usuario y app;
+  bloqueo transaccional para evitar altas concurrentes descontroladas.
+- **Priorización:** avisos de seguridad, pedidos nuevos y solicitudes de
+  repartidores por encima de campañas de marketing, sin alterar
+  decisiones de negocio.
+- **Recuperación de trabajadores:** vencimiento de leases, reintentos,
+  auditoría de cada intento y cola `dead_letter`. Las entregas externas
+  siguen siendo *al menos una vez*, no exactamente una.
+- **FCM:** solo un error de token `UNREGISTERED` confirmado permite
+  desactivar automáticamente ese dispositivo; errores de proyecto o
+  payload no implican que haya caducado el registro.
+- **Retry-After:** adaptadores interpretan segundos o fecha HTTP;
+  la espera respetada es acotada a 3600 segundos y nunca reduce el
+  backoff mínimo de seguridad.
+- **Métricas sin PII:** `readNotificationOperations` permite vigilar
+  estados, trabajos pendientes, leases vencidas y aceptaciones por
+  proveedor en 24 horas. No se ofrece en la API de clientes.
+- **Retención en lotes:** `redactExpiredNotificationData` sustituye
+  material de tokens revocados de más de 30 días; redacciona contenido
+  de notificaciones de más de 180 días solo cuando no hay entrega
+  pendiente. Mantiene recibos e intentos para auditar. Estos plazos
+  son ejemplos LAB que requieren aprobación de política legal.
+- **Carga:** batería de 160 publicaciones, cuatro apps, y pruebas
+  adversas sobre dispositivos, consentimiento y workers.
+
+**NO-GO:** aún hacen falta Firebase/APNs/WebPush reales, dominio
+remitente verificado, autenticación de productores y consumidores,
+servicios supervisados, alertas, backups y pruebas Android/iOS/PWA.
+La retención del LAB no elimina copias de respaldo ni implementa
+por sí sola la supresión legal completa de una cuenta.
