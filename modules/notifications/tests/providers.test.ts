@@ -89,3 +89,29 @@ test('M5 Resend 409 concurrent retry versus changed-payload permanent conflict',
       e.code==='EMAIL_IDEMPOTENCY_MISMATCH'
   );
 });
+
+test('M5 FCM: only explicit UNREGISTERED can revoke a device',async()=>{
+  const msg:PushMessage={...common,platform:'web',
+    token:'firebase-registration-token-test-abcdefghijklmnopqrstuvwxyz'};
+  const args={projectId:'talaeats-lab',
+    getAccessToken:async()=> 'token_test_abcdefghijklmnopqrstuvwxyz'};
+  const scenarios=[
+    {status:404,payload:{error:{status:'UNREGISTERED',details:[{
+      '@type':'type.googleapis.com/google.firebase.fcm.v1.FcmError',
+      errorCode:'UNREGISTERED'}]}},code:'FCM_UNREGISTERED',permanent:true},
+    {status:404,payload:{error:{status:'NOT_FOUND',
+      message:'Project does not exist'}},code:'FCM_PROJECT_OR_ROUTE_NOT_FOUND',
+      permanent:false},
+    {status:400,payload:{error:{status:'INVALID_ARGUMENT',details:[{
+      '@type':'type.googleapis.com/google.rpc.BadRequest',
+      fieldViolations:[]}]}},code:'FCM_INVALID_ARGUMENT',permanent:true}
+  ] as const;
+  for(const entry of scenarios){
+    const fetchFn=(async()=>new Response(JSON.stringify(entry.payload),
+      {status:entry.status})) as typeof fetch;
+    const send=createFcmPushSender({...args,fetchFn});
+    await assert.rejects(()=>send(msg),(error:unknown)=>
+      error instanceof DeliveryFailure&&error.code===entry.code&&
+      error.permanent===entry.permanent);
+  }
+});
