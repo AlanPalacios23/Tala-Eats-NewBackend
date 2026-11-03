@@ -67,6 +67,13 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab \
             -d tala_notifications_v2_test \
             -f modules/notifications/migrations/003_retention_redaction.sql
+      - name: Apply priority and expired-lease queue indexes
+        env:
+          PGPASSWORD: notif_lab_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab \
+            -d tala_notifications_v2_test \
+            -f modules/notifications/migrations/004_delivery_priority.sql
       - name: Execute PostgreSQL lifecycle, concurrency, outbox and E2E tests
         env:
           NOTIFICATIONS_CI_URL: postgresql://notif_lab:notif_lab_ci_only@127.0.0.1:5432/tala_notifications_v2_test
@@ -94,6 +101,12 @@ jobs:
             -d unrelated_notifications_test \
             -f modules/notifications/migrations/003_retention_redaction.sql; then
             echo "M5 retention migration violated lab database guard"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U notif_lab \
+            -d unrelated_notifications_test \
+            -f modules/notifications/migrations/004_delivery_priority.sql; then
+            echo "M5 priority migration violated isolated lab database guard"
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U notif_lab \
