@@ -133,6 +133,13 @@ export async function transitionLabUser(pool:Pool,input:TransitionUser){
       WHERE id=$1::uuid
       RETURNING id,email_normalized,display_name,status,version,created_at,updated_at`,
       [userId,next,action]);
+    // Privacy minimization: the account tombstone and immutable audit remain,
+    // but temporary verification digests/attempt counters have no purpose.
+    if(action==='finalize_deletion'){
+      await c.query(`
+        DELETE FROM tala_users_v2.email_challenges
+        WHERE account_id=$1::uuid`,[userId]);
+    }
     await c.query(`
       INSERT INTO tala_users_v2.account_audit
         (account_id,event_key,request_hash,action,from_status,to_status,actor_id)
