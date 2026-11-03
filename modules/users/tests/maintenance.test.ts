@@ -51,8 +51,8 @@ test('M4 retention: only old security artifacts removed, audit and active sessio
     await db.query(
       "UPDATE tala_users_v2.sessions SET "+
       "created_at=clock_timestamp()-interval '45 days',"+
-      "expires_at=clock_timestamp()-interval '44 days',"+
-      "revoked_at=clock_timestamp()-interval '44 days'+interval '1 hour' "+
+      "expires_at=clock_timestamp()-interval '45 days'+interval '2 hours',"+
+      "revoked_at=clock_timestamp()-interval '45 days'+interval '3 hours' "+
       "WHERE account_id=$1 AND revoked_at IS NOT NULL",[active.id]);
     await db.query(
       "UPDATE tala_users_v2.email_challenges SET "+
