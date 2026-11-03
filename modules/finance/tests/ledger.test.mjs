@@ -24,9 +24,9 @@ test('journal is balanced in integer centavos, MXN, no transfer side effects',()
   assert.equal(j.sourceSystem,'stripe_test');
   assert.equal(j.lines.filter(x=>x.side==='debit').reduce((n,x)=>n+BigInt(x.amountMinor),0n),
     j.lines.filter(x=>x.side==='credit').reduce((n,x)=>n+BigInt(x.amountMinor),0n));
-  assert.equal(j.lines.find(x=>x.accountCode==='liability.merchant_payable').amountMinor,'21250');
-  assert.equal(j.lines.find(x=>x.accountCode==='liability.driver_payable').amountMinor,'3200');
-  assert.equal(j.lines.find(x=>x.accountCode==='income.platform_gross').amountMinor,'6200');
+  assert.equal(j.lines.find(x=>x.accountCode==='liability.merchant_pending').amountMinor,'21250');
+  assert.equal(j.lines.find(x=>x.accountCode==='liability.driver_held').amountMinor,'3200');
+  assert.equal(j.lines.find(x=>x.accountCode==='liability.platform_pending').amountMinor,'6200');
 });
 test('deterministic idempotency fingerprint for equal payload',()=>{
   assert.equal(capture().snapshotHash,capture().snapshotHash);
@@ -48,8 +48,15 @@ test('reject negative net platform disguised by payouts',()=>reject(()=>
   capture({snapshot:{...snap,driverPayableMinor:'10000'}}),'PAYOUT_BALANCE_INVALID'));
 test('reject pickup with delivery income',()=>reject(()=>
   capture({snapshot:{...snap,fulfillment:'pickup'}}),'PICKUP_FINANCE_INVALID'));
-test('reject missing driver for nonzero payout',()=>reject(()=>
-  capture({driverId:null}),'DRIVER_ID_INVALID'));
+test('holds courier share at capture even without a selected driver',()=>{
+  const j=capture({driverId:null});
+  assert.equal(j.lines.find(x=>x.accountCode==='liability.driver_held').amountMinor,'3200');
+  assert.equal(j.lines.some(x=>x.accountCode==='liability.driver_payable'),false);
+  assert.equal(j.lines.some(x=>x.accountCode==='income.platform_gross'),false);
+  assert.equal(j.lines.some(x=>x.partyId===driverId),false);
+});
+test('reject invalid driver IDs',()=>reject(()=>
+  capture({driverId:'invalid'}),'DRIVER_ID_INVALID'));
 test('reject invalid order or merchant UUID',()=>reject(()=>
   capture({orderId:'forged'}),'ACTOR_ID_INVALID'));
 test('reject live or unverified provider evidence',()=>{
@@ -60,8 +67,15 @@ test('valid pickup proposal has no driver liability',()=>{
   const pickup={...snap,fulfillment:'pickup',deliveryFeeMinor:'0',driverPayableMinor:'0',
     totalMinor:'26750',platformGrossMinor:'5500'};
   const j=capture({snapshot:pickup,driverId:null});
-  assert.equal(j.lines.some(x=>x.accountCode==='liability.driver_payable'),false);
+  assert.equal(j.lines.some(x=>x.accountCode==='liability.driver_held'),false);
   assert.equal(j.lines.length,3);
+});
+test('pickup amounts remain held until a separate fulfillment gate',()=>{
+  const pickup={...snap,fulfillment:'pickup',deliveryFeeMinor:'0',driverPayableMinor:'0',
+    totalMinor:'26750',platformGrossMinor:'5500'};
+  const j=capture({snapshot:pickup,driverId:null});
+  assert.equal(j.lines.some(x=>x.accountCode==='liability.driver_held'),false);
+  assert.equal(j.lines.find(x=>x.accountCode==='liability.platform_pending').amountMinor,'5500');
 });
 test('proposal output is immutable and uses no floating point',()=>{
   const j=capture();
