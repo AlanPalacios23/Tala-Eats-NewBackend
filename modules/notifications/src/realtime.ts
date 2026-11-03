@@ -2,7 +2,7 @@
  * Every observer must authenticate recipient/app in its host gateway.
  * Always reload the inbox after reconnect or receiving a hint.
  */
-import type {Pool} from 'pg';
+import type {Pool,Notification} from 'pg';
 import {NotificationError,appValue,uuid,type App} from './domain.js';
 export type InboxHint={notificationId:string,recipientId:string,app:App};
 export async function subscribeInboxHints(pool:Pool,{
@@ -13,7 +13,7 @@ export async function subscribeInboxHints(pool:Pool,{
     throw new NotificationError('NOTIFICATIONS_SUBSCRIBER_INVALID');
   const c=await pool.connect();
   let closed=false;
-  const handler=(event:{channel?:string,payload?:string})=>{
+  const handler=(event:Notification)=>{
     if(event.channel!=='tala_notifications_v2_new_inbox'||!event.payload)return;
     try{
       const value=JSON.parse(event.payload) as InboxHint;
