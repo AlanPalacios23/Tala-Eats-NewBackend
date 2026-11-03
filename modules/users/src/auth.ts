@@ -495,3 +495,21 @@ export async function revokeOtherAuthenticatedSessions(pool:Pool,{
     return Object.freeze({revokedCount:result.rowCount??0});
   });
 }
+
+
+/**
+ * Internal M4 shared transaction. The session is checked and its owning
+ * account locked in the SAME database transaction as the profile operation.
+ * Never provide untrusted callers access to PoolClient or this callback.
+ */
+export async function withAuthenticatedIdentity<T>(
+  pool:Pool,{sessionToken,secret}:{sessionToken:string,secret:Buffer},
+  work:(client:PoolClient,userId:string)=>Promise<T>,
+  readOnly=false
+):Promise<T>{
+  const pepper=validSecret(secret);
+  return tx(pool,async client=>{
+    const user=await sessionUser(client,sessionToken,pepper,!readOnly);
+    return work(client,user.id);
+  },readOnly);
+}
