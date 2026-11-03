@@ -122,5 +122,13 @@ END $fn$;
 CREATE TRIGGER trg_m4_account_lifecycle
   BEFORE UPDATE ON tala_users_v2.accounts
   FOR EACH ROW EXECUTE FUNCTION tala_users_v2.enforce_account_lifecycle();
+CREATE FUNCTION tala_users_v2.prevent_account_hard_delete()
+RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN
+  RAISE EXCEPTION 'USERS_ACCOUNT_HARD_DELETE_DENIED';
+END $fn$;
+CREATE TRIGGER trg_m4_account_no_hard_delete
+  BEFORE DELETE ON tala_users_v2.accounts
+  FOR EACH ROW EXECUTE FUNCTION tala_users_v2.prevent_account_hard_delete();
 
 COMMIT;
