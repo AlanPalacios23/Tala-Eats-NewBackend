@@ -156,4 +156,6 @@ Firebase simulados, nunca con tokens, claves ni clientes LIVE.
    deben exponerse en la bandeja ni el payload de push. Integrar una
    plantilla segura con M4 a través de un contrato, no de imports.
 
+**LAB4 — etapa cerrada para avanzar al siguiente módulo.** Véase el [acta de cierre y contrato estable](../../docs/MODULO5-NOTIFICACIONES-CIERRE-LAB4.md).
+
 **No desplegar ni fusionar este módulo hasta aprobar estos controles.**
