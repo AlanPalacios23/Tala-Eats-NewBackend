@@ -29,7 +29,7 @@ export interface TransitionUser {
   expectedVersion:number;
   idempotencyKey:string;
 }
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY=/^[A-Za-z0-9._:-]{20,128}$/;
 const DISPLAY=/^[\p{L}\p{N}][\p{L}\p{N} .'-]{1,79}$/u;
 const LOCAL=/^[a-z0-9_%+-]+(?:\.[a-z0-9_%+-]+)*$/;
@@ -85,7 +85,7 @@ export const TARGET_STATUS:Readonly<Record<UserTransition,UserStatus>>=
 const allowed:Readonly<Record<UserTransition,readonly UserStatus[]>>=
   Object.freeze({
     email_verified:['pending_verification'],
-    suspend:['pending_verification','active'],
+    suspend:['active'],
     reinstate:['suspended'],
     request_deletion:['pending_verification','active','suspended'],
     finalize_deletion:['deletion_requested']
