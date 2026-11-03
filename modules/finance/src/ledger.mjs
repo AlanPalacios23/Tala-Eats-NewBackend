@@ -99,3 +99,47 @@ export function proposeHeldAllocation({orderId,restaurantId,snapshot,commandKey}
     lines:Object.freeze(lines.map(line=>Object.freeze(line)))
   });
 }
+
+
+/**
+ * LAB accounting correction, not a provider refund or a payout.
+ * Only a FULL inversion of an existing still-held allocation is supported.
+ * The original journal remains immutable; no partial reversal is possible.
+ */
+export function proposeFullHeldReversal({
+  originalJournalId,orderId,restaurantId,snapshot,snapshotHash,
+  originalLines,commandKey
+}={}){
+  const originalId=requireId(originalJournalId);
+  const order=requireId(orderId),merchant=requireId(restaurantId);
+  if(typeof commandKey!=='string'||!COMMAND.test(commandKey))
+    throw new FinanceError('FINANCE_COMMAND_INVALID');
+  const canonical=proposeHeldAllocation({
+    orderId:order,restaurantId:merchant,snapshot,
+    commandKey:'finance-verify-base-journal-v1'
+  });
+  const tuple=(line)=>[line.accountCode,line.partyId??null,
+    line.side,line.amountMinor];
+  const normalized=lines=>JSON.stringify(lines.map(tuple).sort((a,b)=>
+    a[0].localeCompare(b[0])));
+  if(snapshotHash!==canonical.snapshotHash||
+     !Array.isArray(originalLines)||
+     normalized(originalLines)!==normalized(canonical.lines))
+    throw new FinanceError('FINANCE_BASE_JOURNAL_INVALID');
+  const lines=originalLines.map(line=>Object.freeze({
+    ...line,side:line.side==='debit'?'credit':'debit'
+  }));
+  const debit=lines.filter(x=>x.side==='debit')
+    .reduce((sum,x)=>sum+BigInt(x.amountMinor),0n);
+  const credit=lines.filter(x=>x.side==='credit')
+    .reduce((sum,x)=>sum+BigInt(x.amountMinor),0n);
+  if(debit!==credit||credit<=0n)
+    throw new FinanceError('FINANCE_REVERSAL_UNBALANCED');
+  return Object.freeze({
+    originalJournalId:originalId,orderId:order,restaurantId:merchant,
+    kind:'full_held_reversal',currency:'MXN',
+    eventKey:sha256('finance.full-held-reversal.v1|'+originalId+'|'+commandKey),
+    snapshotHash:canonical.snapshotHash,
+    lines:Object.freeze(lines)
+  });
+}
