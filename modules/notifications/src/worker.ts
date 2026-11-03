@@ -78,7 +78,7 @@ export async function claimDueDeliveries(pool:Pool,{limit=10}:{limit?:number}={}
           (status IN ('queued','retry') AND next_attempt_at<=clock_timestamp())
           OR (status='leased' AND lease_until<=clock_timestamp()
               AND id=ANY($3::uuid[])))
-        ORDER BY next_attempt_at,updated_at,id
+        ORDER BY priority DESC,next_attempt_at,updated_at,id
         FOR UPDATE SKIP LOCKED LIMIT $2
       )
       UPDATE tala_notifications_v2.deliveries d
