@@ -197,3 +197,114 @@ async function sessionUser(c:PoolClient,token:string,secret:Buffer,lock=false){
   if(!r.rows[0])throw new UsersError('USERS_SESSION_INVALID');
   return r.rows[0];
 }
+
+
+/** PII may only be read using a valid, unexpired, nonrevoked bearer token. */
+export async function readAuthenticatedProfile(pool:Pool,{
+  sessionToken,secret
+}:{sessionToken:string,secret:Buffer}){
+  const pepper=validSecret(secret);
+  return tx(pool,async c=>publicUser(await sessionUser(
+    c,sessionToken,pepper)),true);
+}
+export async function logoutLabSession(pool:Pool,{
+  sessionToken,secret
+}:{sessionToken:string,secret:Buffer}){
+  const pepper=validSecret(secret),key=tokenHash(validToken(sessionToken),pepper);
+  return tx(pool,async c=>{
+    const r=await c.query(`
+      UPDATE tala_users_v2.sessions SET revoked_at=clock_timestamp()
+      WHERE token_digest=$1 AND revoked_at IS NULL
+        AND expires_at>clock_timestamp()`,[key]);
+    return Object.freeze({revoked:r.rowCount===1});
+  });
+}
+
+/** Profile session check, account version, mutation and audit are atomic. */
+export async function updateAuthenticatedProfile(pool:Pool,{
+  sessionToken,secret,displayName,expectedVersion,idempotencyKey
+}:{sessionToken:string,secret:Buffer,displayName:string,
+  expectedVersion:number,idempotencyKey:string}){
+  const pepper=validSecret(secret),name=canonicalDisplayName(displayName);
+  const version=assertVersion(expectedVersion);
+  const eventKey=eventFingerprint(idempotencyKey,'profile_updated');
+  return tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper,true);
+    const requestHash=hash(['profile_updated',eventKey,user.id,user.id,name,version]);
+    const old=await readAudit(c,eventKey);
+    if(old){
+      if(old.account_id!==user.id||old.request_hash!==requestHash)
+        throw new UsersError('USERS_IDEMPOTENCY_CONFLICT');
+      return Object.freeze({user:publicUser(user),replayed:true});
+    }
+    if(user.version!==version)throw new UsersError('USERS_VERSION_CONFLICT');
+    if(user.display_name===name)throw new UsersError('USERS_PROFILE_UNCHANGED');
+    const updated=await c.query<UserRow>(`
+      UPDATE tala_users_v2.accounts SET
+        display_name=$2,version=version+1,updated_at=clock_timestamp()
+      WHERE id=$1::uuid
+      RETURNING id,email_normalized,display_name,status,version`,
+      [user.id,name]);
+    await c.query(`
+      INSERT INTO tala_users_v2.account_audit
+        (account_id,event_key,request_hash,action,from_status,to_status,actor_id)
+      VALUES($1::uuid,$2,$3,'profile_updated','active','active',$1::uuid)`,
+      [user.id,eventKey,requestHash]);
+    return Object.freeze({user:publicUser(updated.rows[0]!),replayed:false});
+  });
+}
+
+/** Change with old password; atomically revoke ALL existing sessions. */
+export async function changeAuthenticatedPassword(pool:Pool,{
+  sessionToken,secret,currentPassword,newPassword
+}:{sessionToken:string,secret:Buffer,
+  currentPassword:string,newPassword:string}){
+  const pepper=validSecret(secret),next=checkNewPassword(newPassword);
+  if(currentPassword===next)throw new UsersError('USERS_PASSWORD_REUSE');
+  const material=await passwordMaterial(next,pepper);
+  return tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper,true);
+    const credentials=await c.query<{salt_hex:string,verifier_hex:string}>(`
+      SELECT salt_hex,verifier_hex FROM tala_users_v2.password_credentials
+      WHERE account_id=$1::uuid FOR UPDATE`,[user.id]);
+    const credential=credentials.rows[0];
+    if(!credential||!await matches(currentPassword,credential.salt_hex,
+      credential.verifier_hex,pepper))
+      throw new UsersError('USERS_INVALID_CREDENTIALS');
+    await c.query(`
+      UPDATE tala_users_v2.password_credentials SET
+        salt_hex=$2,verifier_hex=$3,failed_attempts=0,locked_until=NULL,
+        updated_at=clock_timestamp() WHERE account_id=$1::uuid`,
+      [user.id,material.saltHex,material.verifierHex]);
+    await c.query(`
+      UPDATE tala_users_v2.sessions SET revoked_at=clock_timestamp()
+      WHERE account_id=$1::uuid AND revoked_at IS NULL`,[user.id]);
+    return Object.freeze({passwordChanged:true,sessionsRevoked:true});
+  });
+}
+
+/** Self-service deletion proof uses session and account lock in one TX. */
+export async function requestAuthenticatedDeletion(pool:Pool,{
+  sessionToken,secret,expectedVersion,idempotencyKey
+}:{sessionToken:string,secret:Buffer,
+  expectedVersion:number,idempotencyKey:string}){
+  const pepper=validSecret(secret),version=assertVersion(expectedVersion);
+  const eventKey=eventFingerprint(idempotencyKey,'transition');
+  return tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper,true);
+    if(user.version!==version)throw new UsersError('USERS_VERSION_CONFLICT');
+    const requestHash=hash(['transition',eventKey,user.id,
+      user.id,'request_deletion',version]);
+    const r=await c.query<UserRow>(`
+      UPDATE tala_users_v2.accounts SET
+        status='deletion_requested',version=version+1,
+        updated_at=clock_timestamp() WHERE id=$1::uuid
+      RETURNING id,email_normalized,display_name,status,version`,[user.id]);
+    await c.query(`
+      INSERT INTO tala_users_v2.account_audit
+        (account_id,event_key,request_hash,action,from_status,to_status,actor_id)
+      VALUES($1::uuid,$2,$3,'request_deletion','active',
+        'deletion_requested',$1::uuid)`,[user.id,eventKey,requestHash]);
+    return Object.freeze({user:publicUser(r.rows[0]!),sessionsRevoked:true});
+  });
+}
