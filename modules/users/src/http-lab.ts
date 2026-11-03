@@ -10,7 +10,8 @@
 import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';
 import type {Pool} from 'pg';
 import {UsersError} from './domain.js';
-import {issueLabEmailChallenge,verifyLabEmailChallenge} from './store.js';
+import {issueLabEmailChallenge,issueLabEmailChallengeForAddress,
+  verifyLabEmailChallenge} from './store.js';
 import {registerCredentialedPendingUser,loginLabUser,
   readAuthenticatedProfile,logoutLabSession,updateAuthenticatedProfile,
   changeAuthenticatedPassword,requestAuthenticatedDeletion,
@@ -143,6 +144,16 @@ export function createUsersLabHttpServer({
         }
         reply(res,202,{userId:result.user.id,status:'pending_verification',
           replayed:result.replayed});
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/resend-verification'){
+        const d=fields(await readBody(req),['email']);
+        const proof=await issueLabEmailChallengeForAddress(pool,{
+          email:string(d.email),secret:emailSecret
+        });
+        if(proof)await sendVerification(proof.email,proof.token);
+        // No indication whether an account exists, is verified or cooling down.
+        reply(res,202,{accepted:true});
         return;
       }
       if(method==='POST'&&route==='/v1/users/verify-email'){
