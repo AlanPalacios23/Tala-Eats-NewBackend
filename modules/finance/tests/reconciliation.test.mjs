@@ -22,8 +22,8 @@ const snap=Object.freeze({
 });
 function signed(intent,eventId){
   const rawBody=Buffer.from(JSON.stringify({
-    id:eventId,livemode:false,type:'payment_intent.succeeded',
-    data:{object:{id:intent,object:'payment_intent',status:'succeeded',
+    id:eventId,object:'event',livemode:false,type:'payment_intent.succeeded',
+    data:{object:{id:intent,object:'payment_intent',livemode:false,status:'succeeded',
       currency:'mxn',amount:30650,amount_received:30650}}
   }));
   const timestamp=Math.floor(Date.now()/1000);
