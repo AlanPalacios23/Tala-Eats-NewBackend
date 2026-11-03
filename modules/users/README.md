@@ -20,7 +20,7 @@ No depende del código ni de las tablas de Pedidos, Logística, Finanzas o Pagos
 ### Recorrido completo validable en laboratorio
 
 ```
-Registro → cuenta pendiente y contraseña cifrada mediante KDF
+Registro → cuenta pendiente y verificador de contraseña derivado con KDF
 → emisión de token de correo → entrega simulada
 → verificación única → inicio de sesión → perfil
 → edición de perfil → cierre de sesión
