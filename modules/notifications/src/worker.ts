@@ -21,9 +21,13 @@ export type DeliveryDependencies={
   sendPush:(message:PushMessage)=>Promise<void>
 };
 export class DeliveryFailure extends Error{
-  constructor(readonly code:string,readonly permanent:boolean){
+  constructor(readonly code:string,readonly permanent:boolean,
+    readonly retryAfterSeconds?:number){
     super(code);this.name='DeliveryFailure';
-    if(!/^[A-Z0-9_]{2,60}$/.test(code))
+    if(!/^[A-Z0-9_]{2,60}$/.test(code)||
+       (retryAfterSeconds!==undefined&&
+        (!Number.isSafeInteger(retryAfterSeconds)||retryAfterSeconds<0||
+         retryAfterSeconds>3600)))
       throw new NotificationError('NOTIFICATIONS_DELIVERY_ERROR_INVALID');
   }
 }
@@ -94,13 +98,16 @@ export async function claimDueDeliveries(pool:Pool,{limit=10}:{limit?:number}={}
   });
 }
 async function settleDelivery(pool:Pool,claim:Claim,{
-  result,errorCode
-}:{result:'delivered'|'retry'|'dead_letter'|'suppressed',errorCode?:string}){
+  result,errorCode,retryAfterSeconds=0
+}:{result:'delivered'|'retry'|'dead_letter'|'suppressed',
+  errorCode?:string,retryAfterSeconds?:number}){
   if(errorCode&&!/^[A-Z0-9_]{2,60}$/.test(errorCode))
     throw new NotificationError('NOTIFICATIONS_DELIVERY_ERROR_INVALID');
   const error=errorCode??null;
-  const next=BACKOFF_SECONDS[Math.min(claim.attempts-1,
-    BACKOFF_SECONDS.length-1)]!;
+  // Respect Retry-After from FCM/Resend, bounded to an hour, but never
+  // shorten the normal exponential retry interval.
+  const next=Math.max(BACKOFF_SECONDS[Math.min(claim.attempts-1,
+    BACKOFF_SECONDS.length-1)]!,retryAfterSeconds);
   const status=result==='retry'&&claim.attempts>=MAX_ATTEMPTS
     ?'dead_letter':result;
   return transaction(pool,async c=>{
@@ -215,7 +222,11 @@ export async function processDeliveryBatch(pool:Pool,deps:DeliveryDependencies,
       const disposition=error instanceof DeliveryFailure&&error.permanent
         ?'dead_letter':'retry';
       const done=await settleDelivery(pool,claim,{
-        result:disposition,errorCode:code});
+        result:disposition,errorCode:code,
+        ...(error instanceof DeliveryFailure&&
+          error.retryAfterSeconds!==undefined
+          ?{retryAfterSeconds:error.retryAfterSeconds}:{})
+      });
       if(!done.settled)stats.leaseLost++;
       else if(done.status==='retry')stats.retried++;
       else stats.deadLetter++;
