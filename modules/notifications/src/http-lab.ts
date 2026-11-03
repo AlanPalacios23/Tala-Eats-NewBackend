@@ -71,7 +71,9 @@ export function createNotificationsLabHttpServer({
     if(req.socket.localAddress!=='127.0.0.1'&&req.socket.localAddress!=='::1'){
       reply(res,403,{error:'NOTIFICATIONS_LOOPBACK_ONLY'});return;
     }
-    const url=new URL(req.url??'/', 'http://127.0.0.1');
+    let url:URL;
+    try{url=new URL(req.url??'/', 'http://127.0.0.1');}
+    catch{reply(res,400,{error:'NOTIFICATIONS_REQUEST_INVALID'});return;}
     const route=url.pathname,method=req.method??'';
     try{
       if(route==='/v1/notifications/health'&&method==='GET'){
