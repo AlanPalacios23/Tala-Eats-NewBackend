@@ -56,6 +56,12 @@ jobs:
           PGPASSWORD: finance_lab_test_only
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test             -f modules/finance/migrations/002_test_webhook_inbox.sql
+      - name: Enforce receipt to journal and intent cross-order integrity
+        env:
+          PGPASSWORD: finance_lab_test_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
+            -f modules/finance/migrations/003_receipt_integrity.sql
       - name: Signed Stripe TEST webhook idempotency and concurrency integration
         env:
           FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
@@ -81,6 +87,11 @@ jobs:
           if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d unrelated_lab \
             -f modules/finance/migrations/002_test_webhook_inbox.sql; then
             echo 'ERROR: migration 002 bypassed FINANCE_LAB_ONLY guard'
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d unrelated_lab \
+            -f modules/finance/migrations/003_receipt_integrity.sql; then
+            echo 'ERROR: migration 003 bypassed FINANCE_LAB_ONLY guard'
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U finance_lab -d unrelated_lab \
