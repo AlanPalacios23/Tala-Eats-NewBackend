@@ -1,6 +1,6 @@
 # TALA EATS · Módulo 3 — Finanzas
 
-**LAB1 / Stripe TEST firmado y ledger PostgreSQL aislado / NO-GO comercial.**
+**LAB1.2 / conciliación interna y ledger PostgreSQL aislado / NO-GO comercial.**
 
 Este módulo vive por completo en `modules/finance/` dentro de
 `AlanPalacios23/Tala-Eats-NewBackend` y trabaja en su propia rama
@@ -35,14 +35,21 @@ No se debe copiar código entre PR ni hacer un merge cruzado sin resolver contra
 5. `migrations/001_finance_foundation.sql`: esquema **`tala_finance_v2`** propio,
    diario de asientos, restricciones de importe y balance, protección append-only,
    unicidad de (pedido, tipo) y (proveedor TEST, evento).
-6. `tests/` y CI propios. No llama a Stripe ni a APIs LIVE.
+6. `src/reconciliation.mjs`: auditoría interna **solo lectura** sobre contratos,
+   asientos y recibos: diferencia pagos aún pendientes, capturas retenidas
+   y anomalías; incluye revisión de huérfanos, sumas y validez aritmética.
+   No consulta a Stripe ni libera saldo.
+7. `tests/reconciliation.test.mjs`: prueba PostgreSQL de contratos alterados,
+   asiento huérfano, importes incorrectos y ausencia de mutaciones.
+8. `tests/` y CI propios. No llama a Stripe ni a APIs LIVE.
 
 **Las firmas de las pruebas son sintéticas, no un webhook real de Stripe**.
 La creación de PaymentIntent en la cuenta TEST, autenticación de origen del snapshot
 M1 y conciliación con la API del proveedor siguen pendientes. Los asientos en
 este laboratorio se generan solo contra una base descartable y no son pagos reales.
 Ver [`docs/MODULO3-FINANZAS-LAB1.md`](../../docs/MODULO3-FINANZAS-LAB1.md)
-para alcance y límites. La función no está conectada a HTTP,
+para alcance y límites, y [`docs/MODULO3-FINANZAS-LAB12.md`](../../docs/MODULO3-FINANZAS-LAB12.md)
+para conciliación interna, nuevas pruebas y riesgos abiertos. La función no está conectada a HTTP,
 Kali, PM2, Redis ni a las PWA.
 
 ## Contrato y discrepancia P0
