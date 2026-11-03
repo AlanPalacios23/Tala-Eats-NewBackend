@@ -30,7 +30,7 @@ export async function auditInternalLedger(pool,{limit=50,orderIds}={}){
     const db=await c.query('SELECT current_database() AS name');
     if(!LAB.has(db.rows[0]?.name))throw new FinanceError('FINANCE_LAB_ONLY');
     const res=await c.query(`
-      SELECT id,order_id,restaurant_id,event_key,snapshot_hash,snapshot,
+      SELECT j.id,j.order_id,j.restaurant_id,j.event_key,j.snapshot_hash,j.snapshot,
         j.lines,j.kind,j.currency,
         r.id AS reversal_id,r.event_key AS reversal_event_key,
         r.snapshot_hash AS reversal_snapshot_hash,r.lines AS reversal_lines
