@@ -1,5 +1,6 @@
 /** M4 only: private account address book, preferences and portability. */
 import type {Pool,PoolClient} from 'pg';
+import {createHash} from 'node:crypto';
 import {UsersError,requireUserId,eventFingerprint} from './domain.js';
 import {withAuthenticatedIdentity} from './auth.js';
 
@@ -10,8 +11,9 @@ export type AddressInput={
 };
 type AddressRow={id:string,label:string,street:string,exterior:string,
   interior:string|null,neighborhood:string,city:string,state:string,
-  postal_code:string,is_default:boolean,version:number};
-const columns='id,label,street,exterior,interior,neighborhood,city,state,postal_code,is_default,version';
+  postal_code:string,is_default:boolean,version:number,
+  creation_payload_hash:string};
+const columns='id,label,street,exterior,interior,neighborhood,city,state,postal_code,is_default,version,creation_payload_hash';
 function inputAddress(a:AddressInput){
   if(!a||typeof a!=='object'||Array.isArray(a)||
     Object.keys(a).some(k=>!['label','street','exterior','interior','neighborhood','city',
@@ -53,11 +55,16 @@ export async function saveMyAddress(pool:Pool,
   args:Session&{address:AddressInput,idempotencyKey:string}){
   const a=inputAddress(args.address);
   const key=eventFingerprint(args.idempotencyKey,'create_address');
+  const fingerprint=createHash('sha256').update(JSON.stringify(a)).digest('hex');
   return withAuthenticatedIdentity(pool,args,async(c,id)=>{
     const old=await c.query<AddressRow>('SELECT '+columns+
       ' FROM tala_users_v2.saved_addresses WHERE account_id=$1::uuid'+
       ' AND creation_event_key=$2',[id,key]);
-    if(old.rows[0])return Object.freeze({address:view(old.rows[0]),replayed:true});
+    if(old.rows[0]){
+      if(old.rows[0].creation_payload_hash!==fingerprint)
+        throw new UsersError('USERS_IDEMPOTENCY_CONFLICT');
+      return Object.freeze({address:view(old.rows[0]),replayed:true});
+    }
     const count=await c.query<{count:number}>(
       'SELECT count(*)::int AS count FROM tala_users_v2.saved_addresses WHERE account_id=$1::uuid',[id]);
     const n=count.rows[0]?.count??0;
@@ -68,10 +75,10 @@ export async function saveMyAddress(pool:Pool,
       [id]);
     const r=await c.query<AddressRow>('INSERT INTO tala_users_v2.saved_addresses'+
       '(account_id,label,street,exterior,interior,neighborhood,city,state,'+
-      'postal_code,is_default,creation_event_key)'+
-      ' VALUES($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING '+columns,
+      'postal_code,is_default,creation_event_key,creation_payload_hash)'+
+      ' VALUES($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING '+columns,
       [id,a.label,a.street,a.exterior,a.interior,a.neighborhood,a.city,a.state,
-       a.postalCode,makeDefault,key]);
+       a.postalCode,makeDefault,key,fingerprint]);
     return Object.freeze({address:view(r.rows[0]!),replayed:false});
   });
 }
