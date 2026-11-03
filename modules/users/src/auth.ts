@@ -559,3 +559,112 @@ export async function withAuthenticatedIdentity<T>(
     return work(client,user.id);
   },readOnly);
 }
+
+
+/** Identity role classification is read-only to the application. Privileged
+ * grants are an offline administrative operation, never a public endpoint. */
+export async function readMyIdentityRole(pool:Pool,{
+  sessionToken,secret
+}:{sessionToken:string,secret:Buffer}){
+  const pepper=validSecret(secret);
+  return tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper);
+    const r=await c.query<{role:string}>(
+      'SELECT role FROM tala_users_v2.account_roles WHERE account_id=$1::uuid',
+      [user.id]);
+    return Object.freeze({userId:user.id,role:r.rows[0]?.role??'customer'});
+  },true);
+}
+export async function requireLabAccountRole(pool:Pool,{
+  sessionToken,secret,allowedRoles
+}:{sessionToken:string,secret:Buffer,allowedRoles:readonly string[]}){
+  if(!Array.isArray(allowedRoles)||allowedRoles.length===0||
+     allowedRoles.some(x=>!['customer','merchant','courier','staff','owner'].includes(x)))
+    throw new UsersError('USERS_ROLE_SCOPE_INVALID');
+  const claim=await readMyIdentityRole(pool,{sessionToken,secret});
+  if(!allowedRoles.includes(claim.role))
+    throw new UsersError('USERS_ROLE_DENIED');
+  return claim;
+}
+
+/**
+ * The account owner must re-enter the password to initialize TOTP enrollment.
+ * Secret is returned ONCE for an authenticator app and encrypted at rest.
+ * This is LAB: no endpoint publishes raw TOTP secret without authentication.
+ */
+export async function beginLabTotpEnrollment(pool:Pool,{
+  sessionToken,secret,totpSecret,currentPassword
+}:{sessionToken:string,secret:Buffer,totpSecret:Buffer,
+  currentPassword:string}){
+  const pepper=validSecret(secret);
+  if(!Buffer.isBuffer(totpSecret)||totpSecret.length<32)
+    throw new UsersError('USERS_TOTP_CONFIG_INVALID');
+  return tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper,true);
+    const cred=await c.query<{salt_hex:string,verifier_hex:string}>(
+      'SELECT salt_hex,verifier_hex FROM tala_users_v2.password_credentials'+
+      ' WHERE account_id=$1::uuid FOR UPDATE',[user.id]);
+    if(!cred.rows[0]||!await matches(currentPassword,
+       cred.rows[0].salt_hex,cred.rows[0].verifier_hex,pepper))
+      throw new UsersError('USERS_INVALID_CREDENTIALS');
+    const enrolled=await c.query<{enabled:boolean}>(
+      'SELECT enabled_at IS NOT NULL AS enabled FROM tala_users_v2.user_totp'+
+      ' WHERE account_id=$1::uuid FOR UPDATE',[user.id]);
+    if(enrolled.rows[0]?.enabled)throw new UsersError('USERS_MFA_ALREADY_ENABLED');
+    const plaintext=newTotpSecret();
+    const protectedValue=sealTotp(user.id,plaintext,totpSecret);
+    await c.query(`
+      INSERT INTO tala_users_v2.user_totp(account_id,secret_iv_hex,
+        secret_cipher_hex,secret_tag_hex,enabled_at,last_counter,failed_attempts)
+      VALUES($1::uuid,$2,$3,$4,NULL,-1,0)
+      ON CONFLICT(account_id) DO UPDATE SET
+        secret_iv_hex=EXCLUDED.secret_iv_hex,
+        secret_cipher_hex=EXCLUDED.secret_cipher_hex,
+        secret_tag_hex=EXCLUDED.secret_tag_hex,
+        enabled_at=NULL,last_counter=-1,failed_attempts=0,
+        updated_at=clock_timestamp()`,
+      [user.id,protectedValue.iv,protectedValue.cipher,protectedValue.tag]);
+    return Object.freeze({secretBase32:plaintext,
+      issuer:'Tala Eats',algorithm:'SHA1',digits:6,periodSeconds:30});
+  });
+}
+
+/** Confirm first possession; wrong attempts COMMIT before returning an error. */
+export async function confirmLabTotpEnrollment(pool:Pool,{
+  sessionToken,secret,totpSecret,code
+}:{sessionToken:string,secret:Buffer,totpSecret:Buffer,code:string}){
+  const pepper=validSecret(secret);
+  if(!Buffer.isBuffer(totpSecret)||totpSecret.length<32)
+    throw new UsersError('USERS_TOTP_CONFIG_INVALID');
+  const outcome=await tx(pool,async c=>{
+    const user=await sessionUser(c,sessionToken,pepper,true);
+    const r=await c.query<{secret_iv_hex:string,secret_cipher_hex:string,
+      secret_tag_hex:string,enabled_at:Date|null,last_counter:string,
+      failed_attempts:number}>(`
+      SELECT secret_iv_hex,secret_cipher_hex,secret_tag_hex,enabled_at,
+        last_counter::text,failed_attempts
+      FROM tala_users_v2.user_totp WHERE account_id=$1::uuid FOR UPDATE`,
+      [user.id]);
+    const m=r.rows[0];
+    if(!m||m.enabled_at||m.failed_attempts>=5)
+      return {error:'USERS_TOTP_INVALID' as const};
+    const value=unsealTotp(user.id,m,totpSecret);
+    const counter=matchTotp(value,code,BigInt(m.last_counter));
+    if(counter===null){
+      await c.query(`
+        UPDATE tala_users_v2.user_totp
+        SET failed_attempts=LEAST(5,failed_attempts+1),
+          updated_at=clock_timestamp() WHERE account_id=$1::uuid`,
+        [user.id]);
+      return {error:'USERS_TOTP_INVALID' as const};
+    }
+    await c.query(`
+      UPDATE tala_users_v2.user_totp SET
+        enabled_at=clock_timestamp(),last_counter=$2::bigint,
+        failed_attempts=0,updated_at=clock_timestamp()
+      WHERE account_id=$1::uuid`,[user.id,counter.toString()]);
+    return {mfaEnabled:true,signInAgain:true};
+  });
+  if('error' in outcome)throw new UsersError(outcome.error);
+  return Object.freeze(outcome);
+}
