@@ -8,6 +8,7 @@ import {sha256} from './stripe-test-webhook.mjs';
 
 const DB=new Set(['tala_finance_v2_test','tala_finance_v2_lab']);
 const MAX_LIMIT=100;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const AMOUNTS=[
   'itemsMinor','merchantCommissionMinor','merchantPayableMinor',
   'serviceFeeMinor','deliveryFeeMinor','driverPayableMinor',
@@ -58,9 +59,13 @@ function reasonsFor(row) {
  * The method is internal only: never expose to clients or claim Stripe
  * reconciliation without independently querying the provider in TEST mode.
  */
-export async function reconcileTestFinances(pool,{limit=50}={}){
+export async function reconcileTestFinances(pool,{limit=50,orderIds}={}){
   if(!Number.isInteger(limit)||limit<1||limit>MAX_LIMIT)
     throw new FinanceError('RECONCILIATION_LIMIT_INVALID');
+  if(orderIds!==undefined&&(!Array.isArray(orderIds)||orderIds.length===0||
+    orderIds.length>MAX_LIMIT||orderIds.some(id=>typeof id!=='string'||!UUID.test(id))))
+    throw new FinanceError('RECONCILIATION_SCOPE_INVALID');
+  const ids=orderIds??null;
   const client=await pool.connect();
   try{
     await client.query('BEGIN READ ONLY');
@@ -98,7 +103,8 @@ export async function reconcileTestFinances(pool,{limit=50}={}){
         FROM tala_finance_v2.postings p
         WHERE p.journal_id=j.id
       ) p ON true
-      ORDER BY i.created_at,i.order_id LIMIT $1`,[limit]);
+      WHERE ($2::uuid[] IS NULL OR i.order_id=ANY($2::uuid[]))
+      ORDER BY i.created_at,i.order_id LIMIT $1`,[limit,ids]);
     const rows=result.rows.map(row=>{
       const reasons=reasonsFor(row);
       const hash=canonicalContract(row);
@@ -116,7 +122,9 @@ export async function reconcileTestFinances(pool,{limit=50}={}){
     const orphan=await client.query(`
       SELECT j.order_id FROM tala_finance_v2.journals j
       LEFT JOIN tala_finance_v2.test_intents i ON i.order_id=j.order_id
-      WHERE i.order_id IS NULL ORDER BY j.created_at,j.id LIMIT $1`,[limit]);
+      WHERE i.order_id IS NULL AND
+        ($2::uuid[] IS NULL OR j.order_id=ANY($2::uuid[]))
+      ORDER BY j.created_at,j.id LIMIT $1`,[limit,ids]);
     await client.query('COMMIT');
     const orphanOrders=orphan.rows.map(x=>x.order_id);
     const stats={
@@ -125,7 +133,8 @@ export async function reconcileTestFinances(pool,{limit=50}={}){
       needsReview:rows.filter(x=>x.state==='needs_review').length+orphanOrders.length
     };
     return Object.freeze({environment:'isolated_stripe_test_lab',
-      providerReconciled:false,scope:'first_batch_only',limit,
+      providerReconciled:false,
+      scope:ids?'explicit_orders':'first_batch_only',limit,
       ...stats,orders:Object.freeze(rows),orphanJournalOrderIds:Object.freeze(orphanOrders)});
   }catch(error){
     await client.query('ROLLBACK').catch(()=>{});
