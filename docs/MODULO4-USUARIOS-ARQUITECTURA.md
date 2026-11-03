@@ -1,4 +1,4 @@
-# Módulo 4 — Usuarios · CORE v2 (LAB0)
+# Módulo 4 — Usuarios · CORE v2 (LAB1)
 
 **Proyecto:** TALA EATS.  
 **Rama independiente:** `feat/core-v2-usuarios-foundation`, creada directamente desde `main`.  
@@ -23,6 +23,9 @@ La base inicial incluye:
 - Eliminación lógica seudonimizada: se libera el correo para nuevo registro,
   pero permanecen referencias técnicas para trazabilidad.
 - Historial de auditoría inmutable sin guardar correo/nombre en cada evento.
+- Prueba interna de verificación de correo: token aleatorio de 256 bits,
+  HMAC con secreto no persistido, vencimiento de diez minutos, emisión
+  limitada a una por minuto, cinco errores máximos y consumo único.
 - PostgreSQL 16 independiente y pruebas de seguridad sobre una base descartable.
 
 ## Arquitectura
@@ -33,10 +36,12 @@ modules/users/
 │   ├── domain.ts          # contratos, normalización, máquina de estados
 │   └── store.ts           # registro y perfil mediante transacciones PostgreSQL
 ├── migrations/
-│   └── 001_users_foundation.sql
+│   ├── 001_users_foundation.sql
+│   └── 002_email_challenge.sql
 ├── tests/
 │   ├── domain.test.ts
-│   └── users-db.test.ts
+│   ├── users-db.test.ts
+│   └── email-challenge-db.test.ts
 ├── package.json
 └── tsconfig.json
 .github/workflows/module4-users-ci.yml
@@ -51,15 +56,17 @@ del laboratorio. CI con Node.js 24, TypeScript estricto y PostgreSQL 16.
 **Las funciones actuales son primitivas internas de LAB, NO endpoints
 públicos de autenticación.** El parámetro `actorId` identifica al autor
 solamente en la traza; **no prueba permisos ni identidad**. En la fase
-siguiente deberán existir verificación criptográfica del email, contraseñas
+siguiente deberán existir entrega real del correo, contraseñas
 protegidas o passkeys, sesiones/revocación, recuperación, límites de
 intentos, 2FA para personal privilegiado, reglas de autorización reales,
 protección contra enumeración, logs y observabilidad.
 
 No crear interfaces HTTP públicas para `transitionLabUser` ni exponer
 `readLabUser` (contiene PII) sin adaptador de autorización verificado.
-`email_verified` solo puede provenir de un componente interno confiable;
-este laboratorio **no demuestra la verificación de un correo real**.
+La transición genérica ya no admite `email_verified`. El comprobante
+criptográfico se consume mediante una operación interna con protección
+contra errores y reintentos. **No se envían correos en el laboratorio**;
+no se ha demostrado la propiedad real de la dirección de email.
 
 La seudonimización no equivale a borrar todos los datos personales de
 backups o aplicaciones conectadas. Falta definir periodos de retención,
