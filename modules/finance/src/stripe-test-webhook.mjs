@@ -42,13 +42,14 @@ export function verifySignedTestEvent(rawBody,signatureHeader,secret,{nowSeconds
   try{payload=JSON.parse(rawBody.toString('utf8'));}
   catch{throw new FinanceError('WEBHOOK_BODY_INVALID');}
   if(!payload||typeof payload!=='object'||Array.isArray(payload)||
-     payload.livemode!==false||payload.type!=='payment_intent.succeeded'||
+     payload.object!=='event'||payload.livemode!==false||
+     payload.account!==undefined||payload.type!=='payment_intent.succeeded'||
      typeof payload.id!=='string'||!EVENT.test(payload.id)||
      !payload.data||typeof payload.data!=='object')
     throw new FinanceError('WEBHOOK_EVENT_UNSUPPORTED');
   const pi=payload.data.object;
   if(!pi||typeof pi!=='object'||pi.object!=='payment_intent'||
-     !INTENT.test(pi.id??'')||pi.status!=='succeeded'||
+     !INTENT.test(pi.id??'')||pi.livemode!==false||pi.status!=='succeeded'||
      pi.currency!=='mxn'||!Number.isSafeInteger(pi.amount_received)||
      pi.amount_received<=0||pi.amount_received>1_000_000_000_000||
      pi.amount!==pi.amount_received)
