@@ -180,6 +180,21 @@ export async function processDeliveryBatch(pool:Pool,deps:DeliveryDependencies,
       if(done.settled)stats.delivered++;else stats.leaseLost++;
     }catch(error){
       const code=error instanceof DeliveryFailure?error.code:'PROVIDER_TEMPORARY';
+      // Revoke only when FCM explicitly confirms UNREGISTERED. Generic 400,
+      // 404, timeouts and misconfigured Firebase projects are NOT evidence
+      // of an invalid device registration.
+      if(code==='FCM_UNREGISTERED'&&claim.channel==='push'&&claim.device_id){
+        await transaction(pool,async c=>{
+          await c.query(
+            'UPDATE tala_notifications_v2.devices d SET revoked_at=clock_timestamp() '+
+            'WHERE d.id=$1::uuid AND d.revoked_at IS NULL AND EXISTS ('+
+              'SELECT 1 FROM tala_notifications_v2.deliveries job '+
+              'JOIN tala_notifications_v2.inbox i ON i.id=job.notification_id '+
+              'WHERE job.id=$2::uuid AND job.device_id=d.id '+
+              'AND i.recipient_id=d.recipient_id AND i.app=d.app)',
+            [claim.device_id,claim.id]);
+        });
+      }
       const disposition=error instanceof DeliveryFailure&&error.permanent
         ?'dead_letter':'retry';
       const done=await settleDelivery(pool,claim,{
