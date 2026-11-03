@@ -27,12 +27,16 @@ export async function cleanupLabExpiredIdentityData(pool:Pool){
     const unconfirmedTotp=await c.query(
       "DELETE FROM tala_users_v2.user_totp WHERE enabled_at IS NULL"+
       " AND updated_at<clock_timestamp()-interval '1 day'");
+    const staleRateBuckets=await c.query(
+      "DELETE FROM tala_users_v2.request_rate_buckets WHERE "+
+      "window_started_at<clock_timestamp()-interval '2 days'");
     await c.query('COMMIT');
     return Object.freeze({
       sessionsDeleted:sessions.rowCount??0,
       expiredEmailProofsDeleted:verification.rowCount??0,
       expiredRecoveryProofsDeleted:recovery.rowCount??0,
       abandonedTotpEnrollmentsDeleted:unconfirmedTotp.rowCount??0,
+      staleRateBucketsDeleted:staleRateBuckets.rowCount??0,
       auditRowsDeleted:0
     });
   }catch(error){
