@@ -12,6 +12,11 @@ import type {Pool} from 'pg';
 import {UsersError} from './domain.js';
 import {issueLabEmailChallenge,issueLabEmailChallengeForAddress,
   verifyLabEmailChallenge} from './store.js';
+import {
+  listMyAddresses,saveMyAddress,updateMyAddress,
+  setMyDefaultAddress,deleteMyAddress,readMyPreferences,
+  updateMyPreferences,exportMyData,type AddressInput
+} from './private-profile.js';
 import {registerCredentialedPendingUser,loginLabUser,
   readAuthenticatedProfile,logoutLabSession,updateAuthenticatedProfile,
   changeAuthenticatedPassword,requestAuthenticatedDeletion,
@@ -192,6 +197,73 @@ export function createUsersLabHttpServer({
           sessionToken:bearer(req),secret:authSecret,
           displayName:string(d.displayName),expectedVersion:integer(d.expectedVersion),
           idempotencyKey:string(d.idempotencyKey)
+        }));
+        return;
+      }
+      if(method==='GET'&&route==='/v1/users/addresses'){
+        reply(res,200,await listMyAddresses(pool,{
+          sessionToken:bearer(req),secret:authSecret
+        }));
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/addresses'){
+        const d=fields(await readBody(req),['address','idempotencyKey']);
+        reply(res,201,await saveMyAddress(pool,{
+          sessionToken:bearer(req),secret:authSecret,
+          address:fields(d.address,['label','street','exterior','interior',
+            'neighborhood','city','state','postalCode','isDefault']) as unknown as AddressInput,
+          idempotencyKey:string(d.idempotencyKey)
+        }));
+        return;
+      }
+      if(method==='PATCH'&&route==='/v1/users/addresses'){
+        const d=fields(await readBody(req),[
+          'addressId','address','expectedVersion'
+        ]);
+        reply(res,200,await updateMyAddress(pool,{
+          sessionToken:bearer(req),secret:authSecret,
+          addressId:string(d.addressId),
+          address:fields(d.address,['label','street','exterior','interior',
+            'neighborhood','city','state','postalCode','isDefault']) as unknown as AddressInput,
+          expectedVersion:integer(d.expectedVersion)
+        }));
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/addresses/default'){
+        const d=fields(await readBody(req),['addressId']);
+        reply(res,200,await setMyDefaultAddress(pool,{
+          sessionToken:bearer(req),secret:authSecret,
+          addressId:string(d.addressId)
+        }));
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/addresses/delete'){
+        const d=fields(await readBody(req),['addressId']);
+        reply(res,200,await deleteMyAddress(pool,{
+          sessionToken:bearer(req),secret:authSecret,
+          addressId:string(d.addressId)
+        }));
+        return;
+      }
+      if(method==='GET'&&route==='/v1/users/preferences'){
+        reply(res,200,await readMyPreferences(pool,{
+          sessionToken:bearer(req),secret:authSecret
+        }));
+        return;
+      }
+      if(method==='PUT'&&route==='/v1/users/preferences'){
+        const d=fields(await readBody(req),['locale','marketingOptIn']);
+        if(typeof d.marketingOptIn!=='boolean')
+          throw new UsersError('USERS_REQUEST_INVALID');
+        reply(res,200,await updateMyPreferences(pool,{
+          sessionToken:bearer(req),secret:authSecret,
+          locale:string(d.locale),marketingOptIn:d.marketingOptIn
+        }));
+        return;
+      }
+      if(method==='GET'&&route==='/v1/users/export'){
+        reply(res,200,await exportMyData(pool,{
+          sessionToken:bearer(req),secret:authSecret
         }));
         return;
       }
