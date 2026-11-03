@@ -216,7 +216,8 @@ test('M4 auth: sessions expire, suspension revokes, reinstatement does not resur
       secret:pepper});
     await db.query(`
       UPDATE tala_users_v2.sessions SET
-        expires_at=clock_timestamp()-interval '1 second'
+        created_at=clock_timestamp()-interval '13 hours',
+        expires_at=clock_timestamp()-interval '2 hours'
       WHERE account_id=$1::uuid`,[account.id]);
     await fail(()=>readAuthenticatedProfile(db,{
       sessionToken:expired.sessionToken,secret:pepper
