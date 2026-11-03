@@ -54,6 +54,20 @@ test('rejects live, unauthorized event type, and unpaid statuses after HMAC',()=
       i<2?'WEBHOOK_EVENT_UNSUPPORTED':'PAYMENT_INTENT_INVALID');
   }
 });
+test('rejects Connect events and inconsistent nested TEST evidence',()=>{
+  const event=build();
+  for(const altered of [
+    {...event,account:'acct_connected_sample'},
+    {...event,object:'thin_event'},
+    {...event,data:{object:{...event.data.object,livemode:true}}},
+    {...event,data:{object:{...event.data.object,livemode:undefined}}}
+  ]){
+    const raw=Buffer.from(JSON.stringify(altered));
+    rejected(()=>verifySignedTestEvent(raw,sign(raw),secret,{nowSeconds:at}),
+      altered.account||altered.object!=='event'
+        ?'WEBHOOK_EVENT_UNSUPPORTED':'PAYMENT_INTENT_INVALID');
+  }
+});
 test('rejects non-MXN payments and partial capture',()=>{
   for(const o of [{currency:'usd'},{amount_received:26000}]){
     const data=build();Object.assign(data.data.object,o);
