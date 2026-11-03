@@ -67,3 +67,25 @@ test('M5 providers distinguish provider rejection from transient 429/503',async(
     projectId:'bad id',getAccessToken:async()=> 'some valid token'
   }));
 });
+
+
+test('M5 Resend 409 concurrent retry versus changed-payload permanent conflict',async()=>{
+  const msg:EmailMessage={...common,to:'usuario@example.com'};
+  const args={apiKey:'re_mock_2026_abcdefghijkl',from:'notify@example.com'};
+  const concurrent=(async()=>new Response(
+    JSON.stringify({name:'concurrent_idempotent_requests'}),{status:409}
+  )) as typeof fetch;
+  await assert.rejects(
+    ()=>createResendEmailSender({...args,fetchFn:concurrent})(msg),
+    (e:unknown)=>e instanceof DeliveryFailure&&!e.permanent&&
+      e.code==='EMAIL_IDEMPOTENCY_CONCURRENT'
+  );
+  const changed=(async()=>new Response(
+    JSON.stringify({name:'invalid_idempotent_request'}),{status:409}
+  )) as typeof fetch;
+  await assert.rejects(
+    ()=>createResendEmailSender({...args,fetchFn:changed})(msg),
+    (e:unknown)=>e instanceof DeliveryFailure&&e.permanent&&
+      e.code==='EMAIL_IDEMPOTENCY_MISMATCH'
+  );
+});
