@@ -342,3 +342,35 @@ export async function verifyLabEmailChallenge(pool:Pool,{
   if('problem' in outcome)throw new UsersError(outcome.problem);
   return Object.freeze(outcome);
 }
+
+
+/**
+ * Generic/anti-enumeration resend helper for a future trusted mail adapter.
+ * Returns null for unknown, active, recently issued or invalid addresses.
+ * Caller must always return the same public acknowledgement.
+ */
+export async function issueLabEmailChallengeForAddress(pool:Pool,{
+  email,secret
+}:{email:string,secret:Buffer}){
+  let normalized:string;
+  try{normalized=canonicalEmail(email);}
+  catch{return null;}
+  const found=await transaction(pool,async c=>{
+    const r=await c.query<{id:string}>(`
+      SELECT id FROM tala_users_v2.accounts
+      WHERE email_normalized=$1 AND status='pending_verification'`,
+      [normalized]);
+    return r.rows[0]?.id??null;
+  },true);
+  if(!found)return null;
+  try{
+    const issued=await issueLabEmailChallenge(pool,{userId:found,secret});
+    return Object.freeze({email:normalized,userId:found,token:issued.token});
+  }catch(error){
+    if(error instanceof UsersError&&[
+      'USERS_VERIFICATION_COOLDOWN',
+      'USERS_VERIFICATION_STATE_DENIED','USERS_NOT_FOUND'
+    ].includes(error.code))return null;
+    throw error;
+  }
+}
