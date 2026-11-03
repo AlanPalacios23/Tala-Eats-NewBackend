@@ -1,82 +1,68 @@
-# TALA EATS · Módulo 3 — Finanzas
+# TALA EATS CORE v2 — Módulo 3: FINANZAS
 
-**LAB1.2 / conciliación interna y ledger PostgreSQL aislado / NO-GO comercial.**
+**Finanzas exclusivamente. Rama independiente `feat/core-v2-finanzas-foundation` → `main`, PR #5 Draft.**  
+**LAB financiero aislado / NO-GO comercial.**
 
-Este módulo vive por completo en `modules/finance/` dentro de
-`AlanPalacios23/Tala-Eats-NewBackend` y trabaja en su propia rama
-`feat/core-v2-finanzas-foundation`, basada directamente en `main`.
-**No depende de fusionar Pedidos (PR #1) ni Logística (PR #4)**.
-No se debe copiar código entre PR ni hacer un merge cruzado sin resolver contratos.
+## Responsabilidades propias de M3
 
-## Ámbitos separados
+- **Contabilidad financiera de doble entrada:** diario inmutable, partidas balanceadas, importes MXN en centavos enteros, idempotencia y eventos de auditoría.
+- **Obligaciones y provisiones:** asignación interna entre restaurante, logística y plataforma, siempre pendiente/retenida hasta existir evidencia autorizada de cumplimiento.
+- **Wallets financieros:** proyección del saldo contable pendiente; en este LAB el saldo disponible y retirable es **0**.
+- **Conciliación interna:** comparación entre instantánea financiera y asientos, detección de inconsistencias sin modificar fondos.
+- **Próxima implementación exclusiva:** liberación de obligaciones por hechos de entrega/custodia autenticados, arqueo y custodia de efectivo, libros auxiliares, ajustes, liquidaciones **contables internas** y reportes financieros.
 
-- **M1 Pedidos**: crea pedidos y firma la instantánea de precios, define el estado real.
-- **M2 Logística**: controla asignaciones, prueba de recogida y entrega, PIN/custodia.
-- **M3 Finanzas**: verificará hechos de pago, derivará asientos de doble entrada,
-  wallets, liquidaciones y conciliación. **No cambia el estado de pedidos.**
-- **Integración futura**: contratos versionados por eventos de outbox con IDs estables,
-  transacciones idempotentes y reconciliación; sin acceso a tablas internas de M1/M2.
+## Lo que no pertenece a Finanzas
 
-## Lo que existe en LAB1
+**El futuro Módulo de Pagos**, por separado, será responsable de:
+checkout/cobros, Stripe u otros proveedores, PaymentIntents, webhooks de
+pasarela, captura de tarjeta, reembolsos contra el proveedor y ejecución externa
+de transferencias/payouts. No hay integración de proveedor en la rama actual.
 
-1. `src/ledger.mjs`: validación monetaria con `BigInt`, sin cálculos flotantes,
-   y propuesta inmutable de asientos balanceados para *capturas Stripe TEST*.
-2. `src/stripe-test-webhook.mjs` y `src/store.mjs`: firma HMAC en cuerpo crudo,
-   cotejo de importes con contrato interno inmutable y captura transaccional idempotente.
-   El verificador acepta únicamente eventos TEST `payment_intent.succeeded`.
-3. `migrations/002_test_webhook_inbox.sql`: contratos internos y comprobantes
-   webhook append-only ligados al diario de captura.
-   `migrations/003_receipt_integrity.sql` vincula pedido, PaymentIntent,
-   evento y diario mediante claves compuestas, evitando recibos cruzados.
-   Las capturas se registran como responsabilidades **pendientes/retenidas**;
-   aún no existen wallets disponibles ni liberación de fondos por entrega.
-4. `tests/webhook.test.mjs` y `tests/stripe-integration.test.mjs`:
-   pruebas de seguridad y 8 solicitudes simultáneas contra PostgreSQL 16.
-5. `migrations/001_finance_foundation.sql`: esquema **`tala_finance_v2`** propio,
-   diario de asientos, restricciones de importe y balance, protección append-only,
-   unicidad de (pedido, tipo) y (proveedor TEST, evento).
-6. `src/reconciliation.mjs`: auditoría interna **solo lectura** sobre contratos,
-   asientos y recibos: diferencia pagos aún pendientes, capturas retenidas
-   y anomalías; incluye revisión de huérfanos, sumas y validez aritmética.
-   No consulta a Stripe ni libera saldo.
-7. `tests/reconciliation.test.mjs`: prueba PostgreSQL de contratos alterados,
-   asiento huérfano, importes incorrectos y ausencia de mutaciones.
-8. `tests/` y CI propios. No llama a Stripe ni a APIs LIVE.
+Las implementaciones Stripe TEST experimentales anteriores quedan en el
+**historial Git** de este PR, pero se retiraron de la versión actual del M3.
+No se ha creado todavía ningún Módulo de Pagos nuevo.
 
-**Las firmas de las pruebas son sintéticas, no un webhook real de Stripe**.
-La creación de PaymentIntent en la cuenta TEST, autenticación de origen del snapshot
-M1 y conciliación con la API del proveedor siguen pendientes. Los asientos en
-este laboratorio se generan solo contra una base descartable y no son pagos reales.
-Ver [`docs/MODULO3-FINANZAS-LAB1.md`](../../docs/MODULO3-FINANZAS-LAB1.md)
-para alcance y límites, y [`docs/MODULO3-FINANZAS-LAB12.md`](../../docs/MODULO3-FINANZAS-LAB12.md)
-para conciliación interna, nuevas pruebas y riesgos abiertos. La función no está conectada a HTTP,
-Kali, PM2, Redis ni a las PWA.
+## Implementación en este laboratorio
 
-## Contrato y discrepancia P0
+```
+modules/finance/
+├── src/
+│   ├── ledger.mjs            # contrato financiero y partidas retenidas
+│   ├── store.mjs             # diario PostgreSQL + proyección wallet
+│   └── reconciliation.mjs    # auditoría contable interna solo lectura
+├── migrations/
+│   └── 001_finance_foundation.sql
+├── tests/
+│   ├── ledger.test.mjs
+│   ├── finance-db.test.mjs
+│   └── schema.sql
+└── package.json
+```
 
-M1 `src/modules/orders/pricing.ts` contiene `pilot-2026-11-v2-17pct`
-(17 % comisión) y tope de servicio de 2,500 centavos. La política comercial
-anteriormente aprobada era 15 % de comisión y 7 % de servicio. No deben
-recalcularse importes históricamente guardados ni elegir una tasa en silencio:
-**resolver versión de política comercial y verificar el snapshot recibido
-antes de conectar Finanzas a Pedidos.** M3 valida sumas, no calcula tarifas.
+- Esquema propio `tala_finance_v2`, sin tablas ni rutas de M1/M2.
+- Solo aplica en BD descartables `tala_finance_v2_test` o `tala_finance_v2_lab`.
+- `recordLabHeldAllocation` es una función **interna de laboratorio**; no
+  confirma que el cliente pagó, que un pedido se entregó, ni autoriza
+  un retiro. No se expone por HTTP.
+- `readMerchantFinancialBalance`: saldo *pendiente* derivado de asientos.
+- `auditInternalLedger`: verificación de hash, partidas y políticas,
+  limitada a un lote de 100 entradas; no equivale a conciliación bancaria.
 
-## Próximas fases
+Pruebas puras: `cd modules/finance && npm install && npm run check`.
+La integración PostgreSQL se ejecuta con `FINANCE_CI_URL` en la propia CI.
 
-- LAB2: conexión real a Stripe TEST y contrato firmado desde M1; eventos
-  verificados con secretos protegidos, pago parcial, fraude y refunds de laboratorio.
-- LAB3: wallets de restaurante y conductor como proyecciones del ledger,
-  saldo disponible/pendiente, custodias de efectivo y conciliación inmutable.
-- LAB4: pagos de salida, retiros, reversos, discrepancias, alertas,
-  facturación e impuestos con política revisada.
-- Integración E2E: orden de M1 → asignación/entrega M2 → fondos reales M3.
+## Interfaces futuras y bloqueos
 
-## Seguridad
+Pedidos (M1) proporcionará el snapshot de precios versionado; Logística
+(M2) entregará hechos validados de entrega/custodia; el futuro módulo de
+Pagos proporcionará eventos financieros de proveedor autenticados. M3
+**no** implementa, consulta ni suplanta esas fuentes de verdad.
 
-- Sin credenciales LIVE, retiros, transferencias ni mutaciones de Stripe.
-- SQL de laboratorio falla al ejecutarse fuera de bases descartables
-  `tala_finance_v2_lab` o `tala_finance_v2_test`.
-- No modifica `tala_core_v2` ni bases de datos antiguas.
-- Estado actual: **no usar para liquidaciones comerciales**.
+**P0 comercial sin resolver:** M1 mantiene una comisión del 17 % frente
+al 15 % previamente establecido. Antes de integrar, ratificar la tarifa
+y su versión; no cambiar ni recalcular los pedidos históricos.
 
-Ejecutar pruebas puras: `cd modules/finance && npm test`.
+Ningún servicio de LIVE, Kali, stripe, banco ni PWA fue modificado.
+No hay saldo retirable ni cierre financiero comercial aprobado.
+
+Consulta `docs/MODULO3-FINANZAS-ONLY.md` para el contrato de límites.
