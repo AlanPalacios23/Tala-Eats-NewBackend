@@ -53,13 +53,17 @@ export function validateFinancialSnapshot(input) {
 /**
  * Only a proposal from a verified TEST capture. It does not call Stripe and
  * it DOES NOT turn client-supplied "verified" into trustworthy payment proof.
+ * Nothing is earned/withdrawable at capture: all allocations remain pending
+ * until fulfillment, dispute, refund, and settlement gates are implemented.
  */
 export function proposeCaptureJournal({orderId,restaurantId,driverId=null,snapshot,evidence}={}) {
   if(!positiveUuid(orderId)||!positiveUuid(restaurantId))
     throw new FinanceError('ACTOR_ID_INVALID');
   const m=validateFinancialSnapshot(snapshot);
-  if((m.driverPayableMinor>0n&&!positiveUuid(driverId))||
-     (driverId!==null&&!positiveUuid(driverId)))
+  // A courier need not be selected at checkout. Capture always holds the
+  // delivery allocation centrally; only a future verified M2 fulfillment
+  // event may release it into a specific courier's wallet.
+  if(driverId!==null&&!positiveUuid(driverId))
     throw new FinanceError('DRIVER_ID_INVALID');
   if(!evidence||evidence.sourceSystem!=='stripe_test'||
      evidence.kind!=='capture_verified'||
@@ -71,11 +75,11 @@ export function proposeCaptureJournal({orderId,restaurantId,driverId=null,snapsh
     m.policyVersion,m.fulfillment,...moneyFields.map(k=>m[k].toString())].join('|');
   const lines=[
     {accountCode:'asset.stripe_test_clearing',side:'debit',amountMinor:m.totalMinor.toString()},
-    ...(m.merchantPayableMinor>0n?[{accountCode:'liability.merchant_payable',
+    ...(m.merchantPayableMinor>0n?[{accountCode:'liability.merchant_pending',
       partyId:restaurantId.toLowerCase(),side:'credit',amountMinor:m.merchantPayableMinor.toString()}]:[]),
-    ...(m.driverPayableMinor>0n?[{accountCode:'liability.driver_payable',
-      partyId:driverId.toLowerCase(),side:'credit',amountMinor:m.driverPayableMinor.toString()}]:[]),
-    ...(m.platformGrossMinor>0n?[{accountCode:'income.platform_gross',
+    ...(m.driverPayableMinor>0n?[{accountCode:'liability.driver_held',
+      side:'credit',amountMinor:m.driverPayableMinor.toString()}]:[]),
+    ...(m.platformGrossMinor>0n?[{accountCode:'liability.platform_pending',
       side:'credit',amountMinor:m.platformGrossMinor.toString()}]:[])
   ];
   const debit=lines.filter(l=>l.side==='debit').map(l=>BigInt(l.amountMinor)).reduce(add,0n);
