@@ -4,7 +4,7 @@
  * In production an authenticated service must gate EVERY mutation, and a
  * trusted verification service must attest email_verified transitions.
  */
-import {createHash} from 'node:crypto';
+import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 import {
   UsersError,canonicalEmail,canonicalDisplayName,requireUserId,
@@ -93,9 +93,10 @@ export async function transitionLabUser(pool:Pool,input:TransitionUser){
   const actorId=requireUserId(input.actorId);
   const expectedVersion=assertVersion(input.expectedVersion);
   const action=input.action;
+  if(action==='email_verified')
+    throw new UsersError('USERS_VERIFICATION_PROOF_REQUIRED');
   if(typeof action!=='string'||!Object.hasOwn({
-    email_verified:1,suspend:1,reinstate:1,
-    request_deletion:1,finalize_deletion:1
+    suspend:1,reinstate:1,request_deletion:1,finalize_deletion:1
   },action))
     throw new UsersError('USERS_ACTION_INVALID');
   const eventKey=eventFingerprint(input.idempotencyKey,'transition');
@@ -192,4 +193,142 @@ export async function readLabUser(pool:Pool,userId:string){
       FROM tala_users_v2.accounts WHERE id=$1::uuid`,[id]);
     return r.rows[0]?clean(r.rows[0]):null;
   },true);
+}
+
+
+/**
+ * M4 LAB ONLY — one-time email verification challenge.
+ * A service-owned 256-bit pepper is REQUIRED and never stored. The caller
+ * receives the raw token once to deliver using a FUTURE trusted mailer.
+ * No email is sent, no login session or external auth is established.
+ */
+const TOKEN=/^[A-Za-z0-9_-]{43}$/;
+function requirePepper(secret:unknown):Buffer{
+  if(!Buffer.isBuffer(secret)||secret.length<32)
+    throw new UsersError('USERS_VERIFICATION_CONFIG_INVALID');
+  return secret;
+}
+function digestChallenge(secret:Buffer,userId:string,token:string):string{
+  return createHmac('sha256',secret)
+    .update('tala.users.verify-email.v1|'+userId+'|'+token)
+    .digest('hex');
+}
+export async function issueLabEmailChallenge(pool:Pool,{
+  userId,secret
+}:{userId:string,secret:Buffer}){
+  const id=requireUserId(userId);
+  const pepper=requirePepper(secret);
+  const token=randomBytes(32).toString('base64url');
+  const digest=digestChallenge(pepper,id,token);
+  await transaction(pool,async c=>{
+    const user=await c.query<{status:UserStatus}>(`
+      SELECT status FROM tala_users_v2.accounts WHERE id=$1::uuid
+      FOR UPDATE`,[id]);
+    if(!user.rowCount)throw new UsersError('USERS_NOT_FOUND');
+    if(user.rows[0]!.status!=='pending_verification')
+      throw new UsersError('USERS_VERIFICATION_STATE_DENIED');
+    const current=await c.query<{cooldown:boolean}>(`
+      SELECT (issued_at > clock_timestamp()-interval '60 seconds')
+        AS cooldown FROM tala_users_v2.email_challenges
+      WHERE account_id=$1::uuid FOR UPDATE`,[id]);
+    if(current.rows[0]?.cooldown)
+      throw new UsersError('USERS_VERIFICATION_COOLDOWN');
+    await c.query(`
+      INSERT INTO tala_users_v2.email_challenges
+        (account_id,token_digest,issued_at,expires_at,
+         failed_attempts,consumed_at)
+      VALUES ($1::uuid,$2,clock_timestamp(),
+              clock_timestamp()+interval '10 minutes',0,NULL)
+      ON CONFLICT(account_id) DO UPDATE SET
+        token_digest=EXCLUDED.token_digest,
+        issued_at=EXCLUDED.issued_at,
+        expires_at=EXCLUDED.expires_at,
+        failed_attempts=0,consumed_at=NULL`,[id,digest]);
+  });
+  // This plaintext token MUST NOT be logged, persisted, or exposed via HTTP.
+  return Object.freeze({userId:id,token,expiresInSeconds:600});
+}
+
+/**
+ * Verify a challenge and activate exactly once. Every wrong attempt is
+ * COMMITTED and counted (up to five); rejection is thrown only AFTER
+ * committing so attackers cannot undo the rate-limit record.
+ */
+export async function verifyLabEmailChallenge(pool:Pool,{
+  userId,actorId,token,secret,expectedVersion,idempotencyKey
+}:{userId:string,actorId:string,token:string,secret:Buffer,
+  expectedVersion:number,idempotencyKey:string}){
+  const id=requireUserId(userId),actor=requireUserId(actorId);
+  if(id!==actor)throw new UsersError('USERS_VERIFICATION_ACTOR_DENIED');
+  const pepper=requirePepper(secret);
+  if(typeof token!=='string'||!TOKEN.test(token))
+    throw new UsersError('USERS_VERIFICATION_INVALID');
+  const version=assertVersion(expectedVersion);
+  const eventKey=eventFingerprint(idempotencyKey,'verify_email');
+  const digest=digestChallenge(pepper,id,token);
+  const requestHash=hash(['verify_email',eventKey,id,actor,version,digest]);
+  const outcome=await transaction(pool,async c=>{
+    const found=await c.query<DbRow>(`
+      SELECT id,email_normalized,display_name,status,version,created_at,updated_at
+      FROM tala_users_v2.accounts WHERE id=$1::uuid FOR UPDATE`,[id]);
+    if(!found.rowCount)throw new UsersError('USERS_NOT_FOUND');
+    const oldEvent=await readEvent(c,eventKey);
+    if(oldEvent){
+      if(oldEvent.account_id!==id||oldEvent.request_hash!==requestHash)
+        throw new UsersError('USERS_IDEMPOTENCY_CONFLICT');
+      return {user:clean(found.rows[0]!),replayed:true,
+        appliedStatus:oldEvent.to_status};
+    }
+    const user=found.rows[0]!;
+    if(user.status!=='pending_verification')
+      throw new UsersError('USERS_VERIFICATION_STATE_DENIED');
+    if(user.version!==version)throw new UsersError('USERS_VERSION_CONFLICT');
+    const challenge=await c.query<{
+      token_digest:string,failed_attempts:number,expired:boolean,
+      consumed_at:Date|null
+    }>(`
+      SELECT token_digest,failed_attempts,consumed_at,
+        expires_at<=clock_timestamp() AS expired
+      FROM tala_users_v2.email_challenges
+      WHERE account_id=$1::uuid FOR UPDATE`,[id]);
+    const row=challenge.rows[0];
+    if(!row||row.expired||row.consumed_at||
+       row.failed_attempts>=5)
+      return {problem:'USERS_VERIFICATION_INVALID' as const};
+    const valid=timingSafeEqual(
+      Buffer.from(row.token_digest,'hex'),Buffer.from(digest,'hex')
+    );
+    if(!valid){
+      await c.query(`
+        UPDATE tala_users_v2.email_challenges
+        SET failed_attempts=LEAST(5,failed_attempts+1)
+        WHERE account_id=$1::uuid`,[id]);
+      return {problem:'USERS_VERIFICATION_INVALID' as const};
+    }
+    const consumed=await c.query<{consumed_at:Date}>(`
+      UPDATE tala_users_v2.email_challenges
+      SET consumed_at=clock_timestamp()
+      WHERE account_id=$1::uuid AND consumed_at IS NULL
+        AND failed_attempts<5 AND expires_at>clock_timestamp()
+      RETURNING consumed_at`,[id]);
+    if(!consumed.rowCount)
+      return {problem:'USERS_VERIFICATION_INVALID' as const};
+    const verifiedAt=consumed.rows[0]!.consumed_at;
+    const result=await c.query<DbRow>(`
+      UPDATE tala_users_v2.accounts SET status='active',
+        email_verified_at=$2::timestamptz,
+        version=version+1,updated_at=clock_timestamp()
+      WHERE id=$1::uuid
+      RETURNING id,email_normalized,display_name,status,version,created_at,updated_at`,
+      [id,verifiedAt]);
+    await c.query(`
+      INSERT INTO tala_users_v2.account_audit
+        (account_id,event_key,request_hash,action,from_status,to_status,actor_id)
+      VALUES($1::uuid,$2,$3,'email_verified','pending_verification','active',$4::uuid)`,
+      [id,eventKey,requestHash,actor]);
+    return {user:clean(result.rows[0]!),replayed:false,
+      appliedStatus:'active' as const};
+  });
+  if('problem' in outcome)throw new UsersError(outcome.problem);
+  return Object.freeze(outcome);
 }
