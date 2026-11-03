@@ -39,6 +39,20 @@ export function createResendEmailSender({
       signal:AbortSignal.timeout(8000)
     });
     if(response.ok)return;
+    if(response.status===409){
+      // Resend distinguishes a concurrent request (safe to retry) from a
+      // different payload reusing the same key (permanent rejection).
+      let code:unknown=null;
+      try{
+        const data=await response.json() as {
+          name?:unknown,error?:{name?:unknown},message?:unknown
+        };
+        code=data.name??data.error?.name;
+      }catch{/* Retry if provider response format is unknown. */}
+      if(code==='invalid_idempotent_request')
+        throw new DeliveryFailure('EMAIL_IDEMPOTENCY_MISMATCH',true);
+      throw new DeliveryFailure('EMAIL_IDEMPOTENCY_CONCURRENT',false);
+    }
     if(response.status===429||response.status>=500)
       throw new DeliveryFailure('EMAIL_PROVIDER_TEMPORARY',false);
     throw new DeliveryFailure('EMAIL_PROVIDER_REJECTED',true);
