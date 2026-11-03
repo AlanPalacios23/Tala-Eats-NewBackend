@@ -1,94 +1,73 @@
-# Módulo 4 — Usuarios · CORE v2 (LAB1)
+# Módulo 4 — Usuarios · TALA EATS CORE v2 (LAB3)
 
-**Proyecto:** TALA EATS.  
-**Rama independiente:** `feat/core-v2-usuarios-foundation`, creada directamente desde `main`.  
-**Ruta:** `modules/users/`.  
-**Estado:** laboratorio; no atiende usuarios reales y no sustituye al backend actual.
+**Rama:** `feat/core-v2-usuarios-foundation` → `main`, PR #6 Draft.  
+**Aislamiento:** `modules/users/`, `tala_users_v2` PostgreSQL 16,
+`.github/workflows/module4-users-ci.yml`.
+**Estado:** flujo completo de identidad validado en LAB; NO-GO comercial.
 
-## Alcance
+## Responsabilidad exclusiva
 
-M4 es la **fuente de verdad de identidad y ciclo de vida de las cuentas**.
-No importa tablas ni código de M1 Pedidos, M2 Logística ni M3 Finanzas.
-No crea pedidos, viajes, comercios, wallets, cobros, solicitudes de
-reparto ni pagos. No posee secretos de Stripe.
+Usuarios administra **identidades, perfiles, credenciales, acceso y privacidad
+de cuentas**. No gestiona pedidos, despacho, inventarios, wallets, pagos,
+cobros, comisiones ni transferencias; no utiliza código, DB o secretos de
+M1 Pedidos, M2 Logística o M3 Finanzas.
 
-La base inicial incluye:
+Se distingue entre los servicios internos de dominio
+(`src/domain.ts`, `src/store.ts`), credenciales/sesiones
+(`src/auth.ts`) y un adaptador **HTTP de laboratorio exclusivamente local**
+(`src/http-lab.ts`). Ninguno de los servidores de Kali o las PWA actuales
+se ha modificado para consumirlos.
 
-- Normalización de correo y nombre de perfil con validaciones estrictas.
-- Registro de **cuentas pendientes de verificación**; no activa cuentas automáticamente.
-- Unicidad de correo, idempotencia transaccional y protección ante concurrencia.
-- Versión optimista de cuenta y edición del perfil propio con control de versiones.
-- Estados: `pending_verification`, `active`, `suspended`,
-  `deletion_requested`, `deleted`, con transiciones explícitas y auditadas.
-- Eliminación lógica seudonimizada: se libera el correo para nuevo registro,
-  pero permanecen referencias técnicas para trazabilidad.
-- Historial de auditoría inmutable sin guardar correo/nombre en cada evento.
-- Prueba interna de verificación de correo: token aleatorio de 256 bits,
-  HMAC con secreto no persistido, vencimiento de diez minutos, emisión
-  limitada a una por minuto, cinco errores máximos y consumo único.
-- PostgreSQL 16 independiente y pruebas de seguridad sobre una base descartable.
+## Capacidades actuales
 
-## Arquitectura
+- Cuenta con correo normalizado, perfil validado y versión optimista.
+- Registro idempotente **pendiente de verificación** con contraseña
+  protegida por `scrypt`, sal aleatoria y clave externa de aplicación.
+- Verificación de correo por HMAC con comprobante de un solo uso, caducidad,
+  persistencia de intentos errados, bloqueo y reenvío con intervalo mínimo.
+- Inicio de sesión con verificación de contraseña y bloqueo temporal tras
+  cinco errores. Respuesta genérica para usuarios desconocidos/inactivos.
+- Bearers aleatorios de 256 bits; almacena solamente su HMAC, duración de
+  doce horas, revocación tras logout, suspensión y cambios de contraseña.
+- Lectura y actualización del propio perfil con comprobación de sesión
+  y bloqueo de versión, de forma atómica en PostgreSQL.
+- Recuperación por correo simulada, con comprobante temporal, cinco intentos,
+  consumo único, revocación de sesiones y auditoría inmutable.
+- Solicitud de eliminación autenticada; finalización interna que
+  seudonimiza la cuenta, libera el correo, elimina secretos temporales,
+  credenciales y sesiones y conserva auditoría sin PII directa.
 
-```
-modules/users/
-├── src/
-│   ├── domain.ts          # contratos, normalización, máquina de estados
-│   └── store.ts           # registro y perfil mediante transacciones PostgreSQL
-├── migrations/
-│   ├── 001_users_foundation.sql
-│   └── 002_email_challenge.sql
-├── tests/
-│   ├── domain.test.ts
-│   ├── users-db.test.ts
-│   └── email-challenge-db.test.ts
-├── package.json
-└── tsconfig.json
-.github/workflows/module4-users-ci.yml
-```
+Las migraciones `001`, `002`, `003`, `004` están restringidas
+a bases descartables `tala_users_v2_lab` y `tala_users_v2_test`.
+La CI prueba que fallan sobre bases ajenas.
 
-BD permitidas: `tala_users_v2_lab` y `tala_users_v2_test`.
-Esquema propio: `tala_users_v2`. La migración falla expresamente fuera
-del laboratorio. CI con Node.js 24, TypeScript estricto y PostgreSQL 16.
+## Validación E2E
 
-## Seguridad y límites importantes
+Se ejecuta el recorrido completo mediante funciones internas y mediante
+**HTTP real en 127.0.0.1**, con un adaptador de envío de correo **simulado**.
+Incluye pruebas de concurrencia, duplicados, intentos fallidos, suspensión,
+reversión de estado, contraseñas, sesión vencida y revocada, recuperación,
+eliminación, colisiones de versión, fallos de entrega de correo y
+consulta del propio perfil.
 
-**Las funciones actuales son primitivas internas de LAB, NO endpoints
-públicos de autenticación.** El parámetro `actorId` identifica al autor
-solamente en la traza; **no prueba permisos ni identidad**. En la fase
-siguiente deberán existir entrega real del correo, contraseñas
-protegidas o passkeys, sesiones/revocación, recuperación, límites de
-intentos, 2FA para personal privilegiado, reglas de autorización reales,
-protección contra enumeración, logs y observabilidad.
+Documento con rutas y criterios:
+[`MODULO4-USUARIOS-LAB3-E2E.md`](MODULO4-USUARIOS-LAB3-E2E.md).
 
-No crear interfaces HTTP públicas para `transitionLabUser` ni exponer
-`readLabUser` (contiene PII) sin adaptador de autorización verificado.
-La transición genérica ya no admite `email_verified`. El comprobante
-criptográfico se consume mediante una operación interna con protección
-contra errores y reintentos. **No se envían correos en el laboratorio**;
-no se ha demostrado la propiedad real de la dirección de email.
+## Lo que aún bloquea el lanzamiento comercial
 
-La seudonimización no equivale a borrar todos los datos personales de
-backups o aplicaciones conectadas. Falta definir periodos de retención,
-solicitudes de privacidad y procedimiento legal de eliminación real.
+- **Correo real**: proveedor, entrega, seguimiento de fallos y vínculo
+  de verificación verdadero. El laboratorio NO prueba posesión de email.
+- **Autorización real**: roles de cliente, comerciante, repartidor y staff,
+  acciones administrativas con verificaciones y 2FA/passkeys;
+  las primitivas LAB `actorId` no son autenticación.
+- **Infraestructura segura**: TLS/API Gateway, secretos con vault,
+  rate limiting distribuido, limitación por identidad/dispositivo,
+  permisos mínimos SQL, backups, detección de abuso y métricas.
+- **Perfil/privacidad**: direcciones y contactos, exportación, retención
+  y borrado verificable, incluyendo backups y sistemas conectados.
+- **Integración y E2E comercial**: clientes Android/iOS reales,
+  compatibilidad de contratos de módulos y despliegue gradual a producción.
 
-En producción hay que restringir a mínimo privilegio las cuentas DB,
-validar derechos por operación, configurar una estrategia de migraciones
-repetibles y demostrar E2E de acceso/registro antes de activar este módulo.
-
-## Integración futura por contratos, no imports directos
-
-- Pedidos M1 podrá referenciar `userId`, sin cambiar la tabla de M4.
-- Logística M2 podrá referenciar `userId` de repartidor autorizado,
-  sin que M4 se convierta en despachador.
-- Finanzas M3 podrá referenciar `userId`/actor de auditoría,
-  sin incluir balances ni pagos en Usuarios.
-- Un módulo de Autenticación o un adaptador seguro verificará sesión,
-  acciones, permisos, correo, restablecimientos y eventos de confianza.
-
-Se separarán identidades de clientes, cuentas de tiendas, choferes y
-personal con **roles y permisos explícitos** antes de integración.
-En esta base no se permite que un registro público se autoconceda el
-rol ADMIN, OWNER, comerciante o repartidor verificado.
-
-**Sin desplegar a Kali, sin tocar Stripe LIVE y sin merge a main.**
+**No convertir el servidor `http-lab.ts` en producción.** Es para
+validaciones de loopback y no es un API público endurecido.
+No se ha fusionado a `main`, desplegado en Kali ni conectado a Stripe.
