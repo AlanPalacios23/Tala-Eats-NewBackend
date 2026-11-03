@@ -71,6 +71,12 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
             -d tala_users_v2_test -f modules/users/migrations/004_password_recovery.sql
+      - name: Apply session management IDs for LAB4
+        env:
+          PGPASSWORD: users_lab_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
+            -d tala_users_v2_test -f modules/users/migrations/005_session_management.sql
       - name: Test concurrent account lifecycle, audit immutability and deletion
         env:
           USERS_CI_URL: postgresql://users_lab:users_lab_ci_only@127.0.0.1:5432/tala_users_v2_test
@@ -100,6 +106,11 @@ jobs:
           if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
             -d unrelated_users_test -f modules/users/migrations/004_password_recovery.sql; then
             echo "M4 recovery migration violated isolated DB constraint"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U users_lab \
+            -d unrelated_users_test -f modules/users/migrations/005_session_management.sql; then
+            echo "M4 session management migration violated isolated DB constraint"
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U users_lab \
