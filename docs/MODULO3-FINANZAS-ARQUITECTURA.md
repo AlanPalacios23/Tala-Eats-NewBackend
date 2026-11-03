@@ -1,43 +1,53 @@
-# Módulo 3 · Finanzas · Contrato de independencia
+# TALA EATS CORE v2 — Arquitectura M3, Finanzas exclusivamente
 
-## Repositorio y evolución independiente
+El Módulo 3 mantiene **una rama y un espacio independientes**:
 
-| Área | Espacio | PR base |
-| --- | --- | --- |
-| M1 Pedidos | `src/modules/orders/`, rama `feat/core-v2-pedidos-foundation` | `main` |
-| M2 Logística | `src/modules/logistics/`, rama `feat/core-v2-logistica-lab1` | M1 (temporal) |
-| M3 Finanzas | **`modules/finance/`**, rama `feat/core-v2-finanzas-foundation` | **`main`** |
+- Rama: `feat/core-v2-finanzas-foundation` → `main` (PR #5 Draft).
+- Código: `modules/finance/src/`.
+- Base: esquema `tala_finance_v2` y migración privada
+  `modules/finance/migrations/001_finance_foundation.sql`.
+- Pruebas y CI propias: `modules/finance/tests/`,
+  `.github/workflows/module3-finance-ci.yml`.
+- Sin imports de módulos Pedidos, Logística, Stripe, pasarelas o checkout.
 
-M3 es autónomo: esquema `tala_finance_v2`, migraciones ordenadas localmente,
-pruebas y workflow CI propios. Nunca ejecutar su migración en base M1/M2 o LIVE.
-Su contrato de entrada será un evento versionado de pago/custodia verificado,
-con `orderId`, `policyVersion`, desglose de centavos y evidencia de origen.
-Las tablas y APIs M1/M2 no se importan ni se escriben desde Finanzas.
+## Dominios
 
-## Controles de integridad pendientes
+**M1 Pedidos:** catálogo transaccional, pedido, versión de precios.  
+**M2 Logística:** asignación, recogida, entrega, PIN, pruebas operativas.  
+**M3 Finanzas:** diario, obligaciones, saldos/wallets, custodia y arqueo de
+efectivo, cierres, ajustes internos, conciliaciones y reportes.  
+**Pagos (futuro):** proveedor externo, autorización/captura, Stripe,
+webhooks, refunds de pasarela y transferencias bancarias.
 
-- **P0**: M1 usa comisión 17%; comercial previamente aprobado 15%.
-  Requiere acuerdo y política versionada para pedidos nuevos. No modificar
-  snapshots de pedidos ya creados.
-- Evidencia criptográfica del proveedor: solo TEST hasta completar verificación.
-- Fuente de verdad de efectivo: custodia y evidencia de entregas antes de acreditar wallets.
-- Idempotencia durable por ID de evento y una captura por pedido.
-- Reversos y reembolsos compensatorios; nunca borrar asientos.
-- Liquidez y payouts: balances contables **no** son dinero disponible para transferir.
-- Conciliación entre pedidos, ledger, Stripe y custodia; fallos y reintentos seguros.
+Un hecho financiero verificado por Pagos o un hecho de cumplimiento de
+M2 podrá alimentar un asiento contable M3 mediante contrato autenticado,
+versionado e idempotente. **Ese puente todavía no existe**.
 
-## Gates para integración
+## Estado LAB actual
 
-1. Suite M3 y base local PostgreSQL propias, sin accesos cruzados.
-2. M1 emite contrato de importes versionado y verificado.
-3. M2 emite hechos de custodia/entrega independientes de rutas internas.
-4. Solo después de gates E2E, revisión de seguridad y aprobación explícita
-   preparar despliegue. No se activa ningún flujo comercial en esta fase.
+- Contrato financiero de centavos `BigInt`, validación estricta de split;
+  `policyVersion` conservada.
+- Asiento *retenido* con una única contrapartida y cuentas pendientes para
+  restaurante, entrega y plataforma.
+- PostgreSQL rechaza partidas no balanceadas, merchant ajeno, metadatos
+  adicionales, duplicados y mutaciones de asientos.
+- Vista de wallet de restaurante: saldo pendiente, disponible cero.
+- Auditoría interna de solo lectura que revisa integridad e importes.
+- PostgreSQL 16 aislado, pruebas unitarias y de contención, sin despliegue.
 
-## LAB1 completado en la rama aislada
+Estos asientos son **simulaciones financieras de laboratorio**. No declaran
+cobro recibido ni salario devengado, no autorizan retiros ni transferencias.
 
-El PR #5 incorpora `modules/finance/src/stripe-test-webhook.mjs`,
-`store.mjs`, migración `002_test_webhook_inbox.sql` y pruebas reales
-PostgreSQL de duplicados y concurrencia. Son **webhooks simulados y firmados
-localmente**; no hay conexión con la cuenta Stripe TEST, ni HTTP público,
-ni cobros. Véase `docs/MODULO3-FINANZAS-LAB1.md`.
+## Priorización
+
+Trabajar ahora en **Finanzas**: ledger compensatorio, wallets pending/available
+con reglas de liberación por evidencias, custodia de efectivo, reportes y
+conciliación contable. No añadir nuevos proveedores o endpoints de pagos.
+
+Documento detallado: [Límites Módulo 3](MODULO3-FINANZAS-ONLY.md).
+
+**P0 pendiente:** comisión 17% actualmente calculada por M1 frente a la
+política comercial previa 15%; se requiere ratificar la versión de precios
+antes de conectar módulos. No recalcular históricos.
+
+**NO-GO** para producción, Stripe LIVE, Kali y apps comerciales.
