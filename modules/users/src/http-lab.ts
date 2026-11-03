@@ -21,13 +21,16 @@ import {registerCredentialedPendingUser,loginLabUser,
   readAuthenticatedProfile,logoutLabSession,updateAuthenticatedProfile,
   changeAuthenticatedPassword,requestAuthenticatedDeletion,
   issueLabPasswordRecovery,resetLabPassword,listAuthenticatedSessions,
-  revokeAuthenticatedSession,revokeOtherAuthenticatedSessions} from './auth.js';
+  revokeAuthenticatedSession,revokeOtherAuthenticatedSessions,
+  beginLabTotpEnrollment,confirmLabTotpEnrollment,
+  readMyIdentityRole} from './auth.js';
 
 type VerificationSink=(email:string,token:string,userId:string)=>Promise<void>;
 export type UsersLabHttpConfig={
   pool:Pool;
   authSecret:Buffer;
   emailSecret:Buffer;
+  totpSecret?:Buffer;
   sendVerification:VerificationSink;
   sendPasswordReset?:(email:string,token:string,userId:string)=>Promise<void>;
 };
@@ -90,6 +93,9 @@ function errorStatus(error:UsersError):number{
      code==='USERS_VERIFICATION_INVALID'||code==='USERS_RECOVERY_INVALID'||
      code==='USERS_NOT_FOUND')
     return 401;
+  if(code==='USERS_MFA_REQUIRED'||code==='USERS_TOTP_INVALID')
+    return 401;
+  if(code==='USERS_ROLE_DENIED')return 403;
   if(code==='USERS_VERIFICATION_COOLDOWN')return 429;
   if(code==='USERS_PAYLOAD_TOO_LARGE')return 413;
   if(code==='USERS_CONTENT_TYPE_REQUIRED')return 415;
@@ -100,7 +106,7 @@ function errorStatus(error:UsersError):number{
   return 400;
 }
 export function createUsersLabHttpServer({
-  pool,authSecret,emailSecret,sendVerification,sendPasswordReset
+  pool,authSecret,emailSecret,totpSecret,sendVerification,sendPasswordReset
 }:UsersLabHttpConfig){
   if(process.env.NODE_ENV==='production'||
      !Buffer.isBuffer(authSecret)||authSecret.length<32||
@@ -176,10 +182,12 @@ export function createUsersLabHttpServer({
         return;
       }
       if(method==='POST'&&route==='/v1/users/login'){
-        const d=fields(await readBody(req),['email','password']);
+        const d=fields(await readBody(req),['email','password','totpCode']);
         const result=await loginLabUser(pool,{
           email:string(d.email),password:string(d.password),
-          secret:authSecret
+          secret:authSecret,
+          ...(d.totpCode!==undefined?{totpCode:string(d.totpCode)}:{}),
+          ...(totpSecret?{totpSecret}:{})
         });
         reply(res,200,result);
         return;
@@ -197,6 +205,30 @@ export function createUsersLabHttpServer({
           sessionToken:bearer(req),secret:authSecret,
           displayName:string(d.displayName),expectedVersion:integer(d.expectedVersion),
           idempotencyKey:string(d.idempotencyKey)
+        }));
+        return;
+      }
+      if(method==='GET'&&route==='/v1/users/role'){
+        reply(res,200,await readMyIdentityRole(pool,{
+          sessionToken:bearer(req),secret:authSecret
+        }));
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/mfa/start'){
+        if(!totpSecret){reply(res,503,{error:'USERS_UNAVAILABLE'});return;}
+        const d=fields(await readBody(req),['currentPassword']);
+        reply(res,200,await beginLabTotpEnrollment(pool,{
+          sessionToken:bearer(req),secret:authSecret,totpSecret,
+          currentPassword:string(d.currentPassword)
+        }));
+        return;
+      }
+      if(method==='POST'&&route==='/v1/users/mfa/confirm'){
+        if(!totpSecret){reply(res,503,{error:'USERS_UNAVAILABLE'});return;}
+        const d=fields(await readBody(req),['code']);
+        reply(res,200,await confirmLabTotpEnrollment(pool,{
+          sessionToken:bearer(req),secret:authSecret,totpSecret,
+          code:string(d.code)
         }));
         return;
       }
