@@ -91,7 +91,7 @@ const allowed:Readonly<Record<UserTransition,readonly UserStatus[]>>=
     finalize_deletion:['deletion_requested']
   });
 export function nextUserStatus(status:UserStatus,action:UserTransition):UserStatus {
-  if(!(action in TARGET_STATUS)||!allowed[action]?.includes(status))
+  if(!Object.hasOwn(TARGET_STATUS,action)||!allowed[action]?.includes(status))
     throw new UsersError('USERS_STATE_TRANSITION_DENIED');
   return TARGET_STATUS[action];
 }
