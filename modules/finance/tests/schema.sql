@@ -48,7 +48,7 @@ BEGIN
      jsonb_set(s,'{policyVersion}','123'::jsonb))
   THEN RAISE EXCEPTION 'NONSTRING_POLICY_VERSION_ACCEPTED'; END IF;
   IF tala_finance_v2.valid_held_lines(
-     jsonb_set(good,'{1}',good->1 - 'partyId'),s,merchant)
+     jsonb_set(good,'{1}',(good->1) - 'partyId'),s,merchant)
   THEN RAISE EXCEPTION 'MISSING_MERCHANT_PARTY_ACCEPTED'; END IF;
   INSERT INTO tala_finance_v2.journals
     (order_id,restaurant_id,event_key,snapshot_hash,snapshot,lines)
