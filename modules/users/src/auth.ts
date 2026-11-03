@@ -1,6 +1,7 @@
 /** M4 Usuarios LAB2: internal identity flows. No HTTP or external modules. */
 import {createHash,createHmac,randomBytes,scrypt,timingSafeEqual} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
+import {newTotpSecret,sealTotp,unsealTotp,matchTotp} from './totp.js';
 import {UsersError,canonicalEmail,canonicalDisplayName,
   eventFingerprint,assertVersion,requireIdempotencyKey,requireUserId} from './domain.js';
 
@@ -11,7 +12,12 @@ const SCRYPT_OPTIONS={N:16384,r:8,p:1,maxmem:32*1024*1024};
 const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 type UserRow={id:string,email_normalized:string,display_name:string,status:string,version:number};
 type Audit={account_id:string,request_hash:string};
-type LoginRow=UserRow & {salt_hex:string,verifier_hex:string,failed_attempts:number,locked:boolean};
+type LoginRow=UserRow & {
+  salt_hex:string,verifier_hex:string,failed_attempts:number,locked:boolean,
+  role:string,secret_iv_hex:string|null,secret_cipher_hex:string|null,
+  secret_tag_hex:string|null,totp_enabled:boolean,
+  last_counter:string,totp_failed_attempts:number
+};
 const publicUser=(r:UserRow)=>Object.freeze({id:r.id,email:r.email_normalized,
   displayName:r.display_name,status:r.status,version:r.version});
 
@@ -134,8 +140,9 @@ export async function registerCredentialedPendingUser(pool:Pool,{
 
 /** Generic auth failure for wrong/missing/locked/inactive accounts. */
 export async function loginLabUser(pool:Pool,{
-  email,password,secret
-}:{email:string,password:string,secret:Buffer}){
+  email,password,secret,totpCode,totpSecret
+}:{email:string,password:string,secret:Buffer,
+  totpCode?:string,totpSecret?:Buffer}){
   const pepper=validSecret(secret);
   let normalized:string;
   try{normalized=canonicalEmail(email);}
@@ -146,9 +153,15 @@ export async function loginLabUser(pool:Pool,{
     const result=await c.query<LoginRow>(`
       SELECT a.id,a.email_normalized,a.display_name,a.status,a.version,
         p.salt_hex,p.verifier_hex,p.failed_attempts,
-        (p.locked_until>clock_timestamp()) AS locked
+        (p.locked_until>clock_timestamp()) AS locked,
+        roles.role,t.secret_iv_hex,t.secret_cipher_hex,t.secret_tag_hex,
+        (t.enabled_at IS NOT NULL) AS totp_enabled,
+        coalesce(t.last_counter,-1)::text AS last_counter,
+        coalesce(t.failed_attempts,0) AS totp_failed_attempts
       FROM tala_users_v2.accounts a
       JOIN tala_users_v2.password_credentials p ON p.account_id=a.id
+      JOIN tala_users_v2.account_roles roles ON roles.account_id=a.id
+      LEFT JOIN tala_users_v2.user_totp t ON t.account_id=a.id
       WHERE a.email_normalized=$1 FOR UPDATE OF a,p`,[normalized]);
     const row=result.rows[0];
     const correct=await matches(candidate,
@@ -170,6 +183,34 @@ export async function loginLabUser(pool:Pool,{
       }
       return {error:'USERS_INVALID_CREDENTIALS' as const};
     }
+    let mfaVerified=false;
+    if(row.totp_enabled||['staff','owner'].includes(row.role)){
+      if(!row.totp_enabled||!totpSecret||!row.secret_iv_hex||
+        !row.secret_cipher_hex||!row.secret_tag_hex||
+        row.totp_failed_attempts>=5)
+        return {error:'USERS_MFA_REQUIRED' as const};
+      const secretValue=unsealTotp(row.id,{
+        secret_iv_hex:row.secret_iv_hex,
+        secret_cipher_hex:row.secret_cipher_hex,
+        secret_tag_hex:row.secret_tag_hex
+      },totpSecret);
+      const counter=matchTotp(secretValue,totpCode??'',
+        BigInt(row.last_counter));
+      if(counter===null){
+        await c.query(`
+          UPDATE tala_users_v2.user_totp SET
+            failed_attempts=LEAST(5,failed_attempts+1),
+            updated_at=clock_timestamp()
+          WHERE account_id=$1::uuid`,[row.id]);
+        return {error:'USERS_MFA_REQUIRED' as const};
+      }
+      await c.query(`
+        UPDATE tala_users_v2.user_totp SET
+          last_counter=$2::bigint,failed_attempts=0,
+          updated_at=clock_timestamp()
+        WHERE account_id=$1::uuid`,[row.id,counter.toString()]);
+      mfaVerified=true;
+    }
     await c.query(`
       UPDATE tala_users_v2.password_credentials SET
         failed_attempts=0,locked_until=NULL,updated_at=clock_timestamp()
@@ -178,9 +219,9 @@ export async function loginLabUser(pool:Pool,{
     await c.query(`
       WITH issued AS (SELECT clock_timestamp() AS at)
       INSERT INTO tala_users_v2.sessions
-        (token_digest,account_id,created_at,expires_at)
-      SELECT $1,$2::uuid,issued.at,issued.at+interval '12 hours'
-      FROM issued`,[tokenHash(sessionToken,pepper),row.id]);
+        (token_digest,account_id,created_at,expires_at,mfa_verified)
+      SELECT $1,$2::uuid,issued.at,issued.at+interval '12 hours',$3
+      FROM issued`,[tokenHash(sessionToken,pepper),row.id,mfaVerified]);
     return {userId:row.id,sessionToken,expiresInSeconds:43200};
   });
   if('error' in outcome)throw new UsersError(outcome.error);
@@ -191,8 +232,13 @@ async function sessionUser(c:PoolClient,token:string,secret:Buffer,lock=false){
   const r=await c.query<UserRow>(
     'SELECT a.id,a.email_normalized,a.display_name,a.status,a.version '+
     'FROM tala_users_v2.accounts a JOIN tala_users_v2.sessions s '+
-    'ON s.account_id=a.id WHERE s.token_digest=$1 AND s.revoked_at IS NULL '+
-    "AND s.expires_at>clock_timestamp() AND a.status='active'"+
+    'ON s.account_id=a.id '+
+    'JOIN tala_users_v2.account_roles roles ON roles.account_id=a.id '+
+    'LEFT JOIN tala_users_v2.user_totp t ON t.account_id=a.id '+
+    'WHERE s.token_digest=$1 AND s.revoked_at IS NULL '+
+    "AND s.expires_at>clock_timestamp() AND a.status='active' "+
+    "AND (roles.role NOT IN ('staff','owner') OR s.mfa_verified) "+
+    "AND (t.enabled_at IS NULL OR s.mfa_verified)"+
     lockClause,[tokenHash(validToken(token),secret)]);
   if(!r.rows[0])throw new UsersError('USERS_SESSION_INVALID');
   return r.rows[0];
