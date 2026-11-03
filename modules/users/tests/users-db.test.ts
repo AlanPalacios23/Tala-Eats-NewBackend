@@ -115,6 +115,10 @@ test('M4 PostgreSQL: verified activation, profile, suspension and deletion audit
     assert.equal(finalized.user.displayName,'Cuenta eliminada');
     assert.equal(finalized.user.email,'deleted.'+userId+'@users.invalid');
     assert.equal((await readLabUser(db,userId))?.status,'deleted');
+    assert.equal((await db.query(
+      'SELECT count(*)::int AS n FROM tala_users_v2.email_challenges WHERE account_id=$1',
+      [userId])).rows[0]?.n,0,
+      'Deletion must discard temporary verification digest and attempts');
     await fail(()=>transitionLabUser(db,{userId,actorId:staff,
       action:'reinstate',expectedVersion:6,idempotencyKey:key()
     }),'USERS_STATE_TRANSITION_DENIED');
