@@ -1,3 +1,4 @@
+import {consumeLabRequestQuota} from './rate-limit.js';
 /**
  * M4 Usuarios — loopback-only HTTP LAB adapter for end-to-end tests.
  *
@@ -96,7 +97,8 @@ function errorStatus(error:UsersError):number{
   if(code==='USERS_MFA_REQUIRED'||code==='USERS_TOTP_INVALID')
     return 401;
   if(code==='USERS_ROLE_DENIED')return 403;
-  if(code==='USERS_VERIFICATION_COOLDOWN')return 429;
+  if(code==='USERS_RATE_LIMITED'||code==='USERS_VERIFICATION_COOLDOWN')
+    return 429;
   if(code==='USERS_PAYLOAD_TOO_LARGE')return 413;
   if(code==='USERS_CONTENT_TYPE_REQUIRED')return 415;
   if(code.includes('CONFLICT')||code.includes('UNCHANGED')||
@@ -113,27 +115,22 @@ export function createUsersLabHttpServer({
      !Buffer.isBuffer(emailSecret)||emailSecret.length<32||
      typeof sendVerification!=='function')
     throw new UsersError('USERS_LAB_HTTP_DISABLED');
-  const attempts=new Map<string,{count:number,expires:number}>();
   return createServer(async(req,res)=>{
     const local=req.socket.localAddress??'';
     if(local!=='127.0.0.1'&&local!=='::1'){
       reply(res,403,{error:'USERS_LOOPBACK_ONLY'});
       return;
     }
-    const route=(req.url??'').split('?')[0];
+    const route=(req.url??'').split('?')[0]??'';
     const method=req.method??'';
-    const key=(req.socket.remoteAddress??'unknown')+'|'+method+'|'+route;
-    const now=Date.now();
-    const previous=attempts.get(key);
-    const next=previous&&now<previous.expires
-      ?{count:previous.count+1,expires:previous.expires}
-      :{count:1,expires:now+60000};
-    attempts.set(key,next);
-    if(next.count>30){
-      reply(res,429,{error:'USERS_RATE_LIMITED'});
-      return;
-    }
     try{
+      const sensitive=['/v1/users/register','/v1/users/login',
+        '/v1/users/resend-verification','/v1/users/verify-email',
+        '/v1/users/forgot-password','/v1/users/reset-password'];
+      await consumeLabRequestQuota(pool,{
+        remoteAddress:req.socket.remoteAddress??'unknown',method,route,
+        secret:authSecret,limit:sensitive.includes(route)?15:100
+      });
       if(method==='GET'&&route==='/v1/users/health'){
         reply(res,200,{status:'lab_ready',module:'users'});
         return;
