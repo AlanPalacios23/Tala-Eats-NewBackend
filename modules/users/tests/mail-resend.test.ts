@@ -28,7 +28,7 @@ test('M4 email delivery sends no secrets to logs or user, keeps token inside HTT
     const headers=init?.headers as Record<string,string>;
     const body=JSON.parse(String(init?.body)) as Record<string,unknown>;
     calls.push({url:String(input),body,
-      authorization:headers.Authorization,headers});
+      authorization:headers.Authorization??'',headers});
     return new Response(JSON.stringify({id:'mock-provider-id'}),{status:200});
   }) as typeof fetch;
   const sink=createResendMailSinks({...config,fetchFn:mock});
