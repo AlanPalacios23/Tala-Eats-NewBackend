@@ -1,4 +1,4 @@
-# Módulo 5 — Notificaciones · CORE v2 · LAB1
+# Módulo 5 — Notificaciones · CORE v2 · LAB4
 
 **Estado:** funcional en PostgreSQL y HTTP loopback de laboratorio,
 independiente, **NO-GO LIVE**. PR #7 Draft contra `main`.
@@ -104,3 +104,54 @@ y recuperación de contraseñas se integrarán con M4 sin volcar secretos
 a notificaciones persistentes.
 
 **Pasa la fase de laboratorio; no habilita LIVE ni sustituye el backend.**
+
+
+## LAB4 — criterios reforzados y evidencia de cierre
+
+**Persistencia:** migraciones `001` → `004` en la base descartable
+`tala_notifications_v2_test`. La CI aplica cada una en secuencia,
+comprueba que ninguna puede ejecutarse contra una base ajena y prohíbe
+imports hacia otros módulos. Es el M5 autónomo, no una integración LIVE.
+
+**Decisiones de entrega:** la tabla `publication_receipts` registra tanto
+eventos enviados como suprimidos. La ausencia de consentimiento en
+`in_app` no impide enviar correo o push expresamente habilitado. La
+bandeja muestra únicamente avisos `visible_in_app`; los avisos ocultos
+no admiten lectura ni uso como cursor. Al autorizar marketing después
+no se reactivan eventos anteriormente rechazados.
+
+**Prioridad interna:** el evento, no el cliente, determina prioridad:
+seguridad 100, solicitudes de repartidor 95, nuevos pedidos 90,
+eventos operativos urgentes 80, transaccionales 60 y marketing 10.
+Trabajos aún no vencidos no entran en cola incluso con prioridad alta.
+No reemplaza el ciclo de vida o las restricciones del dominio origen.
+
+**Resiliencia:** la recuperación de trabajadores fallidos usa lotes
+bloqueados y registra `LEASE_EXPIRED` o `LEASE_EXHAUSTED` para
+cada intento interrumpido. Los proveedores pueden confirmar aceptación,
+pero esto NO equivale a entrega en el dispositivo. FCM `UNREGISTERED`
+expresamente autenticado como error de registro revoca el token afectado;
+un 404 genérico del proyecto no basta. Los adaptadores pueden respetar
+`Retry-After` limitado sin exponer respuesta sensible.
+
+**Capacidad y privacidad:** máximo 20 tokens activos por usuario/app,
+incluso bajo peticiones simultáneas; información cifrada AES-GCM,
+búsqueda HMAC, revocación y caducidad por barridos. Métricas agregadas
+y sin PII. Se puede redactar contenido de notificaciones terminales
+antiguas y secretos de tokens ya revocados sin modificar el historial
+inmutable de intentos; los recibos de publicación persisten para
+impedir reenvíos por reintentos.
+
+**Pruebas:** contratos, correo/FCM simulados, confidencialidad del inbox,
+preferencias, distintas apps, carrera de deduplicación, lote de alta
+concurrencia, prioridad de entregas, reintentos y leases, métricas,
+retención de contenidos y migraciones PostgreSQL 16. Consultar el
+último GitHub Actions de la rama para número exacto de pruebas.
+
+**Limitaciones que no deben ocultarse:** no hay claves de Firebase/Resend,
+APNs ni dominios verificados; no existe integración con las PWAs/Flutter
+desplegadas ni producción, operación continua ni integración de eventos
+firmados. El borrado/portabilidad de datos debe validarse a nivel
+plataforma y copias de seguridad; un barrido de retención no sustituye
+una orden legal de eliminación. Faltan pruebas de recuperación ante
+caída de servicios, carga sostenida y observabilidad real.
