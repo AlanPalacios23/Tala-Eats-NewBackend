@@ -59,5 +59,29 @@ BEGIN
   END;
 END
 $test$;
+DO $test$
+BEGIN
+  -- A balanced journal must not disguise immediately spendable funds as
+  -- an income or payout at the time of capture.
+  IF tala_finance_v2.valid_lines(
+    '[{"accountCode":"asset.stripe_test_clearing","side":"debit","amountMinor":"100"},
+      {"accountCode":"liability.merchant_payable","partyId":"22222222-2222-4222-8222-222222222222","side":"credit","amountMinor":"80"},
+      {"accountCode":"liability.platform_pending","side":"credit","amountMinor":"20"}]'::jsonb
+  ) THEN RAISE EXCEPTION 'EARLY_MERCHANT_PAYOUT_WAS_ACCEPTED'; END IF;
+  IF tala_finance_v2.valid_lines(
+    '[{"accountCode":"asset.stripe_test_clearing","side":"debit","amountMinor":"100"},
+      {"accountCode":"liability.merchant_pending","partyId":"22222222-2222-4222-8222-222222222222","side":"credit","amountMinor":"80"},
+      {"accountCode":"income.platform_gross","side":"credit","amountMinor":"20"}]'::jsonb
+  ) THEN RAISE EXCEPTION 'EARLY_PLATFORM_REVENUE_WAS_ACCEPTED'; END IF;
+  IF tala_finance_v2.valid_lines(
+    '[{"accountCode":"asset.stripe_test_clearing","side":"debit","amountMinor":"100","payoutReady":true},
+      {"accountCode":"liability.platform_pending","side":"credit","amountMinor":"100"}]'::jsonb
+  ) THEN RAISE EXCEPTION 'HIDDEN_LINE_METADATA_WAS_ACCEPTED'; END IF;
+  IF tala_finance_v2.valid_lines(
+    '[{"accountCode":"asset.stripe_test_clearing","side":"debit","amountMinor":"100"},
+      {"accountCode":"liability.merchant_pending","side":"credit","amountMinor":"100"}]'::jsonb
+  ) THEN RAISE EXCEPTION 'UNOWNED_MERCHANT_BALANCE_WAS_ACCEPTED'; END IF;
+END
+$test$;
 COMMIT;
 SELECT 'M3_FINANCE_SCHEMA_TESTS_PASS' AS result;
