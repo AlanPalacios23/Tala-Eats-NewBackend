@@ -1,6 +1,6 @@
 {
   "name": "@tala-eats/core-v2-users",
-  "version": "0.1.0-lab",
+  "version": "0.3.0-lab",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "test:e2e": "tsx --test tests/auth-e2e.test.ts tests/http-lab-e2e.test.ts tests/password-recovery.test.ts"
   },
   "dependencies": {
     "pg": "^8.16.3"
