@@ -115,3 +115,27 @@ test('M5 FCM: only explicit UNREGISTERED can revoke a device',async()=>{
       error.permanent===entry.permanent);
   }
 });
+
+test('M5 provider Retry-After is bounded and propagated without raw response data',async()=>{
+  const msg:EmailMessage={...common,to:'persona@example.com'};
+  const send=createResendEmailSender({
+    apiKey:'re_mock_2026_abcdefghijkl',
+    from:'notificaciones@example.com',
+    fetchFn:(async()=>new Response('please retry',{status:429,
+      headers:{'Retry-After':'120'}})) as typeof fetch
+  });
+  await assert.rejects(()=>send(msg),(e:unknown)=>
+    e instanceof DeliveryFailure&&e.code==='EMAIL_PROVIDER_TEMPORARY'&&
+      e.retryAfterSeconds===120);
+  const push:PushMessage={...common,platform:'android',
+    token:'fcm-validish-device-token-abcdefghijklmnopqrstuvwxyz'};
+  const fcm=createFcmPushSender({
+    projectId:'talaeats-lab',
+    getAccessToken:async()=> 'oauth2_testing_token_abcdefghijklmnopqrstuvwxyz',
+    fetchFn:(async()=>new Response('temporary',{status:503,
+      headers:{'Retry-After':'99999'}})) as typeof fetch
+  });
+  await assert.rejects(()=>fcm(push),(e:unknown)=>
+    e instanceof DeliveryFailure&&e.code==='FCM_TEMPORARY_OR_CONFIG'&&
+      e.retryAfterSeconds===3600);
+});
