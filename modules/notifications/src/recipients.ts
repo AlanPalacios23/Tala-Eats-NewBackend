@@ -66,6 +66,26 @@ export async function registerDevice(pool:Pool,{
   const id=uuid(recipientId),scope=appValue(app),pl=platformValue(platform);
   const sealed=sealDeviceToken({token,recipientId:id,app:scope,platform:pl,secret});
   return transaction(pool,async c=>{
+    // Serialize device registration per user/app across processes so the
+    // active-device cap cannot be bypassed with concurrent requests.
+    await c.query(`
+      SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`,
+      ['m5.devices|'+id+'|'+scope]);
+    const prior=await c.query<DeviceRow>(`
+      SELECT id,recipient_id,app,platform,created_at,last_seen_at,revoked_at
+      FROM tala_notifications_v2.devices
+      WHERE token_digest=$1 FOR UPDATE`,[sealed.tokenDigest]);
+    if(prior.rows[0]&&(prior.rows[0].recipient_id!==id||
+      prior.rows[0].app!==scope||prior.rows[0].platform!==pl))
+      throw new NotificationError('NOTIFICATIONS_DEVICE_OWNERSHIP_CONFLICT');
+    if(!prior.rows[0]||prior.rows[0].revoked_at){
+      const count=await c.query<{n:number}>(`
+        SELECT count(*)::int AS n FROM tala_notifications_v2.devices
+        WHERE recipient_id=$1::uuid AND app=$2 AND revoked_at IS NULL`,
+        [id,scope]);
+      if((count.rows[0]?.n??0)>=20)
+        throw new NotificationError('NOTIFICATIONS_DEVICE_LIMIT');
+    }
     const created=await c.query<DeviceRow>(`
       INSERT INTO tala_notifications_v2.devices(recipient_id,app,platform,
         token_digest,token_iv,token_cipher,token_tag)
