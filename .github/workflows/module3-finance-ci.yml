@@ -62,6 +62,12 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
             -f modules/finance/migrations/002_full_held_reversal.sql
+      - name: Build the driver-held auxiliary finance subledger
+        env:
+          PGPASSWORD: finance_lab_test_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d tala_finance_v2_test \
+            -f modules/finance/migrations/003_driver_held_subledger.sql
       - name: Finance journal SQL constraints and immutability
         env:
           PGPASSWORD: finance_lab_test_only
@@ -78,6 +84,11 @@ jobs:
           FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
         working-directory: modules/finance
         run: node --test tests/reversal-db.test.mjs
+      - name: Driver-held auxiliary balance and concurrency tests
+        env:
+          FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
+        working-directory: modules/finance
+        run: node --test tests/driver-held-db.test.mjs
       - name: Merchant financial statement keyset paging and isolation regression
         env:
           FINANCE_CI_URL: postgresql://finance_lab:finance_lab_test_only@127.0.0.1:5432/tala_finance_v2_test
@@ -97,6 +108,11 @@ jobs:
           if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d not_finance_test \
             -f modules/finance/migrations/002_full_held_reversal.sql; then
             echo "Compensating migration bypassed isolation guard"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U finance_lab -d not_finance_test \
+            -f modules/finance/migrations/003_driver_held_subledger.sql; then
+            echo "Driver-held ledger migration bypassed isolation guard"
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U finance_lab -d not_finance_test \
