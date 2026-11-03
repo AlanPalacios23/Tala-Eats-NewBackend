@@ -1,6 +1,6 @@
 {
   "name": "@tala-eats/core-v2-finance",
-  "version": "0.2.0-lab.1",
+  "version": "0.2.2-lab.12",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "npm run test && node --check src/ledger.mjs && node --check src/store.mjs && node --check src/stripe-test-webhook.mjs"
+    "check": "npm run test && node --check src/ledger.mjs && node --check src/store.mjs && node --check src/stripe-test-webhook.mjs && node --check src/reconciliation.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3"
