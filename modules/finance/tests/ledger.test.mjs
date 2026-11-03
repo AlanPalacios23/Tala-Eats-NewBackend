@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FinanceError,validateFinancialSnapshot,proposeHeldAllocation,
-  financeSnapshotHash} from '../src/ledger.mjs';
+  proposeFullHeldReversal,financeSnapshotHash} from '../src/ledger.mjs';
 
 export const orderId='11111111-1111-4111-8111-111111111111';
 export const restaurantId='22222222-2222-4222-8222-222222222222';
@@ -97,4 +97,48 @@ test('immutable proposal cannot be mutated after construction',()=>{
   assert.ok(Object.isFrozen(p.lines));
   assert.ok(Object.isFrozen(p.snapshot));
   assert.ok(p.lines.every(Object.isFrozen));
+});
+
+
+test('full correction is the exact inverse of held allocation, not a refund',()=>{
+  const original=proposal();
+  const rev=proposeFullHeldReversal({
+    originalJournalId:'33333333-3333-4333-8333-333333333333',
+    orderId,restaurantId,snapshot:snap,snapshotHash:original.snapshotHash,
+    originalLines:original.lines,
+    commandKey:'finance-correction-command-000001'
+  });
+  assert.equal(rev.kind,'full_held_reversal');
+  assert.equal(rev.currency,'MXN');
+  assert.equal(rev.lines.length,original.lines.length);
+  assert.ok(rev.lines.every((line,i)=>
+    line.amountMinor===original.lines[i].amountMinor&&
+    line.accountCode===original.lines[i].accountCode&&
+    line.side!==original.lines[i].side));
+  assert.equal(new Set(rev.lines.map(x=>x.accountCode)).size,rev.lines.length);
+  assert.ok(Object.isFrozen(rev.lines));
+  assert.ok(rev.lines.every(Object.isFrozen));
+  assert.equal(rev.eventKey,proposeFullHeldReversal({
+    originalJournalId:'33333333-3333-4333-8333-333333333333',
+    orderId,restaurantId,snapshot:snap,snapshotHash:original.snapshotHash,
+    originalLines:original.lines,
+    commandKey:'finance-correction-command-000001'
+  }).eventKey);
+});
+
+test('reversal rejects forged base journal contents and snapshot hash',()=>{
+  const original=proposal();
+  const input={
+    originalJournalId:'33333333-3333-4333-8333-333333333333',
+    orderId,restaurantId,snapshot:snap,snapshotHash:original.snapshotHash,
+    originalLines:original.lines,commandKey:'finance-correction-command-000001'
+  };
+  reject(()=>proposeFullHeldReversal({...input,snapshotHash:'a'.repeat(64)}),
+    'FINANCE_BASE_JOURNAL_INVALID');
+  const broken=original.lines.map(x=>({...x}));
+  broken[0].amountMinor='1';
+  reject(()=>proposeFullHeldReversal({...input,originalLines:broken}),
+    'FINANCE_BASE_JOURNAL_INVALID');
+  reject(()=>proposeFullHeldReversal({...input,commandKey:'bad'}),
+    'FINANCE_COMMAND_INVALID');
 });
