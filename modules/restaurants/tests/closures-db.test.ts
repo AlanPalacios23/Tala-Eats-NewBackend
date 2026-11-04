@@ -81,8 +81,23 @@ test('M6 branch exception closures: holiday schedule overrides opening and resto
       storeId:store.id,branchId:branch.id})).closures.length,1);
     await fails(()=>listBranchClosures(pool,outsider,{
       storeId:store.id,branchId:branch.id}),'M6_FORBIDDEN');
-    assert.equal((await cancelBranchClosure(pool,editor,{
+    await fails(()=>cancelBranchClosure(pool,editor,{
       storeId:store.id,branchId:branch.id,closureId:closed.id
-    }).catch(e=>{if(e instanceof RestaurantError)throw e;throw e})),undefined);
+    }),'M6_FORBIDDEN');
+    const cancelled=await cancelBranchClosure(pool,manager,{
+      storeId:store.id,branchId:branch.id,closureId:closed.id});
+    assert.equal(cancelled.cancelled,true);
+    assert.equal((await getBranchAvailability(pool,sample)).reason,'OPEN');
+    assert.equal((await cancelBranchClosure(pool,owner,{
+      storeId:store.id,branchId:branch.id,closureId:closed.id})).cancelled,false);
+    await fails(()=>scheduleBranchClosure(pool,owner,{
+      ...request,operationId:id(),endsAt:'2026-11-02T15:00:00.000Z'
+    }),'M6_CLOSURE_RANGE_INVALID');
+    await fails(()=>scheduleBranchClosure(pool,owner,{
+      ...request,operationId:id(),startsAt:'2026-11-02',
+    }),'M6_CLOSURE_TIME_INVALID');
+    const replacement=await scheduleBranchClosure(pool,owner,{
+      ...request,operationId:id()});
+    assert.notEqual(replacement.id,closed.id);
   }finally{await pool.end();}
 });
