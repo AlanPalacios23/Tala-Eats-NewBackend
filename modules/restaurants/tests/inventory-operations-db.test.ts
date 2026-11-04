@@ -123,5 +123,34 @@ test('M6 LAB6: physical transfer and cycle count stay isolated, idempotent and a
     const finalB=(await readBranchStock(pool,owner,{storeId:store.id,
       branchId:branchB.id})).balances[0]!.quantity;
     assert.equal(finalA+finalB,7); // 9 physical minus 2 counted discrepancy
+
+    // Credit overflow must roll back the debit atomically (no lost inventory).
+    const latestB=(await readBranchStock(pool,owner,{storeId:store.id,
+      branchId:branchB.id})).balances[0]!;
+    await countBranchStock(pool,manager,{...stocktake,operationId:id(),
+      expectedVersion:latestB.version,countedQuantity:999999});
+    await adjustBranchStock(pool,owner,{storeId:store.id,branchId:branchA.id,
+      variantId:variant.id,operationId:id(),delta:2,reason:'restock'});
+    await fail(()=>transferBranchStock(pool,owner,{...transfer,operationId:id(),
+      quantity:2}),'M6_STOCK_CONFLICT');
+    assert.equal((await readBranchStock(pool,owner,{storeId:store.id,
+      branchId:branchA.id})).balances[0]!.quantity,3);
+    assert.equal((await readBranchStock(pool,owner,{storeId:store.id,
+      branchId:branchB.id})).balances[0]!.quantity,999999);
+    const boundary=await transferBranchStock(pool,owner,{...transfer,
+      operationId:id(),quantity:1});
+    assert.equal(boundary.toAfter,1000000);
+
+    // First physical count can initialize a missing per-branch row at version 0.
+    const empty=await createBranch(pool,owner,{storeId:store.id,operationId:id(),
+      name:'Bodega Central',address:'Calle Centro 200, Tala',city:'tala',
+      pickupEnabled:true,deliveryEnabled:false});
+    const zeroCount=await countBranchStock(pool,manager,{
+      storeId:store.id,branchId:empty.id,variantId:variant.id,
+      operationId:id(),expectedVersion:0,countedQuantity:0});
+    assert.deepEqual([zeroCount.before,zeroCount.after,zeroCount.delta],[0,0,0]);
+    await fail(()=>countBranchStock(pool,owner,{
+      storeId:store.id,branchId:empty.id,variantId:variant.id,
+      operationId:id(),expectedVersion:0,countedQuantity:1}),'M6_VERSION_CONFLICT');
   }finally{await pool.end();}
 });
