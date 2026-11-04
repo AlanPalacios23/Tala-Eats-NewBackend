@@ -10,6 +10,7 @@ import {createPolygonZone,updatePolygonZone,listPolygonZones,
  checkCoverageV2} from './polygon-zones.js';
 import {createPlace,listPlaces,updatePlace,setDefaultPlace,deletePlace} from './places.js';
 import {putLocationSnapshot,getLocationSnapshot,clearLocationSnapshot} from './snapshots.js';
+import {eraseMyLocationData} from './privacy.js';
 type Config={pool:Pool,cipher:PrivateLocationCipher,
  authenticate:(request:IncomingMessage)=>Promise<Actor|null>};
 const MAX_BODY=8192;
@@ -137,6 +138,10 @@ export function createLocationsLabHttpServer({pool,cipher,authenticate}:Config){
     reply(res,200,await deletePlace(pool,actor,{
       ...data,placeId:uuid(p[1])
     } as never));return;
+   }
+   if(p.length===2&&p[0]==='privacy'&&p[1]==='data'&&method==='DELETE'){
+    await body(req,[]);
+    reply(res,200,await eraseMyLocationData(pool,actor));return;
    }
    if(p.length===1&&p[0]==='snapshot'&&method==='POST'){
     const data=await body(req,['purpose','point','accuracyMeters','consent']);
