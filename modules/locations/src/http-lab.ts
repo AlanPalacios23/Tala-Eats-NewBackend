@@ -6,6 +6,8 @@ import type {Pool} from 'pg';
 import {LocationError,uuid,assertKeys,type Actor} from './domain.js';
 import {PrivateLocationCipher} from './crypto.js';
 import {createZone,updateZone,listZones,checkCoverage} from './zones.js';
+import {createPolygonZone,updatePolygonZone,listPolygonZones,
+ checkCoverageV2} from './polygon-zones.js';
 import {createPlace,listPlaces,updatePlace,setDefaultPlace,deletePlace} from './places.js';
 import {putLocationSnapshot,getLocationSnapshot,clearLocationSnapshot} from './snapshots.js';
 type Config={pool:Pool,cipher:PrivateLocationCipher,
@@ -62,6 +64,30 @@ export function createLocationsLabHttpServer({pool,cipher,authenticate}:Config){
     reply(res,404,{error:'M7_ROUTE_NOT_FOUND'});return;
    }
    const p=parts.slice(2);
+   if(p.length===2&&p[0]==='coverage'&&p[1]==='v2'&&method==='GET'){
+    const keys=[...url.searchParams.keys()];
+    if(keys.length!==3||new Set(keys).size!==keys.length||
+       keys.some(k=>!['city','latitude','longitude'].includes(k)))
+      throw new LocationError('M7_REQUEST_INVALID');
+    const locality=url.searchParams.get('city')??'',
+      latitude=Number(url.searchParams.get('latitude')),
+      longitude=Number(url.searchParams.get('longitude'));
+    reply(res,200,await checkCoverageV2(pool,{city:locality,
+      point:{latitude,longitude}}));return;
+   }
+   if(p.length===1&&p[0]==='polygons'&&method==='POST'){
+    const data=await body(req,['operationId','slug','name','city','vertices']);
+    reply(res,201,await createPolygonZone(pool,actor,data as never));return;
+   }
+   if(p.length===1&&p[0]==='polygons'&&method==='GET'){
+    reply(res,200,{polygons:await listPolygonZones(pool,actor)});return;
+   }
+   if(p.length===2&&p[0]==='polygons'&&method==='PATCH'){
+    const data=await body(req,['expectedVersion','name','vertices','status']);
+    reply(res,200,await updatePolygonZone(pool,actor,{
+      ...data,zoneId:uuid(p[1])
+    } as never));return;
+   }
    if(p.length===1&&p[0]==='coverage'&&method==='GET'){
     const keys=[...url.searchParams.keys()];
     if(keys.length!==3||new Set(keys).size!==keys.length||
@@ -130,7 +156,7 @@ export function createLocationsLabHttpServer({pool,cipher,authenticate}:Config){
     const status=e.code==='M7_UNAUTHORIZED'?401:e.code==='M7_FORBIDDEN'?403:
      e.code==='M7_CONTENT_TYPE_REQUIRED'?415:e.code==='M7_BODY_TOO_LARGE'?413:
      ['M7_VERSION_CONFLICT','M7_IDEMPOTENCY_CONFLICT','M7_PLACE_LIMIT',
-      'M7_ZONE_EXISTS'].includes(e.code)?409:
+      'M7_ZONE_EXISTS','M7_POLYGON_EXISTS'].includes(e.code)?409:
      e.code==='M7_PLACE_NOT_FOUND'?404:400;
     reply(res,status,{error:e.code});return;
    }
