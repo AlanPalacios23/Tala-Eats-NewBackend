@@ -77,6 +77,31 @@ test('M6 HTTP LAB E2E: private identity, store, branch, hours and catalog contra
     assert.equal((catalog.result.variants as unknown[]).length,1);
     assert.equal(catalog.cache,'private, no-store');
     assert.equal(catalog.cors,null);
+    const exceptional='/v1/restaurants/'+storeId+'/branches/'+branchId+'/closures';
+    const closure=await call('POST',exceptional,{
+      operationId:id(),
+      startsAt:'2026-11-02T17:00:00.000Z',
+      endsAt:'2026-11-02T22:00:00.000Z',
+      reason:'maintenance'
+    },bearer);
+    assert.equal(closure.status,201);
+    const closureId=String(closure.result.id);
+    assert.equal((await call('GET',exceptional,undefined,bearer)).status,200);
+    assert.equal((await call('GET',exceptional,undefined,other)).status,403);
+    assert.equal((await call('POST',exceptional,{
+      operationId:id(),
+      startsAt:'2026-11-02T18:00:00.000Z',
+      endsAt:'2026-11-02T21:00:00.000Z',
+      reason:'maintenance'
+    },bearer)).status,409);
+    assert.equal((await call('POST',
+      exceptional+'/'+closureId+'/cancel',{},other)).status,403);
+    const cancelled=await call('POST',
+      exceptional+'/'+closureId+'/cancel',{},bearer);
+    assert.equal(cancelled.status,200);
+    assert.equal(cancelled.result.cancelled,true);
+    assert.equal((await call('POST',
+      exceptional+'/'+closureId+'/cancel',{},bearer)).result.cancelled,false);
     const otherStock=await call('POST','/v1/restaurants/'+storeId+'/variants/'+
       variantId+'/stock',{operationId:id(),delta:-1,reason:'waste'},other);
     assert.equal(otherStock.status,403);
