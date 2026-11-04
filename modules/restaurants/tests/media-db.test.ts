@@ -6,7 +6,7 @@ import {RestaurantError} from '../src/domain.js';
 import {createStore} from '../src/stores.js';
 import {createProduct} from '../src/catalog.js';
 import {prepareProductPhoto,verifyProductPhoto,
- selectPrimaryPhoto,listProductPhotos} from '../src/media.js';
+ selectPrimaryPhoto,listProductPhotos,retireProductPhoto} from '../src/media.js';
 
 const url=process.env.RESTAURANTS_CI_URL??'';
 const enabled=/\/tala_restaurants_v2_test(?:$|\?)/.test(url);
@@ -81,5 +81,57 @@ test('M6 photo count limits: a ninth pending image is refused',
       storeId:store.id,productId:product.id,
       sha256:randomBytes(32).toString('hex'),contentType:'image/jpeg'}),
       'M6_PHOTO_LIMIT');
+  }finally{await pool.end();}
+});
+
+
+test('M6 photo lifecycle: retire pending or primary photo without touching another store',
+ {skip:!enabled,timeout:70000},async()=>{
+  const pool=db(),owner={actorId:id()},outsider={actorId:id()};
+  try{
+    const store=await createStore(pool,owner,{
+      operationId:id(),slug:'photos-retire-'+id().slice(0,12),
+      name:'Comercio con Galería',kind:'restaurant'});
+    const product=await createProduct(pool,owner,{
+      storeId:store.id,operationId:id(),name:'Torta ahogada',category:'Comida'});
+    const photoA=await prepareProductPhoto(pool,owner,{
+      storeId:store.id,productId:product.id,
+      sha256:randomBytes(32).toString('hex'),contentType:'image/png'});
+    await verifyProductPhoto(pool,{storeId:store.id,photoId:photoA.id,
+      verify:async()=>true});
+    await selectPrimaryPhoto(pool,owner,{storeId:store.id,
+      productId:product.id,photoId:photoA.id});
+    await fail(()=>retireProductPhoto(pool,outsider,{
+      storeId:store.id,productId:product.id,photoId:photoA.id}),
+      'M6_FORBIDDEN');
+    const retired=await retireProductPhoto(pool,owner,{
+      storeId:store.id,productId:product.id,photoId:photoA.id});
+    assert.equal(retired.retired,true);
+    assert.equal((await listProductPhotos(pool,owner,{
+      storeId:store.id,productId:product.id})).length,0);
+    assert.equal((await retireProductPhoto(pool,owner,{
+      storeId:store.id,productId:product.id,photoId:photoA.id})).retired,false);
+    await fail(()=>selectPrimaryPhoto(pool,owner,{
+      storeId:store.id,productId:product.id,photoId:photoA.id}),
+      'M6_PHOTO_NOT_READY');
+    const photoB=await prepareProductPhoto(pool,owner,{
+      storeId:store.id,productId:product.id,
+      sha256:randomBytes(32).toString('hex'),contentType:'image/webp'});
+    assert.equal((await retireProductPhoto(pool,owner,{
+      storeId:store.id,productId:product.id,photoId:photoB.id})).retired,true);
+    await fail(()=>verifyProductPhoto(pool,{
+      storeId:store.id,photoId:photoB.id,verify:async()=>true}),
+      'M6_PHOTO_STATUS_INVALID');
+    const otherStore=await createStore(pool,outsider,{
+      operationId:id(),slug:'photos-other-'+id().slice(0,12),
+      name:'Otro Comercio',kind:'restaurant'});
+    const otherProduct=await createProduct(pool,outsider,{
+      storeId:otherStore.id,operationId:id(),name:'Quesadilla',
+      category:'Comida'});
+    await fail(()=>retireProductPhoto(pool,outsider,{
+      storeId:otherStore.id,productId:otherProduct.id,
+      photoId:photoA.id
+    }).then(x=>{if(!x.retired)throw new RestaurantError('M6_PHOTO_NOT_FOUND');}),
+    'M6_PHOTO_NOT_FOUND');
   }finally{await pool.end();}
 });
