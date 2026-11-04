@@ -17,7 +17,8 @@ test('M7 HTTP LAB: host identity, no privilege injection, redacted places and ep
  const tok='owner-'+id(),oth='other-'+id(),adm='admin-'+id();
  const server=createLocationsLabHttpServer({pool,cipher,
   authenticate:async req=>req.headers.authorization==='Bearer '+tok?
-   {actorId:owner}:req.headers.authorization==='Bearer '+oth?
+   {actorId:owner,locationConsentPurposes:['foreground'] as const}:
+   req.headers.authorization==='Bearer '+oth?
    {actorId:other}:req.headers.authorization==='Bearer '+adm?
    {actorId:admin,canManageZones:true}:null});
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
