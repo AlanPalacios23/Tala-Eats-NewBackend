@@ -80,7 +80,7 @@ test('M6 per-branch menu switches preserve tenancy, CAS, available stock and cus
       storeId:store.id,branchId:b1.id,variantId:half.id
     }),'M6_OFFER_UNAVAILABLE');
     assert.equal((await readOfferSnapshot(pool,{
-      storeId:store.id,branchId:b2.id,variantId:half.id
+      storeId:store.id,branchId:b2.id,variantId:half.id,at:mon
     })).available,true);
     await fail(()=>setBranchVariantEnabled(pool,outsider,{
       storeId:store.id,branchId:b1.id,variantId:half.id,
