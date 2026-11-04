@@ -48,7 +48,7 @@ test('M8 LAB HTTP E2E: no public payment authority, forged roles or unsigned cal
    {operationId:id(),amountCents:1000})).status,409);
   const webhook={eventId:id(),kind:'payment.succeeded',paymentId:idPayment,
    amountCents:49900,currency:'MXN',
-   providerRef:'lab_mock_'+id().slice(0,12)};
+   providerRef:'lab_mock_'+id().replaceAll('-','').slice(0,12)};
   const raw=JSON.stringify(webhook),timestamp=String(Math.floor(Date.now()/1000));
   const signature='v1='+createHmac('sha256',secret).update(timestamp)
    .update('.').update(raw).digest('hex');
@@ -74,7 +74,7 @@ test('M8 LAB HTTP E2E: no public payment authority, forged roles or unsigned cal
    {operationId:id(),amountCents:30000})).status,409);
   const refundEvent={eventId:id(),kind:'refund.succeeded',paymentId:idPayment,
    refundId:String(ref.body.id),amountCents:20000,currency:'MXN',
-   providerRef:'lab_refund_'+id().slice(0,12)};
+   providerRef:'lab_refund_'+id().replaceAll('-','').slice(0,12)};
   const rr=JSON.stringify(refundEvent),
    h='v1='+createHmac('sha256',secret).update(timestamp).update('.')
     .update(rr).digest('hex');
