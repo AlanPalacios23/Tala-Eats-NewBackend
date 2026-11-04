@@ -4,7 +4,8 @@ export class PaymentError extends Error {
 }
 export type Actor={actorId:string,canCreatePayments?:boolean,
  canRefundPayments?:boolean,canReadPayments?:boolean,
- canMonitorPayments?:boolean};
+ /** Host-only elevated audit access. Ordinary readers see only own payment. */
+ canReadAllPayments?:boolean,canMonitorPayments?:boolean};
 export type Money={amountCents:number,currency:'MXN'};
 export const uuid=(v:unknown):string=>{
  if(typeof v!=='string'||
