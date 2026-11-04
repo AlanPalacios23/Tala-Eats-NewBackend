@@ -40,8 +40,7 @@ export async function prepareProductPhoto(pool:Pool,actor:Actor,input:{
     return {id:photoId,objectKey:key,status:'pending' as const};
   });
 }
-export type StorageProof={objectKey:string,sha256:string,contentType:Mime,
- sizeBytes:number};
+export type StorageProof={objectKey:string,sha256:string,contentType:Mime};
 export type VerifyStoredImage=(proof:StorageProof)=>Promise<boolean>;
 export async function verifyProductPhoto(pool:Pool,input:{
  storeId:string,photoId:string,verify:VerifyStoredImage
@@ -64,7 +63,7 @@ export async function verifyProductPhoto(pool:Pool,input:{
   // The storage service MUST inspect actual bytes, compare SHA-256, content
   // type, dimensions and image decoding; the proof input is not client data.
   const proof:StorageProof={objectKey:info.object_key,sha256:info.content_sha256,
-    contentType:info.content_type,sizeBytes:0};
+    contentType:info.content_type};
   const valid=await input.verify(proof);
   if(!valid)throw new RestaurantError('M6_PHOTO_NOT_VERIFIED');
   return tx(pool,async c=>{
