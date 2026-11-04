@@ -32,6 +32,10 @@ Los webhooks Stripe TEST usan `Stripe-Signature`, bytes raw, ventana de
 se rechaza cualquier evento con `livemode=true`. El simulador LAB1 nunca
 puede confirmar un pago `provider=stripe_test`.
 
+La lectura operativa `readStripeTestDiagnostics` exige permiso del host
+`canMonitorPayments`, ofrece solo contadores agregados de operaciones
+pendientes, leases, eventos y hechos faltantes, sin información privada.
+
 Los hechos `stripe_test_facts` permanecen separados de
 `verified_facts` del simulador, y **no** se publican a Finanzas ni se
 presentan como dinero bancario/Stripe LIVE. Las migraciones 001–002
