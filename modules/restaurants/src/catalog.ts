@@ -199,9 +199,12 @@ export async function readCatalog(pool:Pool,actor:Actor,storeId:string){
 }
 /** Trusted read-side contract for M1. Does not reserve stock, collect money or assign orders. */
 export async function readOfferSnapshot(pool:Pool,input:{
- storeId:string,branchId:string,variantId:string
+ storeId:string,branchId:string,variantId:string,at?:Date
 }){
   const store=uuid(input.storeId),branch=uuid(input.branchId),variant=uuid(input.variantId);
+  const at=input.at??new Date();
+  if(!(at instanceof Date)||!Number.isFinite(at.getTime()))
+    throw new RestaurantError('M6_TIME_INVALID');
   return tx(pool,async c=>{
     const r=await c.query<{
       store_id:string,branch_id:string,variant_id:string,product_id:string,
@@ -213,7 +216,20 @@ export async function readOfferSnapshot(pool:Pool,input:{
       'p.id AS product_id,p.name AS product_name,v.label AS variant_label,'+
       'v.weight_grams,v.price_cents,\'MXN\'::text AS currency,'+
       'v.stock_quantity,v.track_stock,v.version AS variant_version,'+
-      '(NOT v.track_stock OR v.stock_quantity>0) AS available '+
+      '((NOT v.track_stock OR v.stock_quantity>0) AND '+
+      'NOT coalesce(h.closed,true) AND '+
+      '(extract(hour from ($4::timestamptz AT TIME ZONE '+
+      "'America/Mexico_City'))::int*60+"+
+      'extract(minute from ($4::timestamptz AT TIME ZONE '+
+      "'America/Mexico_City'))::int) >= h.open_minute AND "+
+      '(extract(hour from ($4::timestamptz AT TIME ZONE '+
+      "'America/Mexico_City'))::int*60+"+
+      'extract(minute from ($4::timestamptz AT TIME ZONE '+
+      "'America/Mexico_City'))::int) < h.close_minute AND "+
+      'NOT EXISTS(SELECT 1 FROM tala_restaurants_v2.branch_closures e '+
+      'WHERE e.branch_id=b.id AND e.store_id=s.id '+
+      'AND e.cancelled_at IS NULL AND e.starts_at<=$4::timestamptz '+
+      'AND e.ends_at>$4::timestamptz)) AS available '+
       'FROM tala_restaurants_v2.stores s '+
       'JOIN tala_restaurants_v2.branches b ON b.store_id=s.id '+
       'JOIN tala_restaurants_v2.products p ON p.store_id=s.id '+
@@ -222,11 +238,14 @@ export async function readOfferSnapshot(pool:Pool,input:{
       'LEFT JOIN tala_restaurants_v2.branch_variant_controls ctrl '+
       'ON ctrl.store_id=v.store_id AND ctrl.branch_id=b.id '+
       'AND ctrl.variant_id=v.id '+
+      'LEFT JOIN tala_restaurants_v2.hours h ON h.branch_id=b.id '+
+      'AND h.weekday=extract(dow FROM ($4::timestamptz AT TIME ZONE '+
+      "'America/Mexico_City'))::int "+
       'WHERE s.id=$1::uuid AND b.id=$2::uuid AND v.id=$3::uuid '+
       'AND coalesce(ctrl.enabled,true) '+
       "AND s.status='ready' AND b.is_active AND p.is_active "+
       'AND p.archived_at IS NULL AND v.is_active',
-      [store,branch,variant]);
+      [store,branch,variant,at]);
     if(!r.rows[0])throw new RestaurantError('M6_OFFER_UNAVAILABLE');
     return Object.freeze(r.rows[0]);
   },true);
