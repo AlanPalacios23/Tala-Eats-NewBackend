@@ -1,8 +1,24 @@
 # TALA EATS CORE v2 — Módulo 7: Ubicaciones
 
-**Independiente · LAB2 · NO-GO comercial.** 
+**Independiente · LAB3 · NO-GO comercial.** 
 No importa ni consulta módulos Pedidos, Logística, Finanzas, Usuarios,
 Notificaciones, Restaurantes o el backend anterior.
+
+## LAB3: permisos GPS y privacidad propia
+
+- La publicación de un snapshot exige `consent:true` **y** el permiso
+  `locationConsentPurposes` aportado por el host autenticado. Los propósitos
+  `foreground` y `active_delivery` tienen permisos distintos; el cuerpo
+  HTTP no puede asignarse esos permisos.
+- `DELETE /v1/locations/privacy/data` borra transaccionalmente las direcciones
+  personales, snapshots GPS y recibos `place.create` de la misma identidad,
+  conservando exclusivamente una auditoría mínima sin coordenadas.
+- Los snapshots GPS quedan sincronizados con el borrado por usuario para no
+  publicar datos concurrentemente durante la eliminación.
+- Retención en WAL/backups, rotación de claves, baja de permisos del host,
+  purga automática y consentimiento real de las apps son **gates externos**.
+
+[Seguridad y contrato de privacidad LAB3](../../docs/MODULO7-UBICACIONES-LAB3-PRIVACIDAD.md).
 
 ## LAB2: zonas poligonales independientes
 
@@ -78,8 +94,9 @@ solo responde en loopback y se bloquea con `NODE_ENV=production`.
 - `PATCH /v1/locations/places/:placeId` — versión CAS.
 - `PUT /v1/locations/places/:placeId/default` — predeterminada única.
 - `DELETE /v1/locations/places/:placeId` — redacción y soft delete.
-- `POST /v1/locations/snapshot` — posición propia, consentimiento true.
+- `POST /v1/locations/snapshot` — posición propia, consentimiento true **y permiso concedido por host para ese propósito**.
 - `GET/DELETE /v1/locations/snapshot/:purpose` — lectura o revocación propia.
+- `DELETE /v1/locations/privacy/data` — eliminación de todos los datos personales de localización del propio usuario (body `{}`).
 
 La limpieza automática se realiza cuando el host llama a 
 `pruneExpiredSnapshots(pool)` con ejecución controlada; **no existe worker
