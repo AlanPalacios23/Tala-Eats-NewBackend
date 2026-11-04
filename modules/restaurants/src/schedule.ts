@@ -127,8 +127,8 @@ export async function readBranchSchedule(pool:Pool,actor:Actor,input:{
       timeZone:'America/Mexico_City',
       slots:Object.freeze(slots.rows.map(x=>Object.freeze({
         weekday:x.weekday,slot:x.slot,openMinute:x.open_minute,
-        closeMinute:x.close_minute>1440?x.close_minute-1440:x.close_minute,
-        closesNextDay:x.close_minute>1440
+        closeMinute:x.close_minute>=1440?x.close_minute-1440:x.close_minute,
+        closesNextDay:x.close_minute>=1440
       })))});
   },true);
 }
