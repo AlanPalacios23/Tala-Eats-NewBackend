@@ -68,8 +68,8 @@ test('M7 HTTP LAB: host identity, no privilege injection, redacted places and ep
   assert.equal((listing.body.places as Array<{data:{addressLine:string}}>)[0]!
    .data.addressLine,'Calle privada 7, Tala');
   assert.equal((await call('GET','/v1/locations/places',undefined,oth)).body.places instanceof Array,true);
-  assert.equal(((await call('GET','/v1/locations/places',undefined,oth)).body.places
-   as unknown[]).length,0);
+  const otherPlaces=await call('GET','/v1/locations/places',undefined,oth);
+  assert.equal((otherPlaces.body.places as unknown[]).length,0);
   assert.equal((await call('PATCH','/v1/locations/places/'+placeId,{
    expectedVersion:1,patch:{addressLine:'Calle robada'}},oth)).status,404);
   const patch=await call('PATCH','/v1/locations/places/'+placeId,{
