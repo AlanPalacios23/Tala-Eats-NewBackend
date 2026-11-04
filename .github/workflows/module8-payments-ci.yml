@@ -7,6 +7,7 @@ on:
       - 'docs/MODULO8-PAGOS-ARQUITECTURA.md'
       - 'docs/MODULO8-PAGOS-LAB1.md'
       - 'docs/MODULO8-PAGOS-LAB2-STRIPE-TEST.md'
+      - 'docs/MODULO8-PAGOS-CIERRE-LAB3.md'
       - '.github/workflows/module8-payments-ci.yml'
   pull_request:
     paths:
@@ -67,6 +68,13 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U payment_lab \
             -d tala_payments_v2_test \
             -f modules/payments/migrations/002_stripe_test_gateway.sql
+      - name: Enforce SQL payment/refund integrity migration LAB3
+        env:
+          PGPASSWORD: only_for_m8_ci
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U payment_lab \
+            -d tala_payments_v2_test \
+            -f modules/payments/migrations/003_integrity_guards.sql
       - name: Full PostgreSQL 16, concurrency and HTTP E2E suites
         env:
           PAYMENTS_CI_URL: postgresql://payment_lab:only_for_m8_ci@127.0.0.1:5432/tala_payments_v2_test
@@ -88,6 +96,12 @@ jobs:
             -d unrelated_m8_test \
             -f modules/payments/migrations/002_stripe_test_gateway.sql; then
             echo 'M8 Stripe TEST migration escaped isolated lab database'
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U payment_lab \
+            -d unrelated_m8_test \
+            -f modules/payments/migrations/003_integrity_guards.sql; then
+            echo 'M8 integrity migration escaped isolated lab database'
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U payment_lab \
