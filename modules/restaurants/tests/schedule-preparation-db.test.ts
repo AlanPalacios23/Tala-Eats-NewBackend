@@ -125,6 +125,31 @@ test('M6 LAB8 split/overnight schedule is consistent across all read contracts',
         openMinute:600,closeMinute:1080}]});
     assert.equal(await sample('2026-11-02T19:00:00Z'),true);
     assert.equal(await sample('2026-11-04T07:00:00Z'),true);
+    // Saturday night must cross the weekly boundary into Sunday.
+    const weekend=await setBranchSchedule(pool,owner,{
+      storeId:shop.id,branchId:branch.id,expectedVersion:4,
+      days:[
+        {weekday:6,closed:false,intervals:[
+          {openMinute:1200,closeMinute:120}
+        ]},
+        {weekday:4,closed:false,intervals:[
+          {openMinute:1080,closeMinute:0}
+        ]}
+      ]});
+    assert.equal(weekend.version,5);
+    assert.equal(await sample('2026-11-08T07:00:00Z'),true); // Sunday 01:00 MX
+    assert.equal(await sample('2026-11-08T08:00:00Z'),false); // Sunday 02:00 MX
+    const midnight=(await readBranchSchedule(pool,owner,{
+      storeId:shop.id,branchId:branch.id})).slots.find(x=>x.weekday===4)!;
+    assert.equal(midnight.closeMinute,0);
+    assert.equal(midnight.closesNextDay,true);
+    await fail(()=>setBranchSchedule(pool,owner,{
+      storeId:shop.id,branchId:branch.id,expectedVersion:5,
+      days:[{weekday:0,closed:false,intervals:[
+        {openMinute:60,closeMinute:300}
+      ]}]}),'M6_SCHEDULE_OVERLAP');
+    assert.equal((await readBranchSchedule(pool,owner,{
+      storeId:shop.id,branchId:branch.id})).version,5);
     const audit=await pool.query<{action:string}>(
       'SELECT action FROM tala_restaurants_v2.audit WHERE store_id=$1::uuid',
       [shop.id]);
