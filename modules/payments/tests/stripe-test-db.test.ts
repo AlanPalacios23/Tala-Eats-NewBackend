@@ -129,7 +129,14 @@ test('M8 LAB2 Stripe TEST PI setup is durable, test-only and rejects mock provid
   const duplicatePayment=await ingestStripeTestWebhook(pool,webhookSecret,
    webhook.raw,webhook.signature);
   assert.equal('replayed' in duplicatePayment&&duplicatePayment.replayed,true);
-  assert.equal((await readPayment(pool,operator,pay.id)).state,'succeeded');
+  const parallelDuplicates=await Promise.all(Array.from({length:12},()=>
+   ingestStripeTestWebhook(pool,webhookSecret,webhook.raw,webhook.signature)));
+  assert.ok(parallelDuplicates.every(r=>'replayed' in r&&r.replayed));
+  const paymentRead=await readPayment(pool,operator,pay.id);
+  assert.equal(paymentRead.state,'succeeded');
+  assert.equal(paymentRead.provider,'stripe_test');
+  assert.equal(paymentRead.stripeTestFacts.length,1);
+  assert.equal(paymentRead.stripeTestFacts[0]!.source,'stripe_test');
   const stripeFacts=await pool.query<{source:string,amount_cents:string}>(
    'SELECT source,amount_cents::text FROM tala_payments_v2.stripe_test_facts '+
    'WHERE payment_id=$1::uuid',[pay.id]);
