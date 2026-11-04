@@ -83,9 +83,12 @@ export async function selectPrimaryPhoto(pool:Pool,actor:Actor,input:{
   return tx(pool,async c=>{
     await access(c,store,user,['owner','manager','editor'],true);
     const r=await c.query(
-      "SELECT id FROM tala_restaurants_v2.product_photos "+
-      "WHERE id=$1::uuid AND store_id=$2::uuid AND product_id=$3::uuid "+
-      "AND status='ready' FOR UPDATE",[photo,store,product]);
+      "SELECT photo.id FROM tala_restaurants_v2.product_photos photo "+
+      "JOIN tala_restaurants_v2.products p ON p.id=photo.product_id "+
+      "AND p.store_id=photo.store_id AND p.archived_at IS NULL "+
+      "WHERE photo.id=$1::uuid AND photo.store_id=$2::uuid "+
+      "AND photo.product_id=$3::uuid AND photo.status='ready' "+
+      "FOR UPDATE OF photo",[photo,store,product]);
     if(!r.rowCount)throw new RestaurantError('M6_PHOTO_NOT_READY');
     await c.query(
       'UPDATE tala_restaurants_v2.product_photos SET is_primary=false '+
@@ -98,6 +101,28 @@ export async function selectPrimaryPhoto(pool:Pool,actor:Actor,input:{
     return {photoId:photo,primary:true};
   });
 }
+/** Soft-retire a photo without exposing arbitrary object deletion to apps.
+ * A future trusted storage sweeper can delete the physical object.
+ */
+export async function retireProductPhoto(pool:Pool,actor:Actor,input:{
+ storeId:string,productId:string,photoId:string
+}){
+  const user=person(actor),store=uuid(input.storeId),
+    product=uuid(input.productId),photo=uuid(input.photoId);
+  return tx(pool,async c=>{
+    await access(c,store,user,['owner','manager','editor'],true);
+    const r=await c.query<{is_primary:boolean}>(
+      "UPDATE tala_restaurants_v2.product_photos SET "+
+      "status='rejected',is_primary=false "+
+      "WHERE id=$1::uuid AND store_id=$2::uuid AND product_id=$3::uuid "+
+      "AND status IN ('pending','ready') RETURNING is_primary",
+      [photo,store,product]);
+    if(!r.rowCount)return Object.freeze({photoId:photo,retired:false});
+    await audit(c,store,user,'photo.retire',photo);
+    return Object.freeze({photoId:photo,retired:true});
+  });
+}
+
 export async function listProductPhotos(pool:Pool,actor:Actor,input:{
  storeId:string,productId:string
 }){
@@ -106,8 +131,8 @@ export async function listProductPhotos(pool:Pool,actor:Actor,input:{
     await access(c,store,user);
     const r=await c.query(
       'SELECT id,object_key,content_type,status,is_primary,created_at '+
-      'FROM tala_restaurants_v2.product_photos WHERE store_id=$1::uuid '+
-      'AND product_id=$2::uuid ORDER BY created_at',[store,product]);
+      "FROM tala_restaurants_v2.product_photos WHERE store_id=$1::uuid "+
+      "AND product_id=$2::uuid AND status<>'rejected' ORDER BY created_at",[store,product]);
     return r.rows;
   },true);
 }
