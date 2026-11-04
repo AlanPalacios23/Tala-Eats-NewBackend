@@ -16,7 +16,7 @@ test('M8 LAB HTTP E2E: no public payment authority, forged roles or unsigned cal
  const server=createPaymentsLabHttpServer({pool,webhookSecret:secret,
   authenticate:async req=>req.headers.authorization===owner?
    {actorId:adminId,canCreatePayments:true,canRefundPayments:true,
-    canReadPayments:true}:
+    canReadPayments:true,canReadAllPayments:true}:
    req.headers.authorization===customer?{actorId:customerId}:null});
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
  const base='http://127.0.0.1:'+(server.address() as AddressInfo).port;
