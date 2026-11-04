@@ -129,7 +129,8 @@ test('M7 owner-level address cap and concurrent identical publication',
 test('M7 opt-in GPS snapshots: own encrypted position, TTL, consent, revocation and purge',
  {skip:!enabled,timeout:90000},async()=>{
  const pool=new pg.Pool({connectionString:url,max:10}),key=cipher(),
-  first={actorId:id()},second={actorId:id()};
+  first={actorId:id(),locationConsentPurposes:['foreground','active_delivery'] as const},
+  second={actorId:id()};
  try{
   await fail(()=>putLocationSnapshot(pool,key,first,{purpose:'foreground',
    point:tala,accuracyMeters:4,consent:false}),'M7_CONSENT_REQUIRED');
