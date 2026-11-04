@@ -79,12 +79,11 @@ export async function checkCoverage(pool:Pool,input:{city:string,point:Point}){
   const zones=await c.query<Row>('SELECT id,slug,name,city,center_lat::float8,'+
    'center_lon::float8,radius_m,status,version FROM tala_locations_v2.coverage_zones '+
    "WHERE city=$1 AND status='active' ORDER BY slug LIMIT 500",[locality]);
-  const matches=zones.rows.map(z=>({
-   zoneId:z.id,zoneName:z.name,city:z.city,
-   distanceMeters:Math.round(distanceMeters(where,{
-    latitude:z.center_lat,longitude:z.center_lon})),
-   radiusMeters:z.radius_m
-  })).filter(z=>z.distanceMeters<=z.radiusMeters)
+  const matches=zones.rows.map(z=>{
+   const exact=distanceMeters(where,{latitude:z.center_lat,longitude:z.center_lon});
+   return {zoneId:z.id,zoneName:z.name,city:z.city,
+    distanceMeters:Math.round(exact),radiusMeters:z.radius_m,within:exact<=z.radius_m};
+  }).filter(z=>z.within).map(({within:_,...zone})=>zone)
    .sort((a,b)=>a.distanceMeters-b.distanceMeters||a.zoneId.localeCompare(b.zoneId));
   return Object.freeze({city:locality,covered:matches.length>0,
    // Zone identity and distance are not street address or PII.
