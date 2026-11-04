@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 6: Restaurantes y Comercios
 
-**Estado:** LAB5 independiente, **NO-GO comercial**.  
+**Estado:** LAB6 cerrado en laboratorio, **NO-GO comercial**.  
 **Rama:** `feat/core-v2-restaurantes-foundation` (creada desde `main`).  
 **PR:** [#8](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/8) (Draft, sin merge ni despliegue).
 
@@ -36,6 +36,18 @@ Ejemplo de una carnicería:
 No se calcula un total por peso dinámico. Cada variante tiene identificador,
 precio, disponibilidad y stock propios. M1 Pedidos realizará la reserva y
 autorización del pedido **cuando exista una integración verificada**.
+
+### LAB6 — operaciones físicas, recuperación y cierre del módulo
+
+La etapa autónoma del M6 queda cerrada en LAB6. Las operaciones de almacén
+ahora permiten **transferencias atómicas entre sucursales**, con débito/crédito
+equilibrados y rollback si falta inventario o el destino está lleno; **conteos
+físicos** con reconciliación y bloqueo de versiones obsoletas; e **historial
+privado** que incluye ajustes, conteos y movimientos entre sedes. El nuevo
+esquema `006_branch_inventory_operations.sql` mantiene trazas inmutables.
+No reserva unidades para pedidos ni invoca pagos.
+
+[Documento formal de cierre y puertas NO-GO](../../docs/MODULO6-RESTAURANTES-CIERRE-LAB6.md).
 
 ### LAB5 — existencias separadas por sucursal
 
