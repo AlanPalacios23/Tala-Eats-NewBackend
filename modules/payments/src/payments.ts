@@ -76,7 +76,7 @@ export async function requestRefund(pool:Pool,actor:Actor,input:{
 }
 
 export async function readPayment(pool:Pool,actor:Actor,paymentId:string){
- requireActor(actor,'canReadPayments');
+ const viewer=requireActor(actor,'canReadPayments');
  const id=uuid(paymentId);
  return tx(pool,async c=>{
   const p=await c.query<{
@@ -85,7 +85,9 @@ export async function readPayment(pool:Pool,actor:Actor,paymentId:string){
    provider_ref:string|null
   }>('SELECT id,order_ref,customer_ref,amount_cents,currency,state,'+
    'version,provider,provider_ref FROM tala_payments_v2.payments WHERE id=$1::uuid',[id]);
-  if(!p.rows[0])throw new PaymentError('M8_PAYMENT_NOT_FOUND');
+  if(!p.rows[0]||(
+    p.rows[0].customer_ref!==viewer&&actor.canReadAllPayments!==true
+   ))throw new PaymentError('M8_PAYMENT_NOT_FOUND');
   const refunds=await c.query<{id:string,amount_cents:string,state:string,version:number}>(
    'SELECT id,amount_cents,state,version FROM tala_payments_v2.refunds '+
    'WHERE payment_id=$1::uuid ORDER BY created_at,id',[id]);
