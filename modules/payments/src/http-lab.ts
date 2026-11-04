@@ -9,6 +9,7 @@ import {ingestLabWebhook} from './webhook.js';
 import {StripeTestClient} from './stripe-test-client.js';
 import {createStripeTestIntent,sendStripeTestRefund} from './stripe-test-operations.js';
 import {ingestStripeTestWebhook} from './stripe-test-webhook.js';
+import {readStripeTestDiagnostics} from './stripe-test-diagnostics.js';
 type Config={pool:Pool,webhookSecret:Buffer,
  authenticate:(request:IncomingMessage)=>Promise<Actor|null>,
  stripeTest?:{client:StripeTestClient,webhookSecret:string}};
@@ -97,6 +98,10 @@ export function createPaymentsLabHttpServer(config:Config){
     reply(res,404,{error:'M8_ROUTE_NOT_FOUND'});return;
    }
    const p=path.slice(2);
+   if(p.length===2&&p[0]==='stripe-test'&&
+      p[1]==='diagnostics'&&method==='GET'){
+    reply(res,200,await readStripeTestDiagnostics(pool,actor));return;
+   }
    if(p.length===0&&method==='POST'){
     const d=await readBody(req,
      ['operationId','orderRef','customerRef','amountCents','currency']);
