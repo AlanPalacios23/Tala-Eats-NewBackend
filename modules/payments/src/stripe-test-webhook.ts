@@ -54,7 +54,9 @@ function parseEvent(raw:Buffer):VerifiedEvent|null{
   throw new PaymentError('M8_STRIPE_WEBHOOK_INVALID');
  if(!STRIPE_TYPES.includes(o.type as EventType))return null;
  const data=safe(o.data),object=safe(data.object);
- if(object.livemode!==false||typeof object.id!=='string')
+ if((o.type.startsWith('refund.')?
+   object.livemode===true||(object.livemode!==undefined&&object.livemode!==false):
+   object.livemode!==false)||typeof object.id!=='string')
   throw new PaymentError('M8_STRIPE_LIVEMODE_FORBIDDEN');
  const refund=o.type.startsWith('refund.');
  if((refund&&!RE.test(object.id))||(!refund&&!PI.test(object.id))||
