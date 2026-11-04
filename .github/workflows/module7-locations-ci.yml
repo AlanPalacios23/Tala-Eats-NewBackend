@@ -55,6 +55,13 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U location_lab \
             -d tala_locations_v2_test \
             -f modules/locations/migrations/001_locations_foundation.sql
+      - name: Add M7-only polygon geofences schema
+        env:
+          PGPASSWORD: m7_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U location_lab \
+            -d tala_locations_v2_test \
+            -f modules/locations/migrations/002_polygon_geofences.sql
       - name: Run isolated DB, privacy, permissions and E2E suites
         env:
           LOCATIONS_CI_URL: postgresql://location_lab:m7_ci_only@127.0.0.1:5432/tala_locations_v2_test
@@ -70,6 +77,12 @@ jobs:
             -d unrelated_m7_test \
             -f modules/locations/migrations/001_locations_foundation.sql; then
             echo "M7 SQL violated lab-only database guard"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U location_lab \
+            -d unrelated_m7_test \
+            -f modules/locations/migrations/002_polygon_geofences.sql; then
+            echo "M7 polygon migration violated lab-only database guard"
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U location_lab \
