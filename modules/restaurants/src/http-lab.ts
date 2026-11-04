@@ -13,6 +13,7 @@ import {scheduleBranchClosure,cancelBranchClosure,listBranchClosures} from './cl
 import {setBranchVariantEnabled,readBranchStorefront} from './branch-catalog.js';
 import {retireProductPhoto} from './media.js';
 import {readMerchantOverview} from './overview.js';
+import {enableBranchInventory,adjustBranchStock,readBranchStock} from './branch-stock.js';
 import {discoverReadyBranches} from './discovery.js';
 
 type Identity=Actor;
@@ -167,6 +168,18 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           ...data,storeId,branchId:pathId(p[2]),variantId:pathId(p[4])
         } as never));return;
       }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='stock'&&method==='GET'){
+        reply(res,200,await readBranchStock(pool,actor,{
+          storeId,branchId:pathId(p[2])
+        }));return;
+      }
+      if(p.length===6&&p[1]==='branches'&&p[3]==='variants'&&
+         p[5]==='stock'&&method==='POST'){
+        const data=await body(req,['operationId','delta','reason']);
+        reply(res,200,await adjustBranchStock(pool,actor,{
+          ...data,storeId,branchId:pathId(p[2]),variantId:pathId(p[4])
+        } as never));return;
+      }
       if(p.length===4&&p[1]==='branches'&&p[3]==='hours'&&method==='PUT'){
         const data=await body(req,['expectedVersion','days']);
         reply(res,200,await setBranchHours(pool,actor,{
@@ -205,6 +218,12 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           'weightGrams','stockQuantity','trackStock']);
         reply(res,201,await createVariant(pool,actor,{
           ...data,storeId,productId:pathId(p[2])
+        } as never));return;
+      }
+      if(p.length===4&&p[1]==='variants'&&p[3]==='branch-inventory'&&method==='POST'){
+        const data=await body(req,['expectedVersion']);
+        reply(res,200,await enableBranchInventory(pool,actor,{
+          ...data,storeId,variantId:pathId(p[2])
         } as never));return;
       }
       if(p.length===4&&p[1]==='variants'&&p[3]==='price'&&method==='PUT'){
@@ -252,7 +271,8 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           e.code==='M6_CONTENT_TYPE_REQUIRED'?415:
           e.code==='M6_BODY_TOO_LARGE'?413:
           ['M6_VERSION_CONFLICT','M6_IDEMPOTENCY_CONFLICT',
-           'M6_CLOSURE_OVERLAP'].includes(e.code)?409:400;
+           'M6_CLOSURE_OVERLAP','M6_STOCK_CONFLICT',
+           'M6_BRANCH_STOCK_SWITCH_CONFLICT'].includes(e.code)?409:400;
         reply(res,status,{error:e.code});return;
       }
       reply(res,500,{error:'M6_INTERNAL_ERROR'});
