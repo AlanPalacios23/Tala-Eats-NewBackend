@@ -3,6 +3,7 @@ import type {Pool} from 'pg';
 import {RestaurantError,person,uuid,slug,field,member,integer,
   optionalText,digest,KINDS,CITIES,ROLES,type Actor,type Kind,type City,type Role} from './domain.js';
 import {tx,access,audit,claim,complete} from './db.js';
+import {assertScheduleConsistency} from './schedule.js';
 type StoreRow={id:string,owner_id:string,slug:string,display_name:string,
  kind:Kind,status:'draft'|'ready'|'paused',description:string,version:number};
 export async function createStore(pool:Pool,actor:Actor,input:{
@@ -90,7 +91,7 @@ export async function changeStoreStatus(pool:Pool,actor:Actor,input:{
       // LAB readiness is not a production approval or publication.
       const gate=await c.query<{ready:boolean}>(
         'SELECT EXISTS(SELECT 1 FROM tala_restaurants_v2.branches b '+
-        'JOIN tala_restaurants_v2.hours h ON h.branch_id=b.id AND NOT h.closed '+
+        'JOIN tala_restaurants_v2.branch_schedule_slots h ON h.branch_id=b.id '+
         'JOIN tala_restaurants_v2.products p ON p.store_id=b.store_id '+
         'JOIN tala_restaurants_v2.variants v ON v.product_id=p.id '+
         'AND v.store_id=p.store_id '+
@@ -224,6 +225,20 @@ export async function setBranchHours(pool:Pool,actor:Actor,input:{
         'close_minute=EXCLUDED.close_minute,updated_at=clock_timestamp()',
         [branch,d.weekday,d.closed,d.open,d.close]);
     }
+    // Keep the canonical schedule synchronized with legacy one-window updates.
+    for(const day of normalized){
+      await c.query(
+        'DELETE FROM tala_restaurants_v2.branch_schedule_slots '+
+        'WHERE branch_id=$1::uuid AND weekday=$2',[branch,day.weekday]);
+      if(!day.closed){
+        await c.query(
+          'INSERT INTO tala_restaurants_v2.branch_schedule_slots '+
+          '(branch_id,weekday,slot,open_minute,close_minute) '+
+          'VALUES($1::uuid,$2,0,$3,$4)',
+          [branch,day.weekday,day.open,day.close]);
+      }
+    }
+    await assertScheduleConsistency(c,branch);
     await audit(c,store,user,'branch.hours',branch);
     return {branchId:branch,version:r.rows[0].version,updatedDays:normalized.length};
   });
@@ -234,14 +249,20 @@ export async function listBranches(pool:Pool,actor:Actor,storeId:string){
     await access(c,id,user);
     const r=await c.query(
       'SELECT id,branch_name,address_text,city,pickup_enabled,'+
-      'delivery_enabled,latitude,longitude,is_active,version '+
+      'delivery_enabled,latitude,longitude,is_active,version,'+
+      'prep_minutes,parallel_prep_slots '+
       'FROM tala_restaurants_v2.branches WHERE store_id=$1::uuid ORDER BY created_at',
       [id]);
     const h=await c.query(
       'SELECT h.branch_id,h.weekday,h.closed,h.open_minute,h.close_minute '+
       'FROM tala_restaurants_v2.hours h JOIN tala_restaurants_v2.branches b '+
       'ON b.id=h.branch_id WHERE b.store_id=$1::uuid ORDER BY h.weekday',[id]);
-    return {branches:r.rows,hours:h.rows};
+    const slots=await c.query(
+      'SELECT s.branch_id,s.weekday,s.slot,s.open_minute,s.close_minute '+
+      'FROM tala_restaurants_v2.branch_schedule_slots s '+
+      'JOIN tala_restaurants_v2.branches b ON b.id=s.branch_id '+
+      'WHERE b.store_id=$1::uuid ORDER BY s.weekday,s.slot',[id]);
+    return {branches:r.rows,hours:h.rows,scheduleSlots:slots.rows};
   },true);
 }
 
@@ -268,6 +289,7 @@ export async function setBranchActive(pool:Pool,actor:Actor,input:{
 /** Internal read-only contract. Store is not offered for sale outside its
  * configured local schedule. No holiday overrides or live dispatch here.
  */
+/** M6 availability is based on canonical split/overnight local schedules. */
 export async function getBranchAvailability(pool:Pool,input:{
  storeId:string,branchId:string,at?:Date
 }){
@@ -278,28 +300,21 @@ export async function getBranchAvailability(pool:Pool,input:{
   return tx(pool,async c=>{
     const r=await c.query<{
       status:'draft'|'ready'|'paused',is_active:boolean,pickup_enabled:boolean,
-      delivery_enabled:boolean,closed:boolean,exception_closed:boolean,
-      open_minute:number|null,close_minute:number|null,local_minute:number
+      delivery_enabled:boolean,schedule_open:boolean,exception_closed:boolean
     }>(
       'SELECT s.status,b.is_active,b.pickup_enabled,b.delivery_enabled,'+
-      'coalesce(h.closed,true) AS closed,h.open_minute,h.close_minute,'+
+      'tala_restaurants_v2.is_branch_scheduled_open(b.id,$3::timestamptz) '+
+      'AS schedule_open,'+
       'EXISTS(SELECT 1 FROM tala_restaurants_v2.branch_closures e '+
       'WHERE e.branch_id=b.id AND e.store_id=s.id '+
       'AND e.cancelled_at IS NULL AND e.starts_at<=$3::timestamptz '+
-      'AND e.ends_at>$3::timestamptz) AS exception_closed,'+
-      '(extract(hour from ($3::timestamptz AT TIME ZONE \'America/Mexico_City\'))::int*60+'+
-      'extract(minute from ($3::timestamptz AT TIME ZONE \'America/Mexico_City\'))::int) AS local_minute '+
+      'AND e.ends_at>$3::timestamptz) AS exception_closed '+
       'FROM tala_restaurants_v2.stores s JOIN tala_restaurants_v2.branches b '+
-      'ON b.store_id=s.id LEFT JOIN tala_restaurants_v2.hours h '+
-      'ON h.branch_id=b.id AND h.weekday=extract(dow FROM '+
-      '($3::timestamptz AT TIME ZONE \'America/Mexico_City\'))::int '+
-      'WHERE s.id=$1::uuid AND b.id=$2::uuid',[store,branch,when]);
+      'ON b.store_id=s.id WHERE s.id=$1::uuid AND b.id=$2::uuid',
+      [store,branch,when]);
     const row=r.rows[0];
     if(!row)throw new RestaurantError('M6_BRANCH_NOT_FOUND');
-    const scheduleOpen=!row.closed&&row.open_minute!==null&&
-      row.close_minute!==null&&row.local_minute>=row.open_minute&&
-      row.local_minute<row.close_minute;
-    const open=row.status==='ready'&&row.is_active&&scheduleOpen&&
+    const open=row.status==='ready'&&row.is_active&&row.schedule_open&&
       !row.exception_closed;
     return Object.freeze({
       storeId:store,branchId:branch,timeZone:'America/Mexico_City',
@@ -308,7 +323,7 @@ export async function getBranchAvailability(pool:Pool,input:{
       reason:row.status!=='ready'?'STORE_NOT_READY':
         !row.is_active?'BRANCH_PAUSED':
         row.exception_closed?'EXCEPTIONAL_CLOSURE':
-        !scheduleOpen?'OUTSIDE_HOURS':'OPEN'
+        !row.schedule_open?'OUTSIDE_HOURS':'OPEN'
     });
   },true);
 }
