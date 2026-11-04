@@ -1,6 +1,6 @@
 # Tala Eats Core v2 — M8 Pagos: arquitectura aislada LAB1
 
-**Fecha:** 4 de noviembre de 2026. **Estado:** LAB1 en desarrollo y pruebas.
+**Fecha:** 4 de noviembre de 2026. **Estado:** LAB2 Stripe TEST autónomo; no conexión a cuenta TEST real en CI.
 **NO-GO para Stripe LIVE, pagos reales, merge y despliegue Kali.**
 
 ## Límites de responsabilidad
@@ -16,6 +16,28 @@
 | Notificaciones al cliente/comercio | M5 Notificaciones |
 
 **M8 no importa código, no crea FKs ni realiza queries a tablas de ningún otro módulo**. El límite actual se expresa mediante campos UUID de referencia que el host debe autenticar y asociar antes de integrar. M8 tampoco controla tarifas, 15 % versus 17 %, ni calcula comisión/reparto de ingresos: esa diferencia pendiente se resuelve en el contrato de precios de M1 y Finanzas.
+
+## LAB2 — Stripe TEST exclusivo del dominio de Pagos
+
+Se incorporó un adaptador `StripeTestClient` limitado a claves `sk_test_`
+y endpoints de PaymentIntents y Refunds, con transporte injectable para pruebas
+sin red. Las operaciones guardan su clave idempotente y lease en SQL **antes**
+de ejecutar llamadas remotas, y nunca hacen una solicitud nueva con una clave
+diferente ante una respuesta de red ambigua. El retry de una operación
+desconocida se bloquea al superar 20 h, para exigir conciliación manual.
+
+Los webhooks Stripe TEST usan `Stripe-Signature`, bytes raw, ventana de
+300 segundos, igualdad constante, validación de montos y asociación por
+`m8_payment_id` / `m8_refund_id`. La firma por sí sola no basta:
+se rechaza cualquier evento con `livemode=true`. El simulador LAB1 nunca
+puede confirmar un pago `provider=stripe_test`.
+
+Los hechos `stripe_test_facts` permanecen separados de
+`verified_facts` del simulador, y **no** se publican a Finanzas ni se
+presentan como dinero bancario/Stripe LIVE. Las migraciones 001–002
+funcionan solo en la DB LAB de M8.
+
+[Detalle técnico, reintentos, pruebas y pendientes LAB2](MODULO8-PAGOS-LAB2-STRIPE-TEST.md).
 
 ## Esquema propio
 
