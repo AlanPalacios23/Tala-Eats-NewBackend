@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,randomBytes} from 'node:crypto';
 import type {AddressInfo} from 'node:net';
 import pg from 'pg';
 import {createRestaurantsLabHttpServer} from '../src/http-lab.js';
@@ -102,6 +102,46 @@ test('M6 HTTP LAB E2E: private identity, store, branch, hours and catalog contra
     assert.equal(cancelled.result.cancelled,true);
     assert.equal((await call('POST',
       exceptional+'/'+closureId+'/cancel',{},bearer)).result.cancelled,false);
+    const storefront='/v1/restaurants/'+storeId+'/branches/'+branchId+'/storefront';
+    const listing=await call('GET',storefront,undefined,other);
+    assert.equal(listing.status,200);
+    assert.equal((listing.result.items as unknown[]).length,1);
+    assert.ok(!JSON.stringify(listing.result).includes(owner));
+    assert.equal((await call('GET',storefront+'?limit=0',
+      undefined,bearer)).status,400);
+    const discover=await call('GET','/v1/restaurants/discover?city=tala',
+      undefined,other);
+    assert.equal(discover.status,200);
+    assert.ok((discover.result.items as Array<{storeId:string}>)
+      .some(x=>x.storeId===storeId));
+    const overview=await call('GET','/v1/restaurants/'+storeId+'/overview',
+      undefined,bearer);
+    assert.equal(overview.status,200);
+    assert.equal((overview.result.catalog as Record<string,unknown>).activeVariants,1);
+    assert.equal((await call('GET','/v1/restaurants/'+storeId+'/overview',
+      undefined,other)).status,403);
+    const switched=await call('PUT',
+      '/v1/restaurants/'+storeId+'/branches/'+branchId+
+        '/variants/'+variantId+'/enabled',
+      {expectedVersion:0,enabled:false},bearer);
+    assert.equal(switched.status,200);
+    assert.equal((await call('GET',storefront,
+      undefined,other)).result.items instanceof Array,true);
+    assert.equal(((await call('GET',storefront,
+      undefined,other)).result.items as unknown[]).length,0);
+    const newPhoto=await call('POST',
+      '/v1/restaurants/'+storeId+'/products/'+productId+'/photos',
+      {sha256:randomBytes(32).toString('hex'),contentType:'image/png'},bearer);
+    assert.equal(newPhoto.status,201);
+    const photoId=String(newPhoto.result.id);
+    assert.equal((await call('POST',
+      '/v1/restaurants/'+storeId+'/products/'+productId+
+        '/photos/'+photoId+'/retire',{},other)).status,403);
+    const retired=await call('POST',
+      '/v1/restaurants/'+storeId+'/products/'+productId+
+        '/photos/'+photoId+'/retire',{},bearer);
+    assert.equal(retired.status,200);
+    assert.equal(retired.result.retired,true);
     const otherStock=await call('POST','/v1/restaurants/'+storeId+'/variants/'+
       variantId+'/stock',{operationId:id(),delta:-1,reason:'waste'},other);
     assert.equal(otherStock.status,403);
