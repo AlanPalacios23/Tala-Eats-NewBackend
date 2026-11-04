@@ -142,11 +142,16 @@ test('M6 offer snapshot is available only for ready store and correct branch/var
     await changeStoreStatus(pool,owner,{storeId:store.id,
       expectedVersion:1,status:'ready'});
     const ready=await readOfferSnapshot(pool,{storeId:store.id,
-      branchId:branch.id,variantId:variant.id});
+      branchId:branch.id,variantId:variant.id,
+      at:new Date('2026-11-02T17:00:00Z')});
     assert.equal(ready.currency,'MXN');
     assert.equal(Number(ready.price_cents),2500);
     assert.equal(ready.weight_grams,500);
     assert.equal(ready.available,true);
+    const offHours=await readOfferSnapshot(pool,{storeId:store.id,
+      branchId:branch.id,variantId:variant.id,
+      at:new Date('2026-11-03T05:00:00Z')});
+    assert.equal(offHours.available,false);
     const second=await storeFor(pool,outsider,'different');
     await fail(()=>readOfferSnapshot(pool,{storeId:second.id,
       branchId:branch.id,variantId:variant.id}),'M6_OFFER_UNAVAILABLE');
