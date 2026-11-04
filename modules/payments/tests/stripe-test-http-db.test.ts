@@ -45,7 +45,7 @@ test('M8 LAB2 TEST-only HTTP API: host permissions, PaymentIntent, refunds and n
   return new Response('{}',{status:404});
  }});
  const actor={actorId:id(),canCreatePayments:true,canRefundPayments:true,
-  canReadPayments:true,canMonitorPayments:true},denied={actorId:id()};
+  canReadPayments:true,canReadAllPayments:true,canMonitorPayments:true},denied={actorId:id()};
  const server=createPaymentsLabHttpServer({pool,webhookSecret:randomBytes(32),
   stripeTest:{client,webhookSecret:whsec},
   authenticate:async req=>req.headers.authorization===token?actor:
