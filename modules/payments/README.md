@@ -1,6 +1,6 @@
 # Tala Eats Core v2 — M8 Pagos (LAB3, cierre autónomo)
 
-**Estado:** **LAB3 — desarrollo autónomo cerrado sujeto a CI final**, Stripe TEST aislado y SQL reforzado. **NO-GO LIVE / NO-GO merge / NO-GO dinero real**.
+**Estado:** **M8 CERRADO EN LAB3**, Stripe TEST aislado y SQL reforzado. **GO solo para continuar el siguiente módulo autónomo / NO-GO LIVE / NO-GO merge / NO-GO dinero real**.
 
 **Rama** `feat/core-v2-pagos-foundation`, creada directamente desde `main`.
 **Código** `modules/payments/**`, **base** `tala_payments_v2_test` o `tala_payments_v2_lab`, esquema PostgreSQL `tala_payments_v2`.
