@@ -5,7 +5,13 @@ export class LocationError extends Error {
 export const CITIES=['tala','ameca','ahualulco','tequila','cuisillos','amatitan'] as const;
 export type City=typeof CITIES[number];
 export type Point={latitude:number,longitude:number};
-export type Actor={actorId:string,canManageZones?:boolean};
+/** Only the trusted host assigns these permissions, never the request body. */
+export type Actor={
+ actorId:string,
+ canManageZones?:boolean,
+ /** Foreground opt-in or verified active-delivery tracking, checked by host. */
+ locationConsentPurposes?:readonly ('foreground'|'active_delivery')[]
+};
 export const uuid=(v:unknown):string=>{
  if(typeof v!=='string'||!(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)))
    throw new LocationError('M7_UUID_INVALID');
