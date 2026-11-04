@@ -24,6 +24,9 @@ guardan **por separado** de los eventos del simulador, sin publicarse a M3.
   `{}`, verifica pertenencia y permiso de refund; TEST únicamente.
 - `POST /v1/payments/stripe-test-webhook` — cuerpo JSON raw y
   `Stripe-Signature` real, sin auth bearer, solo loopback.
+- `GET /v1/payments/stripe-test/diagnostics` — solo rol elevado
+  `canMonitorPayments` inyectado por host, métricas agregadas de operaciones
+  pendientes, conciliación manual y hechos faltantes; sin PII.
 
 Estas rutas requieren que el host configure explícitamente
 `stripeTest: {client, webhookSecret}`. No existen claves configuradas en el
