@@ -2,7 +2,7 @@ name: M6 Restaurantes — standalone LAB
 on:
   push:
     branches: ['feat/core-v2-restaurantes-foundation']
-    paths: ['modules/restaurants/**', '.github/workflows/module6-restaurants-ci.yml', 'docs/MODULO6-RESTAURANTES-ARQUITECTURA.md', 'docs/MODULO6-RESTAURANTES-LAB5-INVENTARIO-SUCURSAL.md']
+    paths: ['modules/restaurants/**', '.github/workflows/module6-restaurants-ci.yml', 'docs/MODULO6-RESTAURANTES-ARQUITECTURA.md', 'docs/MODULO6-RESTAURANTES-LAB5-INVENTARIO-SUCURSAL.md', 'docs/MODULO6-RESTAURANTES-CIERRE-LAB6.md']
   pull_request:
     paths: ['modules/restaurants/**', '.github/workflows/module6-restaurants-ci.yml', 'docs/MODULO6-RESTAURANTES-ARQUITECTURA.md']
   workflow_dispatch:
