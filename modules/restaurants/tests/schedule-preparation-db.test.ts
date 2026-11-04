@@ -14,7 +14,7 @@ import {discoverReadyBranches} from '../src/discovery.js';
 import {createRestaurantsLabHttpServer} from '../src/http-lab.js';
 
 const url=process.env.RESTAURANTS_CI_URL??'';
-const enabled=/\\/tala_restaurants_v2_test(?:$|\\?)/.test(url);
+const enabled=url.includes('/tala_restaurants_v2_test');
 const id=()=>randomUUID();
 const fail=(task:()=>Promise<unknown>,code:string)=>assert.rejects(task,
   (err:unknown)=>err instanceof RestaurantError&&err.code===code);
