@@ -1,8 +1,28 @@
 # TALA EATS CORE v2 — Módulo 7: Ubicaciones
 
-**Independiente · LAB1 · NO-GO comercial.** 
+**Independiente · LAB2 · NO-GO comercial.** 
 No importa ni consulta módulos Pedidos, Logística, Finanzas, Usuarios,
 Notificaciones, Restaurantes o el backend anterior.
+
+## LAB2: zonas poligonales independientes
+
+La migración `002_polygon_geofences.sql` agrega polígonos definidos por un
+operador confiable, con 3–64 vértices, límites de tamaño, rechazo de
+autointersecciones, pertenencia con borde incluido, control de versiones,
+idempotencia y auditoría. Solo se habilitan mediante activación explícita.
+
+La consulta **nueva** `GET /v1/locations/coverage/v2` combina zonas activas
+circulares y poligonales con el mismo municipio declarado, devolviendo
+`model=operator_defined_geofences_v2` y
+`operationallyVerified=false`. No valida calles, cobertura realmente operativa,
+repartidores ni tarifas. La consulta antigua `GET /coverage` sigue siendo
+solo circular por compatibilidad.
+
+Gestión privada del operador, API LAB loopback:
+`POST/GET /v1/locations/polygons` y
+`PATCH /v1/locations/polygons/:zoneId`.
+
+[Documentación y límites de LAB2](../../docs/MODULO7-UBICACIONES-LAB2-POLIGONOS.md).
 
 ## Lo que resuelve este módulo
 
@@ -74,7 +94,7 @@ npm run check
 ```
 
 Los tests PostgreSQL requieren `LOCATIONS_CI_URL` apuntando a
-`tala_locations_v2_test` con migración 001 aplicada. CI prepara y
+`tala_locations_v2_test` con migraciones 001 y 002 aplicadas. CI prepara y
 descarta PostgreSQL 16, verifica TypeScript, aislamiento de imports,
 propiedad de datos, encriptación, vencimientos, idempotencia y que una
 migración a una base ajena falle.
