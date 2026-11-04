@@ -219,7 +219,11 @@ export async function readOfferSnapshot(pool:Pool,input:{
       'JOIN tala_restaurants_v2.products p ON p.store_id=s.id '+
       'JOIN tala_restaurants_v2.variants v ON v.product_id=p.id '+
       'AND v.store_id=p.store_id '+
+      'LEFT JOIN tala_restaurants_v2.branch_variant_controls ctrl '+
+      'ON ctrl.store_id=v.store_id AND ctrl.branch_id=b.id '+
+      'AND ctrl.variant_id=v.id '+
       'WHERE s.id=$1::uuid AND b.id=$2::uuid AND v.id=$3::uuid '+
+      'AND coalesce(ctrl.enabled,true) '+
       "AND s.status='ready' AND b.is_active AND p.is_active "+
       'AND p.archived_at IS NULL AND v.is_active',
       [store,branch,variant]);
