@@ -146,10 +146,16 @@ export async function ingestStripeTestWebhook(pool:Pool,secret:string,
      applied=true;
     }else if(currentState!=='canceled')
      throw new PaymentError('M8_EVENT_STATE_CONFLICT');
+   }else if(event.type==='payment_intent.payment_failed'){
+    // A failed attempt is not necessarily a terminal PaymentIntent.
+    // But its signed payload must not claim the charge succeeded.
+    if(status!=='requires_payment_method'&&status!=='requires_confirmation')
+     throw new PaymentError('M8_STRIPE_WEBHOOK_INVALID');
    }
-   // payment_failed is one failed attempt: PaymentIntent can be retried.
   }else{
    const status=event.object.status;
+   if(event.type==='refund.failed'&&status!=='failed')
+    throw new PaymentError('M8_STRIPE_WEBHOOK_INVALID');
    if(status==='succeeded'&&currentState==='requested'){
     await c.query('UPDATE tala_payments_v2.refunds SET state=$2,'+
      'version=version+1,updated_at=clock_timestamp() WHERE id=$1::uuid',
