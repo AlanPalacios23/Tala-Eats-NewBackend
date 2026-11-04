@@ -106,3 +106,30 @@ otros PR en borrador.
 
 **Este documento no autoriza desplegar a Kali ni activar cobros,
 transferencias, wallets o pedidos reales.**
+
+## Ampliación LAB3 — Cierres extraordinarios por sucursal
+
+La migración `003_branch_closures.sql` incorpora excepciones al horario semanal
+con ventanas UTC de máximo 31 días y motivos de cierre festivo,
+mantenimiento, emergencia u otros. El módulo no depende de Pedidos ni
+Logística para crear o cancelar estos intervalos.
+
+- `scheduleBranchClosure`, `cancelBranchClosure` y
+  `listBranchClosures` están acotados a la tienda y su sucursal,
+  con autorización sólo del propietario o gerente para modificar.
+- La concurrencia entre gerentes se serializa mediante bloqueo
+  transaccional de la tienda. Se rechazan ventanas traslapadas y
+  se conservan las operaciones idempotentes.
+- `getBranchAvailability` informa `EXCEPTIONAL_CLOSURE`
+  cuando corresponde, sin borrar horarios permanentes ni pausar
+  otras sucursales.
+- Existe API HTTP sólo de LAB con autenticación inyectada, pruebas
+  de accesos cruzados y rechazo de editores/extraños.
+- La CI aplica y valida migración 003 y comprueba que una base
+  ajena no pueda modificar su esquema.
+
+**Límite:** las excepciones son informativas de disponibilidad;
+no cancelan pedidos pendientes, no hacen reembolsos ni notifican
+automáticamente a clientes/repartidores. Requieren contratos futuros
+y pruebas E2E con M1/M2/M5. La disponibilidad comercial depende también
+de capacidad y reglas de despacho aún no implementadas.
