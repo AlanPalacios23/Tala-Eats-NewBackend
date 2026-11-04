@@ -34,7 +34,7 @@ export async function readMerchantOverview(pool:Pool,actor:Actor,storeId:string)
       'AND (NOT v.track_stock OR (NOT v.branch_stock_enabled AND v.stock_quantity>0) '+
       'OR (v.branch_stock_enabled AND EXISTS(SELECT 1 FROM '+
       'tala_restaurants_v2.branch_stock bs WHERE bs.store_id=v.store_id '+
-      'AND bs.variant_id=v.id AND bs.quantity>0))) AS in_stock_variants,'+
+      'AND bs.variant_id=v.id AND bs.quantity>0)))) AS in_stock_variants,'+
       '(SELECT count(*)::int FROM tala_restaurants_v2.variants v '+
       'JOIN tala_restaurants_v2.products p ON p.id=v.product_id '+
       'AND p.store_id=v.store_id WHERE v.store_id=$1::uuid '+
