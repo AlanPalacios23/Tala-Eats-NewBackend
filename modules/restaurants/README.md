@@ -113,7 +113,7 @@ contraseñas ni fotos reales.
 ## Pruebas de CI
 
 La acción M6 propia levanta PostgreSQL 16 en base descartable, corre
-`npm run check` (TypeScript estricto + tests puros), aplica migración 001,
+`npm run check` (TypeScript estricto + tests puros), aplica migraciones 001 y 002,
 ejecuta E2E de PostgreSQL/HTTP y rechaza aplicar migraciones en otras BD.
 
 La batería cubre:
@@ -134,3 +134,15 @@ disponibilidad por feriados/saturación, reservas de stock, sincronización
 entre sucursales, soporte offline y localización; pruebas de estrés
 reproducibles, observabilidad, copias/restore, pruebas de las PWA y permisos
 comerciales/seguridad. No desplegar sobre Kali LIVE ni usar Stripe LIVE.
+
+## LAB2 — Integridad del inventario
+
+La migración `002_stock_integrity.sql` vuelve el historial de ajustes de
+inventario **append-only** mediante un trigger SQL; no se pueden modificar ni
+eliminar ajustes registrados. Además, `restock` solo admite delta positivo,
+`waste` solo delta negativo y `correction` admite ambos con motivo
+explícito. La API valida las mismas reglas antes de llegar a PostgreSQL.
+
+Estas garantías se prueban en la CI aislada de M6 y no implican reserva
+transaccional durante un pedido. La reserva/consumo final de existencias
+requiere un contrato posterior con M1 Pedidos.
