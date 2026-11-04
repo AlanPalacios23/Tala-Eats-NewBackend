@@ -63,6 +63,9 @@ test('M8 LAB HTTP E2E: no public payment authority, forged roles or unsigned cal
   assert.equal(rep.body.replayed,true);
   const read=await call('GET','/v1/payments/'+idPayment,owner);
   assert.equal(read.body.state,'succeeded');
+  const replayCreated=await call('POST','/v1/payments',owner,input);
+  assert.equal(replayCreated.body.replayed,true);
+  assert.equal(replayCreated.body.state,'succeeded');
   assert.equal(read.body.facts.length,1);
   assert.equal(read.body.facts[0].source,'simulated_lab');
   assert.equal(read.cache,'private, no-store');
