@@ -82,6 +82,13 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U merchant_lab \
             -d tala_restaurants_v2_test \
             -f modules/restaurants/migrations/006_branch_inventory_operations.sql
+      - name: Apply split/overnight merchant schedules and preparation settings
+        env:
+          PGPASSWORD: only_for_m6_ci
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U merchant_lab \
+            -d tala_restaurants_v2_test \
+            -f modules/restaurants/migrations/007_branch_schedule_preparation.sql
       - name: Integration, RBAC, version conflicts and immutable ledger
         env:
           RESTAURANTS_CI_URL: postgresql://merchant_lab:only_for_m6_ci@127.0.0.1:5432/tala_restaurants_v2_test
@@ -127,6 +134,12 @@ jobs:
             -d m6_unrelated \
             -f modules/restaurants/migrations/006_branch_inventory_operations.sql; then
             echo "M6 stock operations migration touched a non-M6 database"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U merchant_lab \
+            -d m6_unrelated \
+            -f modules/restaurants/migrations/007_branch_schedule_preparation.sql; then
+            echo "M6 schedule/preparation migration touched a non-M6 database"
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U merchant_lab -d m6_unrelated \
