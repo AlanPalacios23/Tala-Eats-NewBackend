@@ -33,6 +33,7 @@ POST /v1/payments/:paymentId/refunds
 POST /v1/payments/:paymentId/refunds/:refundId/stripe-test-send
 POST /v1/payments/stripe-test-webhook
 GET  /v1/payments/:paymentId
+GET  /v1/payments/stripe-test/diagnostics
 ```
 
 - La primera ruta crea **únicamente** la solicitud local de pago, con rol `canCreatePayments` provisto por el host. La activación Stripe TEST de la segunda ruta usa también este permiso; el `body` es `{}`.
