@@ -88,17 +88,25 @@ export async function changeStoreStatus(pool:Pool,actor:Actor,input:{
     if(current.version!==ver)throw new RestaurantError('M6_VERSION_CONFLICT');
     if(status==='ready'){
       // LAB readiness is not a production approval or publication.
-      const gate=await c.query<{branch:boolean,catalog:boolean}>(
+      const gate=await c.query<{ready:boolean}>(
         'SELECT EXISTS(SELECT 1 FROM tala_restaurants_v2.branches b '+
-        'JOIN tala_restaurants_v2.hours h ON h.branch_id=b.id '+
-        'WHERE b.store_id=$1::uuid AND b.is_active AND NOT h.closed) AS branch,'+
-        'EXISTS(SELECT 1 FROM tala_restaurants_v2.products p '+
+        'JOIN tala_restaurants_v2.hours h ON h.branch_id=b.id AND NOT h.closed '+
+        'JOIN tala_restaurants_v2.products p ON p.store_id=b.store_id '+
         'JOIN tala_restaurants_v2.variants v ON v.product_id=p.id '+
         'AND v.store_id=p.store_id '+
-        'WHERE p.store_id=$1::uuid AND p.is_active AND p.archived_at IS NULL '+
-        'AND v.is_active AND (NOT v.track_stock OR v.stock_quantity>0)) AS catalog',
+        'LEFT JOIN tala_restaurants_v2.branch_variant_controls ctrl '+
+        'ON ctrl.store_id=b.store_id AND ctrl.branch_id=b.id '+
+        'AND ctrl.variant_id=v.id '+
+        'LEFT JOIN tala_restaurants_v2.branch_stock bs '+
+        'ON bs.store_id=b.store_id AND bs.branch_id=b.id '+
+        'AND bs.variant_id=v.id '+
+        'WHERE b.store_id=$1::uuid AND b.is_active '+
+        'AND p.is_active AND p.archived_at IS NULL AND v.is_active '+
+        'AND coalesce(ctrl.enabled,true) AND '+
+        '(NOT v.track_stock OR (CASE WHEN v.branch_stock_enabled '+
+        'THEN coalesce(bs.quantity,0) ELSE v.stock_quantity END)>0)) AS ready',
         [id]);
-      if(!gate.rows[0]?.branch||!gate.rows[0]?.catalog)
+      if(!gate.rows[0]?.ready)
         throw new RestaurantError('M6_ONBOARDING_INCOMPLETE');
     }
     const r=await c.query<StoreRow>(
