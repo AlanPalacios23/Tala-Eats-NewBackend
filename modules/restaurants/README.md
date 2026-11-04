@@ -146,3 +146,30 @@ explícito. La API valida las mismas reglas antes de llegar a PostgreSQL.
 Estas garantías se prueban en la CI aislada de M6 y no implican reserva
 transaccional durante un pedido. La reserva/consumo final de existencias
 requiere un contrato posterior con M1 Pedidos.
+
+## LAB3 — Cierres extraordinarios por sucursal
+
+Sin acoplarse a pedidos ni repartidores, `003_branch_closures.sql` incorpora
+intervalos temporales de cierre por sucursal:
+
+- **Motivos:** festivo, mantenimiento, emergencia u otro.
+- **Sólo propietario/gerente:** `scheduleBranchClosure`, `cancelBranchClosure`
+  y listado autorizado. Los editores no pueden imponer cierres.
+- **Idempotencia y concurrencia:** operación UUID, fingerprint y bloqueo
+  sobre la tienda; impide intervalos solapados cuando dos gerentes actúan
+  simultáneamente. Una operación cancelada no reaparece automáticamente.
+- **Validación:** horas ISO UTC con milisegundos, fin posterior al inicio,
+  máximo 31 días y vínculo del cierre con su tienda y sucursal.
+- **Disponibilidad:** `getBranchAvailability` devuelve
+  `EXCEPTIONAL_CLOSURE` mientras un cierre esté vigente, sin borrar el
+  calendario semanal ni detener otras sucursales.
+- **API HTTP LAB:** `GET/POST /v1/restaurants/:storeId/branches/:branchId/closures`
+  y `POST .../closures/:closureId/cancel`, con identidad inyectada.
+- **Control de alcance:** un cierre **no cancela pedidos** existentes ni
+  avisa a clientes o repartidores. Esos efectos requieren contratos
+  explícitos con M1/M2/M5 cuando se integren los módulos.
+
+Se prueban una semana de horarios en `America/Mexico_City`,
+falsificación de propietario, cancelación, superposición,
+paralelismo entre gerentes, acceso HTTP y migración contra base ajena.
+El módulo sigue **NO-GO comercial**.
