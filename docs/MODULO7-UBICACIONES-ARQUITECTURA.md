@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 7: Ubicaciones
 
-**Estado:** LAB2 en rama independiente. **NO-GO comercial / LIVE.**  
+**Estado:** LAB3 en rama independiente; cierre técnico sujeto a CI final. **NO-GO comercial / LIVE.**  
 **Rama:** `feat/core-v2-ubicaciones-foundation` desde `main`.  
 **Esquema aislado:** `tala_locations_v2` en la base `tala_locations_v2_test` o
 `tala_locations_v2_lab`.
@@ -16,6 +16,22 @@ semillas con coordenadas inventadas** ni supuestos de cobertura por municipio.
 El módulo NO contiene código de Pedidos, Logística, Pagos, Usuarios,
 Restaurantes ni Notificaciones. No tiene importaciones o claves ajenas y
 no interactúa con Kali, Stripe, Firebase, Cloudflared ni mapas externos.
+
+### LAB3 — consentimiento y eliminación de ubicaciones
+
+- Para escribir un snapshot GPS, `consent:true` es necesario pero no suficiente:
+  un host confiable entrega `Actor.locationConsentPurposes`, separado para
+  `foreground` y `active_delivery`. No se puede ampliar mediante HTTP.
+- Se incorpora `eraseMyLocationData` y
+  `DELETE /v1/locations/privacy/data` para borrar atómicamente datos
+  geográficos personales del propio usuario, incluidos recibos de creación.
+- Los snapshots se serializan por propietario con esta eliminación.
+- La identidad real y el otorgamiento/revocación de permisos GPS requieren
+  integración externa; M7 no decide si existe una entrega activa.
+- Purga de WAL/backups, retención de auditoría pseudónima, rotación de claves
+  y limpieza automática GPS siguen bloqueantes para producción.
+
+[Contrato de privacidad LAB3](MODULO7-UBICACIONES-LAB3-PRIVACIDAD.md).
 
 ### LAB2 — geometría poligonal opcional
 
