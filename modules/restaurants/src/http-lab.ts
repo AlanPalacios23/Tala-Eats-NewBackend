@@ -5,7 +5,7 @@ import {createServer,type IncomingMessage,type ServerResponse} from 'node:http';
 import type {Pool} from 'pg';
 import {RestaurantError,uuid,person,assertKeys,type Actor} from './domain.js';
 import {createStore,readStore,listMyStores,updateStore,changeStoreStatus,
- setStaffRole,createBranch,setBranchHours,listBranches} from './stores.js';
+ setStaffRole,createBranch,setBranchHours,setBranchActive,listBranches} from './stores.js';
 import {createProduct,updateProduct,archiveProduct,createVariant,setVariantPrice,
  adjustStock,readCatalog} from './catalog.js';
 import {prepareProductPhoto,listProductPhotos,selectPrimaryPhoto} from './media.js';
@@ -106,6 +106,12 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
       if(p.length===4&&p[1]==='branches'&&p[3]==='hours'&&method==='PUT'){
         const data=await body(req,['expectedVersion','days']);
         reply(res,200,await setBranchHours(pool,actor,{
+          ...data,storeId,branchId:pathId(p[2])
+        } as never));return;
+      }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='active'&&method==='PUT'){
+        const data=await body(req,['expectedVersion','active']);
+        reply(res,200,await setBranchActive(pool,actor,{
           ...data,storeId,branchId:pathId(p[2])
         } as never));return;
       }
