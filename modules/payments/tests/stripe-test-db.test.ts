@@ -123,8 +123,9 @@ test('M8 LAB2 Stripe TEST PI setup is durable, test-only and rejects mock provid
   const applied=await ingestStripeTestWebhook(pool,webhookSecret,
    webhook.raw,webhook.signature);
   assert.equal(applied.applied,true);
-  assert.equal((await ingestStripeTestWebhook(pool,webhookSecret,
-   webhook.raw,webhook.signature)).replayed,true);
+  const duplicatePayment=await ingestStripeTestWebhook(pool,webhookSecret,
+   webhook.raw,webhook.signature);
+  assert.equal('replayed' in duplicatePayment&&duplicatePayment.replayed,true);
   assert.equal((await readPayment(pool,operator,pay.id)).state,'succeeded');
   const stripeFacts=await pool.query<{source:string,amount_cents:string}>(
    'SELECT source,amount_cents::text FROM tala_payments_v2.stripe_test_facts '+
@@ -172,7 +173,7 @@ test('M8 LAB2 refund provider results are not settlement until signed webhook',
   assert.equal(first.applied,true);
   const repeated=await ingestStripeTestWebhook(pool,webhookSecret,
    completed.raw,completed.signature);
-  assert.equal(repeated.replayed,true);
+  assert.equal('replayed' in repeated&&repeated.replayed,true);
   assert.equal((await readPayment(pool,operator,p.id)).refunds[0]!.state,
    'succeeded');
   const rest=await requestRefund(pool,operator,{
