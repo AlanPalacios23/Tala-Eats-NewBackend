@@ -17,7 +17,12 @@ export async function createPayment(pool:Pool,actor:Actor,input:{
   unit=currency(input.currency),fingerprint=digest({order,customer,money,unit});
  return tx(pool,async c=>{
   const prior=await claim(c,operator,op,'payment.create',fingerprint);
-  if(prior)return Object.freeze({id:prior,replayed:true,state:'pending' as const});
+  if(prior){
+   const current=await c.query<{state:string}>(
+    'SELECT state FROM tala_payments_v2.payments WHERE id=$1::uuid',[prior]);
+   if(!current.rows[0])throw new PaymentError('M8_IDEMPOTENCY_CONFLICT');
+   return Object.freeze({id:prior,replayed:true,state:current.rows[0].state});
+  }
   const id=randomUUID();
   try{
    await c.query('INSERT INTO tala_payments_v2.payments '+
@@ -43,7 +48,12 @@ export async function requestRefund(pool:Pool,actor:Actor,input:{
  const fingerprint=digest({payment,money});
  return tx(pool,async c=>{
   const prior=await claim(c,operator,op,'refund.request',fingerprint);
-  if(prior)return Object.freeze({id:prior,replayed:true,state:'requested' as const});
+  if(prior){
+   const current=await c.query<{state:string}>(
+    'SELECT state FROM tala_payments_v2.refunds WHERE id=$1::uuid',[prior]);
+   if(!current.rows[0])throw new PaymentError('M8_IDEMPOTENCY_CONFLICT');
+   return Object.freeze({id:prior,replayed:true,state:current.rows[0].state});
+  }
   const p=await c.query<{amount_cents:string,state:string}>(
    'SELECT amount_cents,state FROM tala_payments_v2.payments '+
    'WHERE id=$1::uuid FOR UPDATE',[payment]);
