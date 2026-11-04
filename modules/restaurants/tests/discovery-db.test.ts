@@ -5,7 +5,8 @@ import pg from 'pg';
 import {RestaurantError} from '../src/domain.js';
 import {createStore,createBranch,setBranchHours,changeStoreStatus,
  setBranchActive} from '../src/stores.js';
-import {createProduct,createVariant} from '../src/catalog.js';
+import {createProduct,createVariant,adjustStock} from '../src/catalog.js';
+import {enableBranchInventory,adjustBranchStock} from '../src/branch-stock.js';
 import {setBranchVariantEnabled} from '../src/branch-catalog.js';
 import {scheduleBranchClosure} from '../src/closures.js';
 import {discoverReadyBranches} from '../src/discovery.js';
@@ -81,5 +82,64 @@ test('M6 local discovery finds ready stores by city and type, hides disabled men
       city:'guadalajara' as never}),'M6_CITY_INVALID');
     await fail(()=>discoverReadyBranches(pool,{city:'tala',limit:100}),
       'M6_PAGE_INVALID');
+  }finally{await pool.end();}
+});
+
+
+test('M6 LAB7 discovery never advertises branch stock held by another branch',
+ {skip:!enabled,timeout:90000},async()=>{
+  const pool=new pg.Pool({connectionString:url,max:8});
+  const owner={actorId:id()};
+  try{
+    const store=await createStore(pool,owner,{operationId:id(),
+      slug:'discover-stock-'+id().slice(0,12),
+      name:'Verduras Sucursal Segura',kind:'greengrocer'});
+    const branches=[];
+    for(const name of ['Tala Norte','Tala Sur']){
+      const branch=await createBranch(pool,owner,{storeId:store.id,
+        operationId:id(),name,address:'Mercado Municipal 22, Tala',city:'tala',
+        pickupEnabled:true,deliveryEnabled:false});
+      await setBranchHours(pool,owner,{storeId:store.id,branchId:branch.id,
+        expectedVersion:1,days:[{weekday:1,closed:false,
+          openMinute:540,closeMinute:1260}]});
+      branches.push(branch);
+    }
+    const [north,south]=branches;
+    assert.ok(north&&south);
+    const product=await createProduct(pool,owner,{storeId:store.id,
+      operationId:id(),name:'Tomate rojo',category:'Verduras'});
+    const variant=await createVariant(pool,owner,{storeId:store.id,
+      productId:product.id,operationId:id(),label:'500 g',weightGrams:500,
+      priceCents:2500,stockQuantity:3,trackStock:true});
+    await changeStoreStatus(pool,owner,{storeId:store.id,
+      expectedVersion:1,status:'ready'});
+    const visible=async()=>{
+      const page=await discoverReadyBranches(pool,{city:'tala',at:when,
+        kind:'greengrocer',search:'Sucursal Segura'});
+      return page.items.filter(x=>x.storeId===store.id).map(x=>x.branchId).sort();
+    };
+    assert.deepEqual(await visible(),[north.id,south.id].sort());
+    await adjustStock(pool,owner,{storeId:store.id,variantId:variant.id,
+      operationId:id(),delta:-3,reason:'waste'});
+    await enableBranchInventory(pool,owner,{storeId:store.id,
+      variantId:variant.id,expectedVersion:2});
+    // Neither branch inherits the former store-wide stock.
+    assert.deepEqual(await visible(),[]);
+    await adjustBranchStock(pool,owner,{storeId:store.id,
+      branchId:north.id,variantId:variant.id,operationId:id(),
+      delta:2,reason:'restock'});
+    assert.deepEqual(await visible(),[north.id]);
+    await adjustBranchStock(pool,owner,{storeId:store.id,
+      branchId:south.id,variantId:variant.id,operationId:id(),
+      delta:1,reason:'restock'});
+    assert.deepEqual(await visible(),[north.id,south.id].sort());
+    await adjustBranchStock(pool,owner,{storeId:store.id,
+      branchId:north.id,variantId:variant.id,operationId:id(),
+      delta:-2,reason:'waste'});
+    assert.deepEqual(await visible(),[south.id]);
+    await setBranchVariantEnabled(pool,owner,{storeId:store.id,
+      branchId:south.id,variantId:variant.id,
+      expectedVersion:0,enabled:false});
+    assert.deepEqual(await visible(),[]);
   }finally{await pool.end();}
 });
