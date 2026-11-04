@@ -1,0 +1,90 @@
+name: M7 Ubicaciones — isolated geographic LAB
+on:
+  push:
+    branches: ['feat/core-v2-ubicaciones-foundation']
+    paths:
+      - 'modules/locations/**'
+      - 'docs/MODULO7-UBICACIONES-ARQUITECTURA.md'
+      - 'docs/MODULO7-UBICACIONES-CIERRE.md'
+      - '.github/workflows/module7-locations-ci.yml'
+  pull_request:
+    paths:
+      - 'modules/locations/**'
+      - 'docs/MODULO7-UBICACIONES-ARQUITECTURA.md'
+      - 'docs/MODULO7-UBICACIONES-CIERRE.md'
+      - '.github/workflows/module7-locations-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  locations-isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: location_lab
+          POSTGRES_PASSWORD: m7_ci_only
+          POSTGRES_DB: tala_locations_v2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U location_lab -d tala_locations_v2_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install module-only dependencies
+        working-directory: modules/locations
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Strict TypeScript and pure security/domain tests
+        working-directory: modules/locations
+        run: npm run check
+      - name: Enforce no other core module imports, payments or live secrets
+        run: |
+          if grep -RE 'from .*(modules/(orders|logistics|finance|users|notifications|restaurants|payments)|stripe|checkout)' modules/locations/src; then
+            echo "M7 must not import other modules or billing code"
+            exit 1
+          fi
+      - name: Create isolated PostgreSQL 16 locations schema
+        env:
+          PGPASSWORD: m7_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U location_lab \
+            -d tala_locations_v2_test \
+            -f modules/locations/migrations/001_locations_foundation.sql
+      - name: Add M7-only polygon geofences schema
+        env:
+          PGPASSWORD: m7_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U location_lab \
+            -d tala_locations_v2_test \
+            -f modules/locations/migrations/002_polygon_geofences.sql
+      - name: Run isolated DB, privacy, permissions and E2E suites
+        env:
+          LOCATIONS_CI_URL: postgresql://location_lab:m7_ci_only@127.0.0.1:5432/tala_locations_v2_test
+        working-directory: modules/locations
+        run: npm test
+      - name: Reject migrations outside disposable M7 DB
+        env:
+          PGPASSWORD: m7_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U location_lab \
+            -d postgres -c 'CREATE DATABASE unrelated_m7_test'
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U location_lab \
+            -d unrelated_m7_test \
+            -f modules/locations/migrations/001_locations_foundation.sql; then
+            echo "M7 SQL violated lab-only database guard"
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U location_lab \
+            -d unrelated_m7_test \
+            -f modules/locations/migrations/002_polygon_geofences.sql; then
+            echo "M7 polygon migration violated lab-only database guard"
+            exit 1
+          fi
+          test "$(psql -At -h 127.0.0.1 -U location_lab \
+            -d unrelated_m7_test \
+            -c "SELECT to_regnamespace('tala_locations_v2') IS NULL")" = "t"
