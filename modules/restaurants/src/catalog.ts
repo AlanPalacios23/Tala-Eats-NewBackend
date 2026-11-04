@@ -220,15 +220,7 @@ export async function readOfferSnapshot(pool:Pool,input:{
       'v.track_stock,v.version AS variant_version,'+
       '((NOT v.track_stock OR (CASE WHEN v.branch_stock_enabled '+
       'THEN coalesce(bs.quantity,0) ELSE v.stock_quantity END)>0) AND '+
-      'NOT coalesce(h.closed,true) AND '+
-      '(extract(hour from ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int*60+"+
-      'extract(minute from ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int) >= h.open_minute AND "+
-      '(extract(hour from ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int*60+"+
-      'extract(minute from ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int) < h.close_minute AND "+
+      'tala_restaurants_v2.is_branch_scheduled_open(b.id,$4::timestamptz) AND '+
       'NOT EXISTS(SELECT 1 FROM tala_restaurants_v2.branch_closures e '+
       'WHERE e.branch_id=b.id AND e.store_id=s.id '+
       'AND e.cancelled_at IS NULL AND e.starts_at<=$4::timestamptz '+
@@ -244,9 +236,6 @@ export async function readOfferSnapshot(pool:Pool,input:{
       'LEFT JOIN tala_restaurants_v2.branch_stock bs '+
       'ON bs.store_id=v.store_id AND bs.branch_id=b.id '+
       'AND bs.variant_id=v.id '+
-      'LEFT JOIN tala_restaurants_v2.hours h ON h.branch_id=b.id '+
-      'AND h.weekday=extract(dow FROM ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int "+
       'WHERE s.id=$1::uuid AND b.id=$2::uuid AND v.id=$3::uuid '+
       'AND coalesce(ctrl.enabled,true) '+
       "AND s.status='ready' AND b.is_active AND p.is_active "+
