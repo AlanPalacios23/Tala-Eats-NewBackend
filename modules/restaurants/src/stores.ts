@@ -236,3 +236,65 @@ export async function listBranches(pool:Pool,actor:Actor,storeId:string){
     return {branches:r.rows,hours:h.rows};
   },true);
 }
+
+
+/** Operational pause is not an order cancellation or dispatch decision. */
+export async function setBranchActive(pool:Pool,actor:Actor,input:{
+ storeId:string,branchId:string,expectedVersion:number,active:boolean
+}){
+  const user=person(actor),store=uuid(input.storeId),branch=uuid(input.branchId);
+  const ver=integer(input.expectedVersion,1,2147483646,'M6_VERSION_INVALID');
+  if(typeof input.active!=='boolean')throw new RestaurantError('M6_ACTIVE_INVALID');
+  return tx(pool,async c=>{
+    await access(c,store,user,['owner','manager'],true);
+    const r=await c.query<{version:number}>(
+      'UPDATE tala_restaurants_v2.branches SET is_active=$4,'+
+      'version=version+1,updated_at=clock_timestamp() '+
+      'WHERE id=$1::uuid AND store_id=$2::uuid AND version=$3 '+
+      'RETURNING version',[branch,store,ver,input.active]);
+    if(!r.rows[0])throw new RestaurantError('M6_VERSION_CONFLICT');
+    await audit(c,store,user,'branch.status',branch);
+    return {branchId:branch,active:input.active,version:r.rows[0].version};
+  });
+}
+/** Internal read-only contract. Store is not offered for sale outside its
+ * configured local schedule. No holiday overrides or live dispatch here.
+ */
+export async function getBranchAvailability(pool:Pool,input:{
+ storeId:string,branchId:string,at?:Date
+}){
+  const store=uuid(input.storeId),branch=uuid(input.branchId);
+  const when=input.at??new Date();
+  if(!(when instanceof Date)||!Number.isFinite(when.getTime()))
+    throw new RestaurantError('M6_TIME_INVALID');
+  return tx(pool,async c=>{
+    const r=await c.query<{
+      status:'draft'|'ready'|'paused',is_active:boolean,pickup_enabled:boolean,
+      delivery_enabled:boolean,closed:boolean,open_minute:number|null,
+      close_minute:number|null,local_minute:number
+    }>(
+      'SELECT s.status,b.is_active,b.pickup_enabled,b.delivery_enabled,'+
+      'coalesce(h.closed,true) AS closed,h.open_minute,h.close_minute,'+
+      '(extract(hour from ($3::timestamptz AT TIME ZONE \'America/Mexico_City\'))::int*60+'+
+      'extract(minute from ($3::timestamptz AT TIME ZONE \'America/Mexico_City\'))::int) AS local_minute '+
+      'FROM tala_restaurants_v2.stores s JOIN tala_restaurants_v2.branches b '+
+      'ON b.store_id=s.id LEFT JOIN tala_restaurants_v2.hours h '+
+      'ON h.branch_id=b.id AND h.weekday=extract(dow FROM '+
+      '($3::timestamptz AT TIME ZONE \'America/Mexico_City\'))::int '+
+      'WHERE s.id=$1::uuid AND b.id=$2::uuid',[store,branch,when]);
+    const row=r.rows[0];
+    if(!row)throw new RestaurantError('M6_BRANCH_NOT_FOUND');
+    const scheduleOpen=!row.closed&&row.open_minute!==null&&
+      row.close_minute!==null&&row.local_minute>=row.open_minute&&
+      row.local_minute<row.close_minute;
+    const open=row.status==='ready'&&row.is_active&&scheduleOpen;
+    return Object.freeze({
+      storeId:store,branchId:branch,timeZone:'America/Mexico_City',
+      isOpen:open,pickupAvailable:open&&row.pickup_enabled,
+      deliveryAvailable:open&&row.delivery_enabled,
+      reason:row.status!=='ready'?'STORE_NOT_READY':
+        !row.is_active?'BRANCH_PAUSED':
+        !scheduleOpen?'OUTSIDE_HOURS':'OPEN'
+    });
+  },true);
+}
