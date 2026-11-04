@@ -101,3 +101,40 @@ test('M6 branch exception closures: holiday schedule overrides opening and resto
     assert.notEqual(replacement.id,closed.id);
   }finally{await pool.end();}
 });
+
+test('M6 parallel managers cannot insert overlapping closures',
+ {skip:!enabled,timeout:70000},async()=>{
+  const pool=new pg.Pool({connectionString:url,max:16});
+  const owner={actorId:id()},manager={actorId:id()};
+  try{
+    const store=await createStore(pool,owner,{
+      operationId:id(),slug:'exc-race-'+id().slice(0,12),
+      name:'Mini Mercado',kind:'grocery'
+    });
+    await setStaffRole(pool,owner,{storeId:store.id,
+      memberId:manager.actorId,role:'manager'});
+    const branch=await createBranch(pool,owner,{
+      storeId:store.id,operationId:id(),name:'Punto Tala',
+      address:'Mercado Central 5, Tala',city:'tala',
+      pickupEnabled:true,deliveryEnabled:false
+    });
+    const attempts=Array.from({length:8},(_,i)=>
+      scheduleBranchClosure(pool,i%2===0?manager:owner,{
+        storeId:store.id,branchId:branch.id,operationId:id(),
+        startsAt:'2026-12-24T12:00:00.000Z',
+        endsAt:'2026-12-25T12:00:00.000Z',
+        reason:'holiday'
+      }));
+    const done=await Promise.allSettled(attempts);
+    assert.equal(done.filter(x=>x.status==='fulfilled').length,1);
+    assert.equal(done.filter(x=>x.status==='rejected').length,7);
+    for(const result of done){
+      if(result.status==='rejected')
+        assert.ok(result.reason instanceof RestaurantError&&
+          result.reason.code==='M6_CLOSURE_OVERLAP');
+    }
+    const closures=await listBranchClosures(pool,owner,{
+      storeId:store.id,branchId:branch.id});
+    assert.equal(closures.closures.length,1);
+  }finally{await pool.end();}
+});
