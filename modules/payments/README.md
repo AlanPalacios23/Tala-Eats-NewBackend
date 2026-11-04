@@ -1,9 +1,40 @@
 # Tala Eats Core v2 — M8 Pagos (LAB1 aislado)
 
-**Estado:** primer laboratorio autónomo. **NO-GO LIVE / NO-GO merge / NO-GO dinero real.**
+**Estado:** **LAB2 — Stripe TEST aislado y pruebas del ciclo de proveedor**. **NO-GO LIVE / NO-GO merge / NO-GO dinero real**.
 
 **Rama** `feat/core-v2-pagos-foundation`, creada directamente desde `main`.
 **Código** `modules/payments/**`, **base** `tala_payments_v2_test` o `tala_payments_v2_lab`, esquema PostgreSQL `tala_payments_v2`.
+
+## LAB2: integración TEST aislada, sin dinero comercial
+
+El adaptador `src/stripe-test-client.ts` solo acepta `sk_test_` y contiene
+los contratos actuales de PaymentIntents y reembolsos Stripe TEST. El módulo
+persiste la intención externa y la clave de idempotencia antes de cualquier
+petición de red: una respuesta ambigua **no genera una segunda operación**.
+Los webhooks verifican la cabecera nativa `Stripe-Signature` sobre bytes
+exactos, y exigen `livemode=false` en el evento. Los hechos de Stripe TEST se
+guardan **por separado** de los eventos del simulador, sin publicarse a M3.
+
+**Nuevas rutas loopback opcionales:**
+
+- `POST /v1/payments/:paymentId/stripe-test-intent` — cuerpo `{}`, rol de
+  creación autenticado por el host, devuelve el `clientSecret` solo al
+  sistema autorizado.
+- `POST /v1/payments/:paymentId/refunds/:refundId/stripe-test-send` — cuerpo
+  `{}`, verifica pertenencia y permiso de refund; TEST únicamente.
+- `POST /v1/payments/stripe-test-webhook` — cuerpo JSON raw y
+  `Stripe-Signature` real, sin auth bearer, solo loopback.
+
+Estas rutas requieren que el host configure explícitamente
+`stripeTest: {client, webhookSecret}`. No existen claves configuradas en el
+repositorio ni llamadas externas durante la CI (transporte falso inyectado).
+`NODE_ENV=production` sigue bloqueado para el servidor LAB.
+
+**Base:** aplicar migraciones `001` y `002`, solo a bases descartables M8.
+Las tablas `stripe_test_intents`, `stripe_test_refunds`,
+`stripe_test_events` y `stripe_test_facts` pertenecen exclusivamente a M8.
+Revisar la
+[documentación y puertas de salida LAB2](../../docs/MODULO8-PAGOS-LAB2-STRIPE-TEST.md).
 
 ## Funciones propias de M8 en LAB
 
@@ -70,7 +101,7 @@ npm install --ignore-scripts --no-audit --no-fund
 npm run check
 ```
 
-Las pruebas PostgreSQL completas requieren `PAYMENTS_CI_URL` hacia la base **descartable** `tala_payments_v2_test` con `001_payments_foundation.sql` aplicado; el workflow específico de GitHub Actions configura PostgreSQL 16, Node 24, TypeScript estricto, tests de HMAC, reintentos/concurrencia/HTTP y el rechazo de la migración fuera de bases autorizadas.
+Las pruebas PostgreSQL completas requieren `PAYMENTS_CI_URL` hacia la base **descartable** `tala_payments_v2_test` con las migraciones `001_payments_foundation.sql` y `002_stripe_test_gateway.sql` aplicadas; el workflow específico de GitHub Actions configura PostgreSQL 16, Node 24, TypeScript estricto, tests de HMAC, reintentos/concurrencia/HTTP y el rechazo de la migración fuera de bases autorizadas.
 
 ## Puertas de producción que siguen cerradas
 
