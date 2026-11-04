@@ -152,6 +152,54 @@ test('M6 HTTP LAB E2E: private identity, store, branch, hours and catalog contra
     assert.equal((await call('GET','/v1/restaurants',undefined,bearer)).status,200);
     assert.equal(((await call('GET','/v1/restaurants',undefined,other)).result
       .stores as unknown[]).length,0);
+
+    // End-to-end branch inventory routes: no payments, checkout or remote auth.
+    const drained=await call('POST','/v1/restaurants/'+storeId+'/variants/'+
+      variantId+'/stock',{operationId:id(),delta:-18,reason:'waste'},bearer);
+    assert.equal(drained.status,200);
+    assert.equal(drained.result.after,0);
+    const switchMode=await call('POST','/v1/restaurants/'+storeId+'/variants/'+
+      variantId+'/branch-inventory',{expectedVersion:3},bearer);
+    assert.equal(switchMode.status,200);
+    const inbound=await call('POST','/v1/restaurants/'+storeId+
+      '/branches/'+branchId+'/variants/'+variantId+'/stock',
+      {operationId:id(),delta:5,reason:'restock'},bearer);
+    assert.equal(inbound.status,200);
+    const second=await call('POST','/v1/restaurants/'+storeId+'/branches',{
+      operationId:id(),name:'Sucursal Norte',
+      address:'Avenida Norte 25, Tala',city:'tala',
+      pickupEnabled:true,deliveryEnabled:false
+    },bearer);
+    assert.equal(second.status,201);
+    const secondId=String(second.result.id);
+    const privateBalance=await call('GET','/v1/restaurants/'+storeId+
+      '/branches/'+branchId+'/stock',undefined,bearer);
+    assert.equal(privateBalance.status,200);
+    assert.equal((await call('GET','/v1/restaurants/'+storeId+
+      '/branches/'+branchId+'/stock',undefined,other)).status,403);
+    assert.equal((privateBalance.result.balances as unknown[]).length,1);
+    const xfer='/v1/restaurants/'+storeId+'/stock/transfers';
+    const transfer=await call('POST',xfer,{operationId:id(),
+      fromBranchId:branchId,toBranchId:secondId,
+      variantId,quantity:2},bearer);
+    assert.equal(transfer.status,200);
+    assert.equal(transfer.result.toAfter,2);
+    assert.equal((await call('POST',xfer,{operationId:id(),
+      fromBranchId:branchId,toBranchId:secondId,
+      variantId,quantity:2},other)).status,403);
+    const count=await call('POST','/v1/restaurants/'+storeId+
+      '/branches/'+secondId+'/variants/'+variantId+'/count',{
+        operationId:id(),expectedVersion:2,countedQuantity:1},bearer);
+    assert.equal(count.status,200);
+    assert.equal(count.result.delta,-1);
+    const activity=await call('GET','/v1/restaurants/'+storeId+
+      '/branches/'+secondId+'/stock/activity?limit=10',undefined,bearer);
+    assert.equal(activity.status,200);
+    assert.ok((activity.result.activity as unknown[]).length>=2);
+    assert.equal((await call('GET','/v1/restaurants/'+storeId+
+      '/branches/'+secondId+'/stock/activity?limit=0',undefined,bearer)).status,400);
+    assert.equal((await call('GET','/v1/restaurants/'+storeId+
+      '/branches/'+secondId+'/stock/activity',undefined,other)).status,403);
   }finally{
     await new Promise<void>((resolve,reject)=>server.close(err=>
       err?reject(err):resolve()));
