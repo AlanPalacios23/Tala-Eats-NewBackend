@@ -59,6 +59,7 @@ test('M8 LAB: payment event lifecycle, verified facts and HMAC are deterministic
    ok.signature)).replayed,true);
   const record=await readPayment(pool,creator,payment.id);
   assert.equal(record.state,'succeeded');
+  assert.equal((await createPayment(pool,creator,create)).state,'succeeded');
   assert.equal(record.version,2);
   assert.equal(record.providerRef,providerRef);
   assert.equal(record.facts.length,1);
