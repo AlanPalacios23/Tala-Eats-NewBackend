@@ -29,24 +29,13 @@ export async function discoverReadyBranches(pool:Pool,input:{
       's.display_name AS store_name,s.kind,'+
       'b.id AS branch_id,b.branch_name,b.city,'+
       'b.pickup_enabled,b.delivery_enabled,'+
-      '(coalesce(NOT h.closed AND '+
-      '(extract(hour from ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int*60+"+
-      'extract(minute from ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int) >= h.open_minute AND "+
-      '(extract(hour from ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int*60+"+
-      'extract(minute from ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int) < h.close_minute,false) "+
+       '(tala_restaurants_v2.is_branch_scheduled_open(b.id,$4::timestamptz) '+
       'AND NOT EXISTS (SELECT 1 FROM tala_restaurants_v2.branch_closures x '+
       'WHERE x.branch_id=b.id AND x.store_id=s.id '+
       'AND x.cancelled_at IS NULL AND x.starts_at<=$4::timestamptz '+
       'AND x.ends_at>$4::timestamptz)) AS is_open '+
       'FROM tala_restaurants_v2.stores s '+
       'JOIN tala_restaurants_v2.branches b ON b.store_id=s.id '+
-      'LEFT JOIN tala_restaurants_v2.hours h ON h.branch_id=b.id '+
-      'AND h.weekday=extract(dow FROM ($4::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int "+
       "WHERE s.status='ready' AND b.is_active AND b.city=$1 "+
       'AND ($2::text IS NULL OR s.kind=$2::text) '+
       'AND ($3::text IS NULL OR position(lower($3::text) '+
