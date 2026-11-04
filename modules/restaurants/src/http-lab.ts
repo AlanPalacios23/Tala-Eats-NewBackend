@@ -10,6 +10,8 @@ import {createProduct,updateProduct,archiveProduct,createVariant,setVariantPrice
  adjustStock,readCatalog} from './catalog.js';
 import {prepareProductPhoto,listProductPhotos,selectPrimaryPhoto} from './media.js';
 import {scheduleBranchClosure,cancelBranchClosure,listBranchClosures} from './closures.js';
+import {setBranchVariantEnabled,readBranchStorefront} from './branch-catalog.js';
+import {retireProductPhoto} from './media.js';
 
 type Identity=Actor;
 type Config={pool:Pool,authenticate:(req:IncomingMessage)=>Promise<Identity|null>};
@@ -122,6 +124,27 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           storeId,branchId:pathId(p[2]),closureId:pathId(p[4])
         }));return;
       }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='storefront'&&method==='GET'){
+        const query=[...url.searchParams.keys()];
+        if(query.some(key=>!['limit','offset','category'].includes(key))||
+           new Set(query).size!==query.length)
+          throw new RestaurantError('M6_PAGE_INVALID');
+        const count=url.searchParams.get('limit'),skip=url.searchParams.get('offset'),
+          category=url.searchParams.get('category');
+        reply(res,200,await readBranchStorefront(pool,{
+          storeId,branchId:pathId(p[2]),
+          ...(count===null?{}:{limit:Number(count)}),
+          ...(skip===null?{}:{offset:Number(skip)}),
+          ...(category===null?{}:{category})
+        }));return;
+      }
+      if(p.length===6&&p[1]==='branches'&&p[3]==='variants'&&
+         p[5]==='enabled'&&method==='PUT'){
+        const data=await body(req,['expectedVersion','enabled']);
+        reply(res,200,await setBranchVariantEnabled(pool,actor,{
+          ...data,storeId,branchId:pathId(p[2]),variantId:pathId(p[4])
+        } as never));return;
+      }
       if(p.length===4&&p[1]==='branches'&&p[3]==='hours'&&method==='PUT'){
         const data=await body(req,['expectedVersion','days']);
         reply(res,200,await setBranchHours(pool,actor,{
@@ -184,6 +207,13 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
         reply(res,201,await prepareProductPhoto(pool,actor,{
           ...data,storeId,productId:pathId(p[2])
         } as never));return;
+      }
+      if(p.length===6&&p[1]==='products'&&p[3]==='photos'&&
+         p[5]==='retire'&&method==='POST'){
+        await body(req,[]);
+        reply(res,200,await retireProductPhoto(pool,actor,{
+          storeId,productId:pathId(p[2]),photoId:pathId(p[4])
+        }));return;
       }
       if(p.length===6&&p[1]==='products'&&p[3]==='photos'&&
          p[5]==='primary'&&method==='PUT'){
