@@ -139,7 +139,9 @@ export async function adjustStock(pool:Pool,actor:Actor,input:{
   const op=uuid(input.operationId);
   const delta=integer(input.delta,-1000000,1000000,'M6_STOCK_INVALID');
   if(delta===0)throw new RestaurantError('M6_STOCK_INVALID');
-  if(!['restock','correction','waste'].includes(input.reason))
+  if(!['restock','correction','waste'].includes(input.reason)||
+     (input.reason==='waste'&&delta>=0)||
+     (input.reason==='restock'&&delta<=0))
     throw new RestaurantError('M6_STOCK_REASON_INVALID');
   const fingerprint=fp({store,id,delta,reason:input.reason});
   return tx(pool,async c=>{
