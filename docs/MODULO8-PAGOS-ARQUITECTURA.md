@@ -1,7 +1,23 @@
-# Tala Eats Core v2 — M8 Pagos: arquitectura aislada LAB1
+# Tala Eats Core v2 — M8 Pagos: arquitectura aislada LAB3
 
-**Fecha:** 4 de noviembre de 2026. **Estado:** LAB2 Stripe TEST autónomo; no conexión a cuenta TEST real en CI.
+**Fecha:** 4 de noviembre de 2026. **Estado:** LAB3 técnico y autónomo, Stripe TEST simulado; no conexión a cuenta TEST real en CI.
 **NO-GO para Stripe LIVE, pagos reales, merge y despliegue Kali.**
+
+## LAB3 — reforzamiento de controles y cierre autónomo
+
+M8 incorpora una tercera migración aislada para inmutabilidad de campos
+monetarios, referencias y estados terminales. Se impone un límite de
+reembolso en la propia base, serializado con bloqueo por pago en inserciones
+para resistir escrituras SQL directas concurrentes. El trigger de UPDATE
+de reembolsos evita invertir los bloqueos que usa la API.
+
+La lectura de pagos exige propietario autenticado o un permiso de auditoría
+adicional, provisto por el host, para consultar operaciones ajenas. Los
+webhooks `payment_intent.payment_failed` y `refund.failed` con estado
+contradictorio se rechazan sin efectos. Ninguno de estos cambios toca M3
+Finanzas, M1 Pedidos ni el backend anterior.
+
+[Acta y puertas de cierre LAB3](MODULO8-PAGOS-CIERRE-LAB3.md).
 
 ## Límites de responsabilidad
 
