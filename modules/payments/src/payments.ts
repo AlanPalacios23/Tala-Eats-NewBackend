@@ -81,9 +81,10 @@ export async function readPayment(pool:Pool,actor:Actor,paymentId:string){
  return tx(pool,async c=>{
   const p=await c.query<{
    id:string,order_ref:string,customer_ref:string,amount_cents:string,
-   currency:string,state:string,version:number,provider_ref:string|null
+   currency:string,state:string,version:number,provider:string,
+   provider_ref:string|null
   }>('SELECT id,order_ref,customer_ref,amount_cents,currency,state,'+
-   'version,provider_ref FROM tala_payments_v2.payments WHERE id=$1::uuid',[id]);
+   'version,provider,provider_ref FROM tala_payments_v2.payments WHERE id=$1::uuid',[id]);
   if(!p.rows[0])throw new PaymentError('M8_PAYMENT_NOT_FOUND');
   const refunds=await c.query<{id:string,amount_cents:string,state:string,version:number}>(
    'SELECT id,amount_cents,state,version FROM tala_payments_v2.refunds '+
@@ -94,11 +95,17 @@ export async function readPayment(pool:Pool,actor:Actor,paymentId:string){
   }>('SELECT fact_type,amount_cents,currency,source,event_id,refund_id '+
    'FROM tala_payments_v2.verified_facts WHERE payment_id=$1::uuid '+
    'ORDER BY created_at,id',[id]);
+  const stripeTest=await c.query<{
+   stripe_event_id:string,fact_type:string,refund_id:string|null,
+   amount_cents:string,currency:string,source:string
+  }>('SELECT stripe_event_id,fact_type,refund_id,'+
+   'amount_cents::text,currency,source FROM tala_payments_v2.stripe_test_facts '+
+   'WHERE payment_id=$1::uuid ORDER BY created_at,stripe_event_id',[id]);
   const row=p.rows[0];
   return Object.freeze({
    id:row.id,orderRef:row.order_ref,customerRef:row.customer_ref,
    amountCents:Number(row.amount_cents),currency:row.currency,
-   state:row.state,version:row.version,
+   state:row.state,version:row.version,provider:row.provider,
    providerRef:row.provider_ref,
    refunds:Object.freeze(refunds.rows.map(x=>Object.freeze({
     id:x.id,amountCents:Number(x.amount_cents),state:x.state,
@@ -108,6 +115,12 @@ export async function readPayment(pool:Pool,actor:Actor,paymentId:string){
     type:x.fact_type,amountCents:Number(x.amount_cents),
     currency:x.currency,source:x.source,eventId:x.event_id,
     refundId:x.refund_id
+   }))),
+   // TEST events deliberately separated from simulated LAB facts and M3.
+   stripeTestFacts:Object.freeze(stripeTest.rows.map(x=>Object.freeze({
+    type:x.fact_type,amountCents:Number(x.amount_cents),
+    currency:x.currency,source:x.source,
+    eventId:x.stripe_event_id,refundId:x.refund_id
    })))
   });
  },true);
