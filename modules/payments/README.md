@@ -1,9 +1,26 @@
-# Tala Eats Core v2 — M8 Pagos (LAB1 aislado)
+# Tala Eats Core v2 — M8 Pagos (LAB3, cierre autónomo)
 
-**Estado:** **LAB2 — Stripe TEST aislado y pruebas del ciclo de proveedor**. **NO-GO LIVE / NO-GO merge / NO-GO dinero real**.
+**Estado:** **LAB3 — desarrollo autónomo cerrado sujeto a CI final**, Stripe TEST aislado y SQL reforzado. **NO-GO LIVE / NO-GO merge / NO-GO dinero real**.
 
 **Rama** `feat/core-v2-pagos-foundation`, creada directamente desde `main`.
 **Código** `modules/payments/**`, **base** `tala_payments_v2_test` o `tala_payments_v2_lab`, esquema PostgreSQL `tala_payments_v2`.
+
+## LAB3: endurecimiento final, sin invadir otros módulos
+
+- Lectura de pagos solo para el cliente cuyo `customer_ref` coincide con
+  el `actorId` autenticado, salvo permiso adicional `canReadAllPayments`
+  combinado con `canReadPayments` que el host debe otorgar exclusivamente
+  a personal autorizado. Un ID ajeno produce `M8_PAYMENT_NOT_FOUND`.
+- Webhooks Stripe TEST incoherentes con el tipo de evento se rechazan antes
+  de cualquier mutación: `payment_intent.payment_failed` no puede declarar
+  `status=succeeded`; `refund.failed` exige `status=failed`.
+- La migración `003_integrity_guards.sql` impide editar importe, moneda,
+  referencia de pedido o estado terminal, y protege reembolsos contra
+  sobre-reservas, incluso en escrituras SQL concurrentes directas.
+- Se evita invertir el orden de bloqueos entre pagos y reembolsos.
+- No hay importaciones de M1–M7, modificaciones a producción o fondos LIVE.
+
+[Acta de cierre y límites LAB3](../../docs/MODULO8-PAGOS-CIERRE-LAB3.md).
 
 ## LAB2: integración TEST aislada, sin dinero comercial
 
