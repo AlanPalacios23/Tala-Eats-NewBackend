@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 7: Ubicaciones
 
-**Estado:** LAB1 en rama independiente. **NO-GO comercial / LIVE.**  
+**Estado:** LAB2 en rama independiente. **NO-GO comercial / LIVE.**  
 **Rama:** `feat/core-v2-ubicaciones-foundation` desde `main`.  
 **Esquema aislado:** `tala_locations_v2` en la base `tala_locations_v2_test` o
 `tala_locations_v2_lab`.
@@ -16,6 +16,20 @@ semillas con coordenadas inventadas** ni supuestos de cobertura por municipio.
 El módulo NO contiene código de Pedidos, Logística, Pagos, Usuarios,
 Restaurantes ni Notificaciones. No tiene importaciones o claves ajenas y
 no interactúa con Kali, Stripe, Firebase, Cloudflared ni mapas externos.
+
+### LAB2 — geometría poligonal opcional
+
+Se incorporan polígonos independientes de las zonas circulares mediante la
+migración `002_polygon_geofences.sql`, con validación de vértices, ausencia de
+autointersecciones, área mínima, compatibilidad de cobertura `v2`, RBAC
+por operador, versiones CAS e idempotencia. No existen zonas precargadas,
+municipios geolocalizados automáticamente ni garantía comercial.
+
+El endpoint original `/coverage` conserva su formato circular; el nuevo
+`/coverage/v2` devuelve coincidencias de círculos o polígonos y deja
+`operationallyVerified=false` hasta contar con verificaciones externas.
+
+[Contrato y pruebas LAB2](MODULO7-UBICACIONES-LAB2-POLIGONOS.md).
 
 ## Funciones de LAB
 
@@ -58,8 +72,8 @@ no interactúa con Kali, Stripe, Firebase, Cloudflared ni mapas externos.
 
 ## Verificación
 
-La CI propia ejecuta Node.js 24, TypeScript estricto, PostgreSQL 16, migración
-001 protegida, pruebas unitarias, protección de datos, aislamiento por dueño,
+La CI propia ejecuta Node.js 24, TypeScript estricto, PostgreSQL 16, migraciones
+001–002 protegidas, pruebas unitarias, protección de datos, aislamiento por dueño,
 idempotencia y controles negativos en otra base PostgreSQL. El envío de correo,
 las rutas y los pagos no forman parte de este módulo.
 
