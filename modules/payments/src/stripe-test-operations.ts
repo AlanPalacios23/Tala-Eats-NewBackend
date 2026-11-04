@@ -67,7 +67,8 @@ async function reserveIntent(pool:Pool,paymentId:string){
    'lease_until=clock_timestamp()+'+LEASE+' WHERE payment_id=$1::uuid',
    [paymentId]);
   return Object.freeze({attached:false as const,paymentId,
-   amountCents:Number(state.amount_cents),idempotencyKey:state.idempotency_key});
+   amountCents:Number(state.amount_cents),idempotencyKey:state.idempotency_key,
+   state:state.state});
  });
 }
 export async function createStripeTestIntent(pool:Pool,client:StripeTestClient,
