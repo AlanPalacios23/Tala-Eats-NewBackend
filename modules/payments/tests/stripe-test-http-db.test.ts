@@ -39,7 +39,7 @@ test('M8 LAB2 TEST-only HTTP API: host permissions, PaymentIntent, refunds and n
   if(path.includes('/v1/payment_intents/'))
    return new Response(JSON.stringify({
     id:piId,object:'payment_intent',livemode:false,amount:49900,
-    currency:'mxn',metadata:{m8_payment_id:paymentId},
+    currency:'mxn',metadata:{m8_payment_id:paymentIdHolder.value},
     client_secret:piId+'_secret_OFFLINE',status:'succeeded'
    }),{status:200});
   return new Response('{}',{status:404});
@@ -53,8 +53,6 @@ test('M8 LAB2 TEST-only HTTP API: host permissions, PaymentIntent, refunds and n
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
  const base='http://127.0.0.1:'+(server.address() as AddressInfo).port;
  const paymentIdHolder:{value:string}={value:''};
- // Initialized before the mocked retrieve path is first called.
- const paymentId=paymentIdHolder.value;
  async function call(method:string,path:string,body?:unknown,
   headers:Record<string,string>={}){
   const r=await fetch(base+path,{method,headers:{
@@ -91,6 +89,10 @@ test('M8 LAB2 TEST-only HTTP API: host permissions, PaymentIntent, refunds and n
   assert.equal(opened.body.intentId,piId);
   assert.equal(opened.body.livemode,false);
   assert.equal(count,1);
+  const same=await call('POST','/v1/payments/'+pid+'/stripe-test-intent',{});
+  assert.equal(same.status,200);
+  assert.equal(same.body.intentId,piId);
+  assert.equal(count,2);
   assert.equal((await call('POST','/v1/payments/stripe-test-webhook',
    {id:'evt_unauth'},{})).status,401);
   const paymentEvt={id:'evt_'+randomBytes(12).toString('hex'),
