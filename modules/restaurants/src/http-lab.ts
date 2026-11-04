@@ -12,6 +12,8 @@ import {prepareProductPhoto,listProductPhotos,selectPrimaryPhoto} from './media.
 import {scheduleBranchClosure,cancelBranchClosure,listBranchClosures} from './closures.js';
 import {setBranchVariantEnabled,readBranchStorefront} from './branch-catalog.js';
 import {retireProductPhoto} from './media.js';
+import {readMerchantOverview} from './overview.js';
+import {discoverReadyBranches} from './discovery.js';
 
 type Identity=Actor;
 type Config={pool:Pool,authenticate:(req:IncomingMessage)=>Promise<Identity|null>};
@@ -81,6 +83,23 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
       if(p.length===0&&method==='GET'){
         reply(res,200,{stores:await listMyStores(pool,actor)});return;
       }
+      if(p.length===1&&p[0]==='discover'&&method==='GET'){
+        const keys=[...url.searchParams.keys()];
+        if(keys.some(k=>!['city','kind','search','limit','offset'].includes(k))||
+           new Set(keys).size!==keys.length)
+          throw new RestaurantError('M6_PAGE_INVALID');
+        const city=url.searchParams.get('city');
+        if(city===null)throw new RestaurantError('M6_CITY_INVALID');
+        const kind=url.searchParams.get('kind'),search=url.searchParams.get('search'),
+          limit=url.searchParams.get('limit'),offset=url.searchParams.get('offset');
+        reply(res,200,await discoverReadyBranches(pool,{
+          city:city as never,
+          ...(kind===null?{}:{kind:kind as never}),
+          ...(search===null?{}:{search}),
+          ...(limit===null?{}:{limit:Number(limit)}),
+          ...(offset===null?{}:{offset:Number(offset)})
+        }));return;
+      }
       const storeId=pathId(p[0]);
       if(p.length===1&&method==='GET'){
         reply(res,200,await readStore(pool,actor,storeId));return;
@@ -88,6 +107,9 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
       if(p.length===1&&method==='PATCH'){
         const data=await body(req,['expectedVersion','name','description']);
         reply(res,200,await updateStore(pool,actor,{...data,storeId} as never));return;
+      }
+      if(p.length===2&&p[1]==='overview'&&method==='GET'){
+        reply(res,200,await readMerchantOverview(pool,actor,storeId));return;
       }
       if(p.length===2&&p[1]==='status'&&method==='POST'){
         const data=await body(req,['expectedVersion','status']);
