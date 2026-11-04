@@ -3,7 +3,8 @@ export class PaymentError extends Error {
  constructor(readonly code:string){super(code);this.name='PaymentError';}
 }
 export type Actor={actorId:string,canCreatePayments?:boolean,
- canRefundPayments?:boolean,canReadPayments?:boolean};
+ canRefundPayments?:boolean,canReadPayments?:boolean,
+ canMonitorPayments?:boolean};
 export type Money={amountCents:number,currency:'MXN'};
 export const uuid=(v:unknown):string=>{
  if(typeof v!=='string'||
@@ -29,7 +30,7 @@ export function assertKeys(value:unknown,allowed:readonly string[]){
   throw new PaymentError('M8_REQUEST_INVALID');
 }
 export function requireActor(actor:Actor,capability:
- 'canCreatePayments'|'canRefundPayments'|'canReadPayments'){
+ 'canCreatePayments'|'canRefundPayments'|'canReadPayments'|'canMonitorPayments'){
  const user=uuid(actor.actorId);
  if(actor[capability]!==true)throw new PaymentError('M8_FORBIDDEN');
  return user;
