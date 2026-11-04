@@ -179,68 +179,68 @@ El módulo sigue **NO-GO comercial**.
 El desarrollo de esta etapa sigue limitado a Restaurantes/Comercios y su
 PostgreSQL aislado; no incluye pedidos, cobros, asignaciones de reparto,
 usuarios ni notificaciones. Se incorpora la migración
-\`004_branch_catalog_controls.sql\` con relaciones tienda/sucursal/variante
+`004_branch_catalog_controls.sql` con relaciones tienda/sucursal/variante
 validadas mediante claves foráneas de dos columnas.
 
 ### Control de catálogo por sucursal
 
-- \`setBranchVariantEnabled\`: el propietario, gerente o editor puede
+- `setBranchVariantEnabled`: el propietario, gerente o editor puede
   activar u ocultar una presentación del menú para una sucursal concreta.
   Se comprueba la propiedad de la tienda, la pertenencia de la variante,
   el archivado del producto y la versión esperada.
-- \`expectedVersion=0\` crea el primer control; actualizaciones posteriores
+- `expectedVersion=0` crea el primer control; actualizaciones posteriores
   requieren la versión vigente. El bloqueo de la tienda impide que
   decisiones concurrentes sobrescriban silenciosamente el menú.
 - Una presentación deshabilitada se oculta en la proyección de la sucursal
-  y deja de ser elegible en \`readOfferSnapshot\`, sin modificar el menú
+  y deja de ser elegible en `readOfferSnapshot`, sin modificar el menú
   de otras sucursales del mismo establecimiento.
 - **Advertencia:** este control no implementa inventario físico por
-  sucursal. \`stock_quantity\` sigue siendo un saldo del establecimiento.
+  sucursal. `stock_quantity` sigue siendo un saldo del establecimiento.
   Antes de pedidos reales con varias sucursales se necesitará un
   modelo explícito de existencias/asignaciones por punto de venta.
 
 ### Catálogo y descubrimiento internos
 
-- \`readBranchStorefront\` devuelve exclusivamente nombre, categoría,
+- `readBranchStorefront` devuelve exclusivamente nombre, categoría,
   variantes, precio MXN en centavos, disponibilidad y referencia de
   foto primaria verificada. Omite colaboradores, UUID del propietario,
   claves de archivos y cantidades exactas de inventario.
-- Utiliza zona horaria \`America/Mexico_City\`, horario semanal y
+- Utiliza zona horaria `America/Mexico_City`, horario semanal y
   cierres extraordinarios. Un producto agotado sigue visible como
   agotado; un producto deshabilitado se oculta por completo.
-- \`discoverReadyBranches\` permite buscar por las localidades aprobadas
+- `discoverReadyBranches` permite buscar por las localidades aprobadas
   para el esquema, tipo de negocio y texto de nombre; solo incluye
   sucursales activas con catálogo vendible. La disponibilidad local
   distingue abierto/cerrado sin prometer tiempo de reparto.
 - Ambas consultas son **contratos de laboratorio internos**. Un negocio
-  marcado \`ready\` no equivale a verificado o aprobado por la plataforma.
+  marcado `ready` no equivale a verificado o aprobado por la plataforma.
   **No exponerlas al público comercial** hasta completar revisión de
   establecimientos, autorización de gateway y políticas de publicación.
-- \`readOfferSnapshot\` ya reevalúa horario y cierre extraordinario en
+- `readOfferSnapshot` ya reevalúa horario y cierre extraordinario en
   la fecha de consulta. No garantiza existencias futuras ni reserva stock.
 
 ### Panel privado y fotografías
 
-- \`readMerchantOverview\`: conteos de sucursales, productos, variantes
+- `readMerchantOverview`: conteos de sucursales, productos, variantes
   agotadas/disponibles, fotos pendientes/verificadas y cierres próximos,
   con acceso RBAC limitado a integrantes de la tienda; no calcula
   ingresos, wallet ni transferencias.
-- \`retireProductPhoto\` permite retirar una foto pendiente o verificada,
+- `retireProductPhoto` permite retirar una foto pendiente o verificada,
   limpiar su marca de principal y sacarla del listado. El metadato
-  permanece como lápida \`rejected\` para no reactivarla.
+  permanece como lápida `rejected` para no reactivarla.
 - Retirar **no elimina todavía los bytes del almacenamiento**: falta el
   adaptador de objetos y el proceso de borrado seguro verificable.
 
 ### API LAB añadida
 
-- \`PUT /v1/restaurants/:storeId/branches/:branchId/variants/:variantId/enabled\`
-- \`GET /v1/restaurants/:storeId/branches/:branchId/storefront\`
-- \`GET /v1/restaurants/discover?city=tala\`
-- \`GET /v1/restaurants/:storeId/overview\`
-- \`POST /v1/restaurants/:storeId/products/:productId/photos/:photoId/retire\`
+- `PUT /v1/restaurants/:storeId/branches/:branchId/variants/:variantId/enabled`
+- `GET /v1/restaurants/:storeId/branches/:branchId/storefront`
+- `GET /v1/restaurants/discover?city=tala`
+- `GET /v1/restaurants/:storeId/overview`
+- `POST /v1/restaurants/:storeId/products/:productId/photos/:photoId/retire`
 
 La API sigue siendo loopback con identidad inyectada, sin CORS y
-deshabilitada en \`NODE_ENV=production\`. La exposición pública
+deshabilitada en `NODE_ENV=production`. La exposición pública
 requiere primero una nueva capa de gateway y validación de publicaciones.
 
 La CI ejecuta migraciones 001→004 en PostgreSQL 16 descartable y rechaza
