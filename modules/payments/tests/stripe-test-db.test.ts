@@ -17,7 +17,7 @@ const webhookSecret='whsec_M8_OFFLINE_FIXTURE_SECRET_123456789';
 const freshPi=()=> 'pi_'+randomBytes(16).toString('hex');
 const freshRefund=()=> 're_'+randomBytes(16).toString('hex');
 const operator={actorId:uuid(),canCreatePayments:true,
- canRefundPayments:true,canReadPayments:true};
+ canRefundPayments:true,canReadPayments:true,canReadAllPayments:true};
 const fail=(call:()=>Promise<unknown>,code:string)=>assert.rejects(call,
  (e:unknown)=>e instanceof PaymentError&&e.code===code);
 
