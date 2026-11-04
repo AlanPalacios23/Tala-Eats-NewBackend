@@ -16,6 +16,8 @@ import {readMerchantOverview} from './overview.js';
 import {enableBranchInventory,adjustBranchStock,readBranchStock} from './branch-stock.js';
 import {transferBranchStock,countBranchStock,readBranchInventoryActivity} from './inventory-operations.js';
 import {discoverReadyBranches} from './discovery.js';
+import {setBranchSchedule,readBranchSchedule} from './schedule.js';
+import {setBranchPreparation,readBranchPreparation} from './preparation.js';
 
 type Identity=Actor;
 type Config={pool:Pool,authenticate:(req:IncomingMessage)=>Promise<Identity|null>};
@@ -205,6 +207,28 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           ...data,storeId,branchId:pathId(p[2]),variantId:pathId(p[4])
         } as never));return;
       }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='schedule'&&method==='GET'){
+        reply(res,200,await readBranchSchedule(pool,actor,{
+          storeId,branchId:pathId(p[2])
+        }));return;
+      }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='schedule'&&method==='PUT'){
+        const data=await body(req,['expectedVersion','days']);
+        reply(res,200,await setBranchSchedule(pool,actor,{
+          ...data,storeId,branchId:pathId(p[2])
+        } as never));return;
+      }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='preparation'&&method==='GET'){
+        reply(res,200,await readBranchPreparation(pool,actor,{
+          storeId,branchId:pathId(p[2])
+        }));return;
+      }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='preparation'&&method==='PUT'){
+        const data=await body(req,['expectedVersion','prepMinutes','parallelPrepSlots']);
+        reply(res,200,await setBranchPreparation(pool,actor,{
+          ...data,storeId,branchId:pathId(p[2])
+        } as never));return;
+      }
       if(p.length===4&&p[1]==='branches'&&p[3]==='hours'&&method==='PUT'){
         const data=await body(req,['expectedVersion','days']);
         reply(res,200,await setBranchHours(pool,actor,{
@@ -296,7 +320,7 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           e.code==='M6_CONTENT_TYPE_REQUIRED'?415:
           e.code==='M6_BODY_TOO_LARGE'?413:
           ['M6_VERSION_CONFLICT','M6_IDEMPOTENCY_CONFLICT',
-           'M6_CLOSURE_OVERLAP','M6_STOCK_CONFLICT',
+           'M6_CLOSURE_OVERLAP','M6_SCHEDULE_OVERLAP','M6_STOCK_CONFLICT',
            'M6_BRANCH_STOCK_SWITCH_CONFLICT'].includes(e.code)?409:400;
         reply(res,status,{error:e.code});return;
       }
