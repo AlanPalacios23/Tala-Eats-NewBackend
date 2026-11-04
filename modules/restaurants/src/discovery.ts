@@ -57,9 +57,13 @@ export async function discoverReadyBranches(pool:Pool,input:{
       'LEFT JOIN tala_restaurants_v2.branch_variant_controls ctl '+
       'ON ctl.branch_id=b.id AND ctl.store_id=v.store_id '+
       'AND ctl.variant_id=v.id '+
+      'LEFT JOIN tala_restaurants_v2.branch_stock bs '+
+      'ON bs.store_id=v.store_id AND bs.branch_id=b.id '+
+      'AND bs.variant_id=v.id '+
       'WHERE p.store_id=s.id AND p.is_active AND p.archived_at IS NULL '+
       'AND v.is_active AND coalesce(ctl.enabled,true) '+
-      'AND (NOT v.track_stock OR v.stock_quantity>0)) '+
+      'AND (NOT v.track_stock OR (CASE WHEN v.branch_stock_enabled '+
+      'THEN coalesce(bs.quantity,0) ELSE v.stock_quantity END)>0)) '+
       'ORDER BY s.display_name,s.id,b.branch_name,b.id LIMIT $5 OFFSET $6',
       [city,kind,search,at,limit+1,offset]);
     const items=result.rows.slice(0,limit).map(x=>Object.freeze({
