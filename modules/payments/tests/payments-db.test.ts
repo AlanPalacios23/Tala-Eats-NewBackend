@@ -46,8 +46,8 @@ test('M8 LAB: payment event lifecycle, verified facts and HMAC are deterministic
   await fail(()=>readPayment(pool,noRights,payment.id),'M8_FORBIDDEN');
   await fail(()=>requestRefund(pool,creator,{operationId:id(),paymentId:payment.id,
    amountCents:1000}),'M8_PAYMENT_NOT_SETTLED');
-  const accepted=event('payment.succeeded',payment.id,money,{
-   providerRef:'lab_payment_'+id().replaceAll('-','').slice(0,16)});
+  const providerRef='lab_payment_'+id().replaceAll('-','').slice(0,16);
+  const accepted=event('payment.succeeded',payment.id,money,{providerRef});
   const wrongAmount={...accepted,eventId:id(),amountCents:money-1};
   const bad=sign(wrongAmount);
   await fail(()=>ingestLabWebhook(pool,secret,bad.raw,bad.timestamp,bad.signature),
@@ -60,7 +60,7 @@ test('M8 LAB: payment event lifecycle, verified facts and HMAC are deterministic
   const record=await readPayment(pool,creator,payment.id);
   assert.equal(record.state,'succeeded');
   assert.equal(record.version,2);
-  assert.equal(record.providerRef,accepted.providerRef);
+  assert.equal(record.providerRef,providerRef);
   assert.equal(record.facts.length,1);
   assert.equal(record.facts[0]!.type,'FundsConfirmed.v1');
   assert.equal(record.facts[0]!.amountCents,money);
