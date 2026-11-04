@@ -5,7 +5,7 @@
 **Rama:** `feat/core-v2-pagos-foundation` (creada desde `main`).
 **PR:** [#10](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/10) — debe permanecer **Draft**, sin merge.
 **Ejecución:** Node.js 24, TypeScript estricto y PostgreSQL 16 descartable, esquema único `tala_payments_v2`.
-**Estado de certificación:** pendiente de CI final en este documento hasta comprobar la última ejecución.
+**Estado de certificación:** **CERRADO EN LAB3**, validado con CI Node 24/PostgreSQL 16. Cierre estrictamente autónomo, no comercial.
 **Despliegue comercial:** **NO-GO**, sin claves de Stripe LIVE, sin cargos reales, sin payouts y sin Kali.
 
 ## Alcance terminado, y dueño del dato
@@ -58,7 +58,7 @@ M8 es responsable exclusivamente de los registros de operaciones con el proveedo
 
 ## Decisión de avance de ingeniería
 
-- **GO solo para desarrollar el siguiente módulo independiente** al verificarse CI completa en el HEAD de M8. Cada módulo nuevo debe nacer desde `main`; nunca depender del PR #10 Draft como rama base.
+- **GO para desarrollar el siguiente módulo independiente** tras la validación de CI LAB3. Cada módulo nuevo debe nacer desde `main`; nunca depender del PR #10 Draft como rama base.
 - **NO-GO para publicación, fusión a `main`, Stripe LIVE, transferencias, wallets operativas y reemplazo del backend Kali.**
 - M8 se reabrirá ante un defecto o cuando se apruebe una integración externa. El cierre LAB no significa producción lista.
 
@@ -69,4 +69,4 @@ M8 es responsable exclusivamente de los registros de operaciones con el proveedo
 [LAB2 Stripe TEST](MODULO8-PAGOS-LAB2-STRIPE-TEST.md) ·
 [README M8](../modules/payments/README.md).
 
-**CI final:** pendiente de confirmar ejecución correspondiente al último commit.
+**CI verificada:** [GitHub Actions #41899643591](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/41899643591) — **SUCCESS** sobre commit `d1269474c29717f6c1a5685aad8031f1b9bc406d`; pruebas completas, migraciones 001–003, TypeScript y protección de base ajena. El presente ajuste documental no modifica el código funcional; verificar que su commit también apruebe CI.
