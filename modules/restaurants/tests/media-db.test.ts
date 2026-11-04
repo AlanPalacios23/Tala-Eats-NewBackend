@@ -128,10 +128,9 @@ test('M6 photo lifecycle: retire pending or primary photo without touching anoth
     const otherProduct=await createProduct(pool,outsider,{
       storeId:otherStore.id,operationId:id(),name:'Quesadilla',
       category:'Comida'});
-    await fail(()=>retireProductPhoto(pool,outsider,{
+    assert.equal((await retireProductPhoto(pool,outsider,{
       storeId:otherStore.id,productId:otherProduct.id,
       photoId:photoA.id
-    }).then(x=>{if(!x.retired)throw new RestaurantError('M6_PHOTO_NOT_FOUND');}),
-    'M6_PHOTO_NOT_FOUND');
+    })).retired,false);
   }finally{await pool.end();}
 });
