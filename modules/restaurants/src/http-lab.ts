@@ -14,6 +14,7 @@ import {setBranchVariantEnabled,readBranchStorefront} from './branch-catalog.js'
 import {retireProductPhoto} from './media.js';
 import {readMerchantOverview} from './overview.js';
 import {enableBranchInventory,adjustBranchStock,readBranchStock} from './branch-stock.js';
+import {transferBranchStock,countBranchStock,readBranchInventoryActivity} from './inventory-operations.js';
 import {discoverReadyBranches} from './discovery.js';
 
 type Identity=Actor;
@@ -168,10 +169,34 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           ...data,storeId,branchId:pathId(p[2]),variantId:pathId(p[4])
         } as never));return;
       }
+      if(p.length===3&&p[1]==='stock'&&p[2]==='transfers'&&method==='POST'){
+        const data=await body(req,['operationId','fromBranchId','toBranchId',
+          'variantId','quantity']);
+        reply(res,200,await transferBranchStock(pool,actor,{
+          ...data,storeId
+        } as never));return;
+      }
       if(p.length===4&&p[1]==='branches'&&p[3]==='stock'&&method==='GET'){
         reply(res,200,await readBranchStock(pool,actor,{
           storeId,branchId:pathId(p[2])
         }));return;
+      }
+      if(p.length===5&&p[1]==='branches'&&p[3]==='stock'&&
+         p[4]==='activity'&&method==='GET'){
+        const keys=[...url.searchParams.keys()];
+        if(keys.some(key=>key!=='limit')||new Set(keys).size!==keys.length)
+          throw new RestaurantError('M6_PAGE_INVALID');
+        const limit=url.searchParams.get('limit');
+        reply(res,200,await readBranchInventoryActivity(pool,actor,{
+          storeId,branchId:pathId(p[2]),...(limit===null?{}:{limit:Number(limit)})
+        }));return;
+      }
+      if(p.length===6&&p[1]==='branches'&&p[3]==='variants'&&
+         p[5]==='count'&&method==='POST'){
+        const data=await body(req,['operationId','expectedVersion','countedQuantity']);
+        reply(res,200,await countBranchStock(pool,actor,{
+          ...data,storeId,branchId:pathId(p[2]),variantId:pathId(p[4])
+        } as never));return;
       }
       if(p.length===6&&p[1]==='branches'&&p[3]==='variants'&&
          p[5]==='stock'&&method==='POST'){
