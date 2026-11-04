@@ -22,7 +22,7 @@ test('M7 coverage: staff-only zones, no speculative seeds, geographic math, CAS 
  const pool=new pg.Pool({connectionString:url,max:12});
  const admin={actorId:id(),canManageZones:true},user={actorId:id()};
  try{
-  assert.equal((await checkCoverage(pool,{city:'tala',point:tala})).covered,false);
+  // Other M7 test suites may configure independent active zones in this same LAB DB.
   await fail(()=>createZone(pool,user,{operationId:id(),slug:'bad-zone',name:'Zona',
    city:'tala',center:tala,radiusMeters:1500}),'M7_FORBIDDEN');
   const create={operationId:id(),slug:'zona-'+id().slice(0,8),
@@ -32,13 +32,14 @@ test('M7 coverage: staff-only zones, no speculative seeds, geographic math, CAS 
   await fail(()=>createZone(pool,admin,{...create,name:'Zona diferente'}),
    'M7_IDEMPOTENCY_CONFLICT');
   await fail(()=>createZone(pool,admin,{...create,operationId:id()}),'M7_ZONE_EXISTS');
-  assert.equal((await checkCoverage(pool,{city:'tala',point:tala})).covered,false);
+  assert.ok(!(await checkCoverage(pool,{city:'tala',point:tala})).zones
+   .some(x=>x.zoneId===z.id));
   await updateZone(pool,admin,{zoneId:z.id,expectedVersion:1,status:'active'});
   await fail(()=>updateZone(pool,admin,{zoneId:z.id,expectedVersion:1,
    radiusMeters:2000}),'M7_VERSION_CONFLICT');
   const covered=await checkCoverage(pool,{city:'tala',point:tala});
   assert.equal(covered.covered,true);
-  assert.equal(covered.zones[0]!.distanceMeters,0);
+  assert.equal(covered.zones.find(x=>x.zoneId===z.id)!.distanceMeters,0);
   assert.equal(covered.model,'approximate_circle_v1');
   assert.equal((await checkCoverage(pool,{city:'tala',point:{
    latitude:20.8,longitude:-103.7}})).covered,false);
@@ -46,7 +47,8 @@ test('M7 coverage: staff-only zones, no speculative seeds, geographic math, CAS 
   await fail(()=>listZones(pool,user),'M7_FORBIDDEN');
   assert.ok((await listZones(pool,admin)).some(x=>x.id===z.id));
   await updateZone(pool,admin,{zoneId:z.id,expectedVersion:2,status:'disabled'});
-  assert.equal((await checkCoverage(pool,{city:'tala',point:tala})).covered,false);
+  assert.ok(!(await checkCoverage(pool,{city:'tala',point:tala})).zones
+   .some(x=>x.zoneId===z.id));
   const a=await pool.query<{n:number}>(
    "SELECT count(*)::int AS n FROM tala_locations_v2.audit WHERE action='zone.update' "+
    'AND entity_id=$1::uuid',[z.id]);
