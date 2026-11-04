@@ -57,8 +57,7 @@ export async function setBranchVariantEnabled(pool:Pool,actor:Actor,input:{
 type BranchRow={
   display_name:string,kind:string,branch_name:string,city:string,
   pickup_enabled:boolean,delivery_enabled:boolean,is_active:boolean,
-  closed:boolean,exception_closed:boolean,open_minute:number|null,
-  close_minute:number|null,local_minute:number
+  schedule_open:boolean,exception_closed:boolean,prep_minutes:number
 };
 type ListingRow={
   variant_id:string,product_id:string,product_name:string,
@@ -85,27 +84,20 @@ export async function readBranchStorefront(pool:Pool,input:{
     const b=await c.query<BranchRow>(
       'SELECT s.display_name,s.kind,b.branch_name,b.city,'+
       'b.pickup_enabled,b.delivery_enabled,b.is_active,'+
-      'coalesce(h.closed,true) AS closed,h.open_minute,h.close_minute,'+
-      '((extract(hour from ($3::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int*60)+"+
-      '(extract(minute from ($3::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int)) AS local_minute,"+
+      'b.prep_minutes,'+
+      'tala_restaurants_v2.is_branch_scheduled_open(b.id,$3::timestamptz) '+
+      'AS schedule_open,'+
       'EXISTS(SELECT 1 FROM tala_restaurants_v2.branch_closures e '+
       'WHERE e.branch_id=b.id AND e.store_id=s.id AND e.cancelled_at IS NULL '+
       'AND e.starts_at<=$3::timestamptz '+
       'AND e.ends_at>$3::timestamptz) AS exception_closed '+
       'FROM tala_restaurants_v2.stores s '+
       'JOIN tala_restaurants_v2.branches b ON b.store_id=s.id '+
-      'LEFT JOIN tala_restaurants_v2.hours h ON h.branch_id=b.id '+
-      'AND h.weekday=extract(dow FROM ($3::timestamptz AT TIME ZONE '+
-      "'America/Mexico_City'))::int "+
       "WHERE s.id=$1::uuid AND b.id=$2::uuid AND s.status='ready'",
       [store,branch,at]);
     const row=b.rows[0];
     if(!row)throw new RestaurantError('M6_STOREFRONT_UNAVAILABLE');
-    const scheduled=!row.closed&&row.open_minute!==null&&
-      row.close_minute!==null&&row.local_minute>=row.open_minute&&
-      row.local_minute<row.close_minute;
+    const scheduled=row.schedule_open;
     const isOpen=row.is_active&&scheduled&&!row.exception_closed;
     const reason=!row.is_active?'BRANCH_PAUSED':
       row.exception_closed?'EXCEPTIONAL_CLOSURE':
@@ -148,7 +140,7 @@ export async function readBranchStorefront(pool:Pool,input:{
       storeId:store,branchId:branch,storeName:row.display_name,
       kind:row.kind,branchName:row.branch_name,city:row.city,
       timeZone:'America/Mexico_City',
-      open:isOpen,reason,
+      open:isOpen,reason,prepMinutes:row.prep_minutes,
       pickupAvailable:isOpen&&row.pickup_enabled,
       deliveryAvailable:isOpen&&row.delivery_enabled,
       items:Object.freeze(items),
