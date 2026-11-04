@@ -111,13 +111,15 @@ export async function createStripeTestIntent(pool:Pool,client:StripeTestClient,
   status:intent.status,livemode:false as const,provider:'stripe_test' as const});
 }
 
-async function reserveRefund(pool:Pool,refundId:string){
+async function reserveRefund(pool:Pool,refundId:string,expectedPaymentId?:string){
  return tx(pool,async c=>{
   const owner=await c.query<{payment_id:string}>(
    'SELECT payment_id FROM tala_payments_v2.refunds WHERE id=$1::uuid',
    [refundId]);
   if(!owner.rows[0])throw new PaymentError('M8_REFUND_NOT_FOUND');
   const paymentId=owner.rows[0].payment_id;
+  if(expectedPaymentId&&paymentId!==expectedPaymentId)
+   throw new PaymentError('M8_REFUND_NOT_FOUND');
   const p=await c.query<{provider:string,state:string}>(
    'SELECT provider,state FROM tala_payments_v2.payments '+
    'WHERE id=$1::uuid FOR UPDATE',[paymentId]);
@@ -161,9 +163,10 @@ async function reserveRefund(pool:Pool,refundId:string){
  });
 }
 export async function sendStripeTestRefund(pool:Pool,client:StripeTestClient,
- actor:Actor,refundId:string){
+ actor:Actor,refundId:string,expectedPaymentId?:string){
  requireActor(actor,'canRefundPayments');
- const id=uuid(refundId),op=await reserveRefund(pool,id);
+ const id=uuid(refundId),bound=expectedPaymentId?uuid(expectedPaymentId):undefined,
+  op=await reserveRefund(pool,id,bound);
  if(op.attached)return Object.freeze({refundId:id,
   stripeRefundId:op.stripeRefundId,status:op.state,
   livemode:false as const,provider:'stripe_test' as const});
