@@ -1,6 +1,6 @@
 # TALA EATS CORE v2 — Módulo 6: Restaurantes y Comercios
 
-**Estado:** LAB4 independiente, **NO-GO comercial**.  
+**Estado:** LAB5 independiente, **NO-GO comercial**.  
 **Rama:** `feat/core-v2-restaurantes-foundation` (creada desde `main`).  
 **PR:** [#8](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/8) (Draft, sin merge ni despliegue).
 
@@ -20,7 +20,7 @@ notificaciones. Ninguna entidad tiene una FK hacia otro módulo.
 | Disponibilidad | Estado ready/paused, horario local `America/Mexico_City`, sucursal activa |
 | Productos | Nombre, categoría, descripción, activación, archivo y versiones |
 | Presentaciones | Cada variante con `label`, precio en centavos MXN, peso fijo opcional y stock |
-| Inventario | Ajustes atómicos, idempotentes y auditados; no saldo negativo |
+| Inventario | Stock general o físico por sucursal (opt-in), ajustes atómicos, idempotentes y auditados; no saldo negativo |
 | Fotografías | Reserva de clave de objeto, SHA-256, MIME restringido y confirmación de almacenamiento verificada |
 | Auditoría | Eventos de modificación sin tokens ni pagos, filas inmutables |
 | Integración | Snapshot de oferta y disponibilidad de sucursal, **solo lectura** |
@@ -36,6 +36,18 @@ Ejemplo de una carnicería:
 No se calcula un total por peso dinámico. Cada variante tiene identificador,
 precio, disponibilidad y stock propios. M1 Pedidos realizará la reserva y
 autorización del pedido **cuando exista una integración verificada**.
+
+### LAB5 — existencias separadas por sucursal
+
+Una variante con stock general debe conciliar su saldo a **cero** antes de
+activar `branch_stock_enabled`. Este cambio es de una sola dirección;
+desde ese momento los movimientos se registran por sucursal, sin copiar
+unidades a otras sedes ni permitir ajustes en el saldo anterior. Las
+bandejas de catálogo y la oferta usan el saldo de la sucursal consultada.
+El comerciante puede consultar cantidades exactas en una vista privada;
+el escaparate solo enseña disponibilidad.
+
+[Contrato, restricciones y rutas LAB5](../../docs/MODULO6-RESTAURANTES-LAB5-INVENTARIO-SUCURSAL.md).
 
 ## Límites y roles
 
