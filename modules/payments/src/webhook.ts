@@ -63,10 +63,12 @@ export async function ingestLabWebhook(pool:Pool,secret:Buffer,raw:Buffer,
  return tx(pool,async c=>{
   // Lock payment before checking duplicate event; serializes all effects
   // including refund requests and replays for the same payment.
-  const p=await c.query<{state:string,amount_cents:string,currency:string}>(
-   'SELECT state,amount_cents,currency FROM tala_payments_v2.payments '+
+  const p=await c.query<{state:string,amount_cents:string,currency:string,provider:string}>(
+   'SELECT state,amount_cents,currency,provider FROM tala_payments_v2.payments '+
    'WHERE id=$1::uuid FOR UPDATE',[event.paymentId]);
   if(!p.rows[0])throw new PaymentError('M8_PAYMENT_NOT_FOUND');
+  if(p.rows[0].provider!=='simulated_lab')
+   throw new PaymentError('M8_PAYMENT_PROVIDER_CONFLICT');
   const old=await c.query<{fingerprint:string,payment_id:string}>(
    'SELECT fingerprint,payment_id FROM tala_payments_v2.provider_events '+
    'WHERE event_id=$1::uuid',[event.eventId]);
