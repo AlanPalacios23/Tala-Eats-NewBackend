@@ -1,8 +1,9 @@
 # TALA EATS CORE v2 — Módulo 6: Restaurantes y Comercios
 
-**Estado:** LAB6 cerrado en laboratorio, **NO-GO comercial**.  
+**Estado:** **M6 CERRADO EN LAB8**, validado en laboratorio; **NO-GO comercial/LIVE**.  
 **Rama:** `feat/core-v2-restaurantes-foundation` (creada desde `main`).  
 **PR:** [#8](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/8) (Draft, sin merge ni despliegue).
+**Acta de cierre actual:** [M6 LAB8](../../docs/MODULO6-RESTAURANTES-CIERRE-LAB8.md). **GO para iniciar otro módulo independiente desde `main`**.
 
 Este módulo gobierna la **identidad comercial y los productos** de tiendas locales.
 No contiene pedidos, logística, pagos, transferencias, balances, login ni
