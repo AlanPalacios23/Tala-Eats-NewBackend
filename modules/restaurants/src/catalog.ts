@@ -162,7 +162,7 @@ export async function adjustStock(pool:Pool,actor:Actor,input:{
       'stock_quantity=v.stock_quantity+$3,version=v.version+1,'+
       'updated_at=clock_timestamp() '+
       'FROM tala_restaurants_v2.products p WHERE v.id=$1::uuid '+
-      'AND v.store_id=$2::uuid AND v.track_stock AND '+
+      'AND v.store_id=$2::uuid AND v.track_stock AND NOT v.branch_stock_enabled AND '+
       'p.id=v.product_id AND p.store_id=v.store_id AND '+
       'p.archived_at IS NULL AND v.stock_quantity+$3 BETWEEN 0 AND 1000000 '+
       'RETURNING v.*',[id,store,delta]);
@@ -191,7 +191,7 @@ export async function readCatalog(pool:Pool,actor:Actor,storeId:string){
       'ORDER BY created_at DESC LIMIT 500',[store]);
     const variants=await c.query<VariantRow>(
       'SELECT id,product_id,store_id,label,weight_grams,price_cents,'+
-      'stock_quantity,track_stock,is_active,version '+
+      'stock_quantity,track_stock,branch_stock_enabled,is_active,version '+
       'FROM tala_restaurants_v2.variants WHERE store_id=$1::uuid '+
       'ORDER BY created_at DESC LIMIT 2000',[store]);
     return {products:products.rows,variants:variants.rows};
@@ -215,8 +215,11 @@ export async function readOfferSnapshot(pool:Pool,input:{
       'SELECT s.id AS store_id,b.id AS branch_id,v.id AS variant_id,'+
       'p.id AS product_id,p.name AS product_name,v.label AS variant_label,'+
       'v.weight_grams,v.price_cents,\'MXN\'::text AS currency,'+
-      'v.stock_quantity,v.track_stock,v.version AS variant_version,'+
-      '((NOT v.track_stock OR v.stock_quantity>0) AND '+
+      'CASE WHEN v.branch_stock_enabled THEN coalesce(bs.quantity,0) '+
+      'ELSE v.stock_quantity END AS stock_quantity, '+
+      'v.track_stock,v.version AS variant_version,'+
+      '((NOT v.track_stock OR (CASE WHEN v.branch_stock_enabled '+
+      'THEN coalesce(bs.quantity,0) ELSE v.stock_quantity END)>0) AND '+
       'NOT coalesce(h.closed,true) AND '+
       '(extract(hour from ($4::timestamptz AT TIME ZONE '+
       "'America/Mexico_City'))::int*60+"+
@@ -238,6 +241,9 @@ export async function readOfferSnapshot(pool:Pool,input:{
       'LEFT JOIN tala_restaurants_v2.branch_variant_controls ctrl '+
       'ON ctrl.store_id=v.store_id AND ctrl.branch_id=b.id '+
       'AND ctrl.variant_id=v.id '+
+      'LEFT JOIN tala_restaurants_v2.branch_stock bs '+
+      'ON bs.store_id=v.store_id AND bs.branch_id=b.id '+
+      'AND bs.variant_id=v.id '+
       'LEFT JOIN tala_restaurants_v2.hours h ON h.branch_id=b.id '+
       'AND h.weekday=extract(dow FROM ($4::timestamptz AT TIME ZONE '+
       "'America/Mexico_City'))::int "+
