@@ -9,6 +9,7 @@ import {createStore,readStore,listMyStores,updateStore,changeStoreStatus,
 import {createProduct,updateProduct,archiveProduct,createVariant,setVariantPrice,
  adjustStock,readCatalog} from './catalog.js';
 import {prepareProductPhoto,listProductPhotos,selectPrimaryPhoto} from './media.js';
+import {scheduleBranchClosure,cancelBranchClosure,listBranchClosures} from './closures.js';
 
 type Identity=Actor;
 type Config={pool:Pool,authenticate:(req:IncomingMessage)=>Promise<Identity|null>};
@@ -103,6 +104,24 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           'pickupEnabled','deliveryEnabled','latitude','longitude']);
         reply(res,201,await createBranch(pool,actor,{...data,storeId} as never));return;
       }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='closures'&&method==='GET'){
+        reply(res,200,await listBranchClosures(pool,actor,{
+          storeId,branchId:pathId(p[2])
+        }));return;
+      }
+      if(p.length===4&&p[1]==='branches'&&p[3]==='closures'&&method==='POST'){
+        const data=await body(req,['operationId','startsAt','endsAt','reason']);
+        reply(res,201,await scheduleBranchClosure(pool,actor,{
+          ...data,storeId,branchId:pathId(p[2])
+        } as never));return;
+      }
+      if(p.length===6&&p[1]==='branches'&&p[3]==='closures'&&
+         p[5]==='cancel'&&method==='POST'){
+        await body(req,[]);
+        reply(res,200,await cancelBranchClosure(pool,actor,{
+          storeId,branchId:pathId(p[2]),closureId:pathId(p[4])
+        }));return;
+      }
       if(p.length===4&&p[1]==='branches'&&p[3]==='hours'&&method==='PUT'){
         const data=await body(req,['expectedVersion','days']);
         reply(res,200,await setBranchHours(pool,actor,{
@@ -180,7 +199,8 @@ export function createRestaurantsLabHttpServer({pool,authenticate}:Config){
           e.code==='M6_FORBIDDEN'?403:
           e.code==='M6_CONTENT_TYPE_REQUIRED'?415:
           e.code==='M6_BODY_TOO_LARGE'?413:
-          e.code==='M6_VERSION_CONFLICT'||e.code==='M6_IDEMPOTENCY_CONFLICT'?409:400;
+          ['M6_VERSION_CONFLICT','M6_IDEMPOTENCY_CONFLICT',
+           'M6_CLOSURE_OVERLAP'].includes(e.code)?409:400;
         reply(res,status,{error:e.code});return;
       }
       reply(res,500,{error:'M6_INTERNAL_ERROR'});
