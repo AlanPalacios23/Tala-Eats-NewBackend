@@ -11,7 +11,7 @@ const enabled=url.includes('/tala_payments_v2_test');
 const id=()=>randomUUID();
 const secret=randomBytes(32);
 const customer=id();
-const creator={actorId:id(),canCreatePayments:true,canReadPayments:true,
+const creator={actorId:id(),canCreatePayments:true,canReadPayments:true,canReadAllPayments:true,
  canRefundPayments:true};
 const noRights={actorId:id()};
 const money=49900;
