@@ -8,6 +8,18 @@ Este módulo gobierna la **identidad comercial y los productos** de tiendas loca
 No contiene pedidos, logística, pagos, transferencias, balances, login ni
 notificaciones. Ninguna entidad tiene una FK hacia otro módulo.
 
+## LAB8 — horarios divididos/nocturnos y preparación por sede
+
+- Nueva migración aislada `007_branch_schedule_preparation.sql`: ventanas de apertura para cada día, hasta cuatro segmentos diarios, con soporte de cierre al día siguiente.
+- `schedule.ts` rechaza traslapes dentro del día, entre días adyacentes y sábado→domingo; una actualización concurrente o inválida realiza rollback.
+- Las lecturas de disponibilidad, escaparate, snapshot y descubrimiento usan una misma función SQL en el horario de `America/Mexico_City`.
+- `preparation.ts` configura `prepMinutes` (5–240) y `parallelPrepSlots` (1–100), sin contabilizar órdenes o invadir M1.
+- Endpoints HTTP LAB: `GET/PUT /v1/restaurants/:storeId/branches/:branchId/schedule` y `GET/PUT /v1/restaurants/:storeId/branches/:branchId/preparation`.
+- Los horarios antiguos de un solo intervalo se mantienen para compatibilidad. El campo legado `hours` **no** representa intervalos nocturnos o divididos: usar `scheduleSlots` o `GET /schedule` en clientes nuevos.
+- Pruebas SQL/HTTP E2E verifican concordancia entre lecturas, límites, permisos por comercio, colisiones y expiración de versión. Mantener PR Draft/NO-GO LIVE.
+
+[Detalles de API, pruebas y fronteras LAB8](../../docs/MODULO6-RESTAURANTES-LAB8-HORARIOS-PREPARACION.md).
+
 ## Funcionalidad incluida
 
 | Área | Implementación LAB |
@@ -82,9 +94,7 @@ no hace visible el establecimiento a clientes LIVE.
 
 `getBranchAvailability(...)` evalúa estado del establecimiento,
 estado de sucursal y día/hora local para indicar `isOpen`,
-`pickupAvailable` y `deliveryAvailable`. La lógica no cubre cierres
-festivos, tiempo de preparación, saturación del restaurante ni cierres
-extraordinarios: deberán ampliarse antes de producción.
+`pickupAvailable` y `deliveryAvailable`. La disponibilidad ya considera cierres extraordinarios y horarios divididos/nocturnos de LAB8. El tiempo de preparación se configura por sucursal; la saturación dinámica depende de la integración futura con M1.
 
 ## Fotografías
 
