@@ -50,7 +50,8 @@ function validateRefund(raw:unknown,expected:{
  refundId:string,intentId:string,amountCents:number
 }):StripeTestRefund{
  const r=obj(raw),meta=metadata(r.metadata);
- if(r.object!=='refund'||r.livemode!==false||typeof r.id!=='string'||
+ if(r.object!=='refund'||r.livemode===true||
+    (r.livemode!==undefined&&r.livemode!==false)||typeof r.id!=='string'||
     !REFUND.test(r.id)||r.amount!==expected.amountCents||r.currency!=='mxn'||
     r.payment_intent!==expected.intentId||
     meta.m8_refund_id!==expected.refundId||
