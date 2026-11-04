@@ -1,101 +1,59 @@
-# TALA EATS CORE v2 — Cierre técnico del Módulo 6: Restaurantes y Comercios
+# Tala Eats Core v2 — Acta de cierre técnico M6 Restaurantes y Comercios
 
-**Hito:** LAB6. **Decisión:** GO para detener desarrollo funcional autónomo
-y comenzar otro módulo separado. **NO-GO para LIVE, para fusionar sin revisión
-y para ventas comerciales.**
+**Fecha:** 4 de noviembre de 2026  
+**Hito:** LAB8 — cierre autónomo de M6.  
+**Decisión:** **GO para iniciar el siguiente módulo independiente**; **NO-GO para merge, despliegue Kali o comercio LIVE**.  
+**Rama:** `feat/core-v2-restaurantes-foundation`.  
+**PR:** [#8](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/8) — mantener **Draft, abierto y sin merge**.  
+**Ubicación de código:** `modules/restaurants/`.  
+**Esquema:** `tala_restaurants_v2`, únicamente en `tala_restaurants_v2_test` / `tala_restaurants_v2_lab`.
 
-**Rama:** `feat/core-v2-restaurantes-foundation`, nacida de `main`.
-**Pull request:** [#8](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/8) (Draft).
-**Código y DB:** `modules/restaurants`, `tala_restaurants_v2_test` o
-`tala_restaurants_v2_lab` exclusivamente.
-**Sin imports, FKs o conexión a M1–M5, al backend antiguo ni a Stripe LIVE.**
+## Alcance terminado y verificado en laboratorio
 
-## Funcionalidades propias de M6 entregadas en LAB
+1. **Comercios:** registro idempotente, perfiles, tipos de negocio, estado operativo de LAB, propietario y colaboradores con RBAC propietario / gerente / editor; versiones y auditoría.
+2. **Sucursales:** alta, municipio, información comercial, modos de recogida/entrega, control de activación y lectura administrativa.
+3. **Horarios:** programación semanal por sucursal, cierres extraordinarios, hasta cuatro ventanas por día, turnos que cruzan medianoche y protección ante solapamientos de toda la semana, incluido sábado→domingo.
+4. **Disponibilidad coherente:** `getBranchAvailability`, `readBranchStorefront`, `readOfferSnapshot` y `discoverReadyBranches` usan la misma fuente de horarios y respetan cierres/pausas. La búsqueda consulta inventario de la sucursal correcta (LAB7).
+5. **Preparación:** minutos configurables (5–240) y puestos paralelos (1–100) por sucursal, con versiones, permisos y auditoría; **sin inferir ocupación real de pedidos**.
+6. **Catálogo:** productos, categorías, variantes fijas por peso (500 g / 1 kg, etc.), precio en centavos MXN, archivo, switches de visibilidad por sucursal, escaparate paginado sin PII.
+7. **Fotos:** metadatos y validación de estado por verificador inyectado de LAB, foto principal y retiro lógico. **No incluye almacenamiento ni subida de archivos reales**.
+8. **Inventario:** saldo general antiguo o inventario físico por sede (migración voluntaria previa conciliación global a cero), ajustes, reposiciones, mermas, auditoría inmutable, historial privado, transferencias atómicas y conteos físicos con prevención de carreras.
+9. **API de laboratorio:** adaptador HTTP en loopback con identidad inyectada, validaciones, separación por comercio, RBAC y rutas de administración; bloqueada en `NODE_ENV=production`.
 
-1. Establecimientos de tipo restaurante/abarrotes/carnicería/verdulería/
-   papelería/ferretería/florería/otros; estado de onboarding de LAB,
-   perfil, propietario y colaboradores con roles propietario/gerente/editor.
-2. Sucursales, municipio, dirección, coordenadas opcionales, modalidad de
-   recoger/entregar, zona horaria `America/Mexico_City`, horarios semanales,
-   estado de activación y cierres excepcionales.
-3. Catálogo comercial de productos, presentaciones por peso fijo, precios
-   en centavos MXN, publicación/ocultamiento por sucursal y archivo.
-4. Fotografías: reserva de metadatos y hash, verificación de bytes delegada
-   a un proveedor confiable (simulado en LAB), foto principal y retiro lógico.
-5. Inventario legado por establecimiento y, **voluntariamente**, inventario
-   físico por sucursal; conciliación obligatoria a cero antes de la
-   conmutación. Existencias no se copian automáticamente.
-6. Ajustes de existencias, mermas, reposiciones y correcciones idempotentes;
-   saldos jamás negativos, libro de movimientos inmutable.
-7. Transferencias físicas entre dos sucursales dentro de una única
-   transacción, con débito y crédito equilibrados, límites superiores,
-   idempotencia y rollback ante falta de stock o destino lleno.
-8. Conteos físicos con versión optimista, diferencia positiva/negativa/cero
-   auditada, protección contra un conteo obsoleto y registro inmutable.
-9. Lectura privada de saldos e historial acotado de ajustes, conteos,
-   transferencias entrantes y salientes. Resumen de comercio.
-10. Catálogo de sucursal seguro, paginado, sin información interna de
-    propietarios ni cantidades exactas y con disponibilidad acorde con
-    horario, cierre, activación, menú e inventario de esa sucursal.
-11. Contrato de lectura `readOfferSnapshot` para una integración posterior,
-    sin reservar unidades, aceptar pedidos ni autorizar cobros.
+## Evidencia de calidad y alcance de la decisión
 
-## Seguridad y límites verificados
+- **Ejecución última de código LAB8:** [GitHub Actions #41871070563](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/41871070563) — **PASS**, incluida la batería añadida de horarios, madrugada, medianoche y frontera semanal.
+- CI de M6 verifica TypeScript estricto en Node 24, PostgreSQL 16, migraciones SQL 001–007, pruebas unitarias, DB/HTTP, permisos y aislamiento; rechaza migraciones a bases ajenas.
+- Controles de stock y transferencias revisados con pruebas de idempotencia, concurrencia, rollback y ledger inmutable.
+- Esta evidencia **no es una certificación de producción**, seguridad de despliegue o disponibilidad comercial.
+- Los commits posteriores que solo actualicen documentación no cambian la evidencia funcional; si cambia el código, debe obtenerse una nueva CI PASS antes de conservar este cierre.
 
-- Toda escritura comercial comprueba permisos por comercio antes de mutar;
-  el rol del usuario NO se acepta del frontend. La autenticidad de la
-  identidad es responsabilidad del host inyectado.
-- Las operaciones sensibles se serializan por comercio en una transacción,
-  usan enteros de unidades, `operationId` inmutable por actor/acción/
-  parámetros y controles de pertenencia de variante/sucursal.
-- Los saldos globales previos dejan de poder ajustarse cuando se habilita
-  control por sucursal. La vista pública solo devuelve `in_stock`/
-  `sold_out`, no saldo bruto ni claves de almacenamiento.
-- Los movimientos, transferencias y conteos son append-only vía triggers.
-- HTTP únicamente loopback en LAB y **bloqueado en `NODE_ENV=production`**.
-  No publicar esta API en internet.
-- Se aplican SQL 001–006 solo a `tala_restaurants_v2_test` o
-  `tala_restaurants_v2_lab`. CI comprueba que una base distinta sea
-  rechazada y conserva la frontera de imports.
+## Frontera estricta de propiedad
 
-## Pruebas de cierre
+M6 **solo** gobierna comercios, sucursales, catálogo, condiciones de disponibilidad, inventario y configuración estática de preparación. Mantener contratos explícitos sin importaciones ni FK hacia otros módulos.
 
-CI propia: Node 24, TypeScript estricto, PostgreSQL 16, seis migraciones,
-pruebas funcionales, HTTP E2E autenticado en loopback, permisos/tenancy,
-reintentos, carrera de transferencias, agotamiento, destino saturado,
-rollback, conteos con y sin diferencia, lectura privada y auditoría SQL.
-El resultado final se comprueba en el PR #8 después del último commit.
-No confundir estos tests de LAB con certificación de producción.
+| Propietario externo | Fuera de M6 |
+| --- | --- |
+| M1 Pedidos | Ciclo de pedido, aceptación/cancelación y reserva/compromiso/liberación de stock. M6 solo ofrece snapshot; reserva transaccional pendiente de contrato. |
+| M2 Logística | Despacho, repartidores, rutas y cálculo de envío/ETA. |
+| M3 Finanzas | Cobros, reembolsos, comisiones, facturación, wallet, saldos y Stripe. |
+| M4 Usuarios | Autenticación real, registro de usuarios, sesiones e invitaciones verificadas de empleados. M6 solo guarda roles internos referidos a identidades inyectadas. |
+| M5 Notificaciones | Mensajería, avisos push, correo y canales externos. |
+| M7 Ubicaciones | Geocodificación, GPS, mapas y validación espacial. M6 guarda únicamente datos declarativos de la sucursal. |
 
-## Responsabilidades que NO se incluyen en M6
+## Pendientes externos bloqueantes para GO LIVE
 
-- M1 Pedidos gestiona autorización, colocación y cancelación de pedidos,
-  y requiere un contrato seguro de reserva/compromiso/liberación de stock.
-  **El M6 NO realiza reservas aún.**
-- M2 Logística gestiona repartidores y despacho; M3 Finanzas/Pagos gestiona
-  Stripe, wallet, conciliación y liquidaciones; M4 Usuarios gestiona
-  autenticación real y M5 Notificaciones gestiona canales de aviso.
-- M6 solo declara capacidad de recoger/entregar como característica de la
-  sucursal, no calcula rutas, envíos, tarifas ni tiempos de entrega.
+1. Gateway autenticado e identidades confiables; altas de colaboradores y aprobación documental/comercial (con integración a M4/administración).
+2. Subida real de fotografías con validación de bytes, dimensión, hash, almacenamiento privado, ACL, CDN y borrado.
+3. Contrato transaccional de reserva y liberación de stock con M1, anti-sobreventa, rollback y pruebas intermodulares; M6 no implementa el flujo de pedido.
+4. Pruebas E2E de PWA y Flutter sobre API real de integración, compatibilidad de clientes con horarios divididos, errores y reconexión.
+5. Observabilidad, métricas, alertas, mínimos privilegios de DB, gestión de secretos, backup y recuperación probada, carga y pentest.
+6. Capacidad dinámica y saturación comercial solo tras contrato con M1; no incluir lógica de pedidos en M6.
 
-## Puertas de integración y producción que permanecen cerradas
+## Congelación y siguiente etapa
 
-1. Autenticación real de empleados, invitaciones y baja de acceso mediante
-   M4 y gateway, revisión de permisos de múltiples comercios.
-2. Validación documental y aprobación administrativa de comercios;
-   `ready` en LAB **no** equivale a un comercio comercialmente aprobado.
-3. Carga real y segura de fotos: verificación de bytes, decodificación,
-   tamaño/dimensiones, aislamiento de almacenamiento, ACL, CDN y purga.
-4. Contrato transaccional de disponibilidad/reserva con M1, sin introducir
-   lógica de pedidos en M6; pruebas de sobreventa y recuperación.
-5. Operación comercial de capacidad/tiempos de cocina, horarios divididos,
-   facturación (en módulo financiero), monitoreo y recuperación.
-6. Seguridad de infraestructura: credenciales, roles DB mínimos, protección
-   antiabuso, logs/alertas, backup/restore, E2E reales Flutter/PWA,
-   pruebas de carga bajo condiciones de despliegue y revisión legal.
-
-**Regla de cierre:** mantener #8 Draft, sin fusionar a `main` ni
-desplegar a Kali. No presentar el M6 como listo al 100% para atender
-clientes hasta cerrar puertas de integración y producción. Las mejoras
-futuras requieren una solicitud concreta y nueva CI; el siguiente
-módulo puede iniciarse desde `main` en otra rama independiente.
+- **M6 CERRADO EN LAB8.** No agregar funcionalidades ajenas ni mezclar código de otros módulos en esta rama.
+- **No** fusionar PR #8 a `main`, cerrar el PR ni realizar deploy en Kali por este cierre; mantener revisión de integración pendiente.
+- Para el siguiente módulo, crear una rama **desde `main`** independiente, sin basarla en la rama de M6.
+- Reabrir M6 únicamente ante una regresión concreta, cambio aprobado del contrato propio o las futuras puertas de integración; exigir sus pruebas y nuevo gate.
+- Referencias: [README M6](../modules/restaurants/README.md) y [LAB8 horarios/preparación](MODULO6-RESTAURANTES-LAB8-HORARIOS-PREPARACION.md).
