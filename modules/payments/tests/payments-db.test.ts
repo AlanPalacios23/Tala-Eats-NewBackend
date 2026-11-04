@@ -113,11 +113,11 @@ test('M8 LAB: fractional refunds and concurrent reservations cannot exceed paid 
   await fail(()=>requestRefund(pool,creator,{operationId:id(),
    paymentId:p.id,amountCents:1}),'M8_REFUND_EXCEEDS_PAYMENT');
   const invalid=sign(event('refund.succeeded',p.id,7001,{
-   refundId:first.id,providerRef:'lab_refund_'+id().slice(0,12)}));
+   refundId:first.id,providerRef:'lab_refund_'+id().replaceAll('-','').slice(0,12)}));
   await fail(()=>ingestLabWebhook(pool,secret,invalid.raw,invalid.timestamp,
    invalid.signature),'M8_WEBHOOK_AMOUNT_MISMATCH');
   const firstRefund=sign(event('refund.succeeded',p.id,7000,{
-   refundId:first.id,providerRef:'lab_refund_'+id().slice(0,12)}));
+   refundId:first.id,providerRef:'lab_refund_'+id().replaceAll('-','').slice(0,12)}));
   await ingestLabWebhook(pool,secret,firstRefund.raw,firstRefund.timestamp,
    firstRefund.signature);
   const failed=sign(event('refund.failed',p.id,3000,{refundId:remainder.id}));
@@ -125,7 +125,7 @@ test('M8 LAB: fractional refunds and concurrent reservations cannot exceed paid 
   const replacement=await requestRefund(pool,creator,{
    operationId:id(),paymentId:p.id,amountCents:3000});
   const last=sign(event('refund.succeeded',p.id,3000,{
-   refundId:replacement.id,providerRef:'lab_refund_'+id().slice(0,12)}));
+   refundId:replacement.id,providerRef:'lab_refund_'+id().replaceAll('-','').slice(0,12)}));
   await ingestLabWebhook(pool,secret,last.raw,last.timestamp,last.signature);
   await fail(()=>requestRefund(pool,creator,{operationId:id(),paymentId:p.id,
    amountCents:1}),'M8_REFUND_EXCEEDS_PAYMENT');
@@ -151,7 +151,7 @@ test('M8 LAB: terminal failed payments never create settlement facts or refunds'
   await fail(()=>requestRefund(pool,creator,{operationId:id(),paymentId:p.id,
    amountCents:100}),'M8_PAYMENT_NOT_SETTLED');
   const delayed=sign(event('payment.succeeded',p.id,2500,{
-   providerRef:'lab_late_'+id().slice(0,12)}));
+   providerRef:'lab_late_'+id().replaceAll('-','').slice(0,12)}));
   await fail(()=>ingestLabWebhook(pool,secret,delayed.raw,delayed.timestamp,
    delayed.signature),'M8_EVENT_STATE_CONFLICT');
  }finally{await pool.end();}
