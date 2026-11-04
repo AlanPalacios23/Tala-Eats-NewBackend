@@ -270,11 +270,15 @@ export async function getBranchAvailability(pool:Pool,input:{
   return tx(pool,async c=>{
     const r=await c.query<{
       status:'draft'|'ready'|'paused',is_active:boolean,pickup_enabled:boolean,
-      delivery_enabled:boolean,closed:boolean,open_minute:number|null,
-      close_minute:number|null,local_minute:number
+      delivery_enabled:boolean,closed:boolean,exception_closed:boolean,
+      open_minute:number|null,close_minute:number|null,local_minute:number
     }>(
       'SELECT s.status,b.is_active,b.pickup_enabled,b.delivery_enabled,'+
       'coalesce(h.closed,true) AS closed,h.open_minute,h.close_minute,'+
+      'EXISTS(SELECT 1 FROM tala_restaurants_v2.branch_closures e '+
+      'WHERE e.branch_id=b.id AND e.store_id=s.id '+
+      'AND e.cancelled_at IS NULL AND e.starts_at<=$3::timestamptz '+
+      'AND e.ends_at>$3::timestamptz) AS exception_closed,'+
       '(extract(hour from ($3::timestamptz AT TIME ZONE \'America/Mexico_City\'))::int*60+'+
       'extract(minute from ($3::timestamptz AT TIME ZONE \'America/Mexico_City\'))::int) AS local_minute '+
       'FROM tala_restaurants_v2.stores s JOIN tala_restaurants_v2.branches b '+
@@ -287,13 +291,15 @@ export async function getBranchAvailability(pool:Pool,input:{
     const scheduleOpen=!row.closed&&row.open_minute!==null&&
       row.close_minute!==null&&row.local_minute>=row.open_minute&&
       row.local_minute<row.close_minute;
-    const open=row.status==='ready'&&row.is_active&&scheduleOpen;
+    const open=row.status==='ready'&&row.is_active&&scheduleOpen&&
+      !row.exception_closed;
     return Object.freeze({
       storeId:store,branchId:branch,timeZone:'America/Mexico_City',
       isOpen:open,pickupAvailable:open&&row.pickup_enabled,
       deliveryAvailable:open&&row.delivery_enabled,
       reason:row.status!=='ready'?'STORE_NOT_READY':
         !row.is_active?'BRANCH_PAUSED':
+        row.exception_closed?'EXCEPTIONAL_CLOSURE':
         !scheduleOpen?'OUTSIDE_HOURS':'OPEN'
     });
   },true);
