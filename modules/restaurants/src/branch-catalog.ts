@@ -113,13 +113,18 @@ export async function readBranchStorefront(pool:Pool,input:{
     const products=await c.query<ListingRow>(
       'SELECT v.id AS variant_id,p.id AS product_id,p.name AS product_name,'+
       'p.description,p.category,v.label AS variant_label,v.weight_grams,'+
-      'v.price_cents,v.track_stock,v.stock_quantity,photo.id AS photo_id '+
+      'v.price_cents,v.track_stock,'+
+      'CASE WHEN v.branch_stock_enabled THEN coalesce(bs.quantity,0) '+
+      'ELSE v.stock_quantity END AS stock_quantity,photo.id AS photo_id '+
       'FROM tala_restaurants_v2.variants v '+
       'JOIN tala_restaurants_v2.products p ON p.id=v.product_id '+
       'AND p.store_id=v.store_id '+
       'LEFT JOIN tala_restaurants_v2.branch_variant_controls ctrl '+
       'ON ctrl.variant_id=v.id AND ctrl.branch_id=$2::uuid '+
       'AND ctrl.store_id=v.store_id '+
+      'LEFT JOIN tala_restaurants_v2.branch_stock bs '+
+      'ON bs.store_id=v.store_id AND bs.branch_id=$2::uuid '+
+      'AND bs.variant_id=v.id '+
       'LEFT JOIN LATERAL (SELECT ph.id FROM tala_restaurants_v2.product_photos ph '+
       "WHERE ph.product_id=p.id AND ph.store_id=p.store_id "+
       "AND ph.status='ready' AND ph.is_primary LIMIT 1) photo ON true "+
