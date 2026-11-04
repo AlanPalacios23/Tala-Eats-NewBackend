@@ -6,8 +6,12 @@ import type {Pool} from 'pg';
 import {PaymentError,uuid,assertKeys,type Actor} from './domain.js';
 import {createPayment,requestRefund,readPayment} from './payments.js';
 import {ingestLabWebhook} from './webhook.js';
+import {StripeTestClient} from './stripe-test-client.js';
+import {createStripeTestIntent,sendStripeTestRefund} from './stripe-test-operations.js';
+import {ingestStripeTestWebhook} from './stripe-test-webhook.js';
 type Config={pool:Pool,webhookSecret:Buffer,
- authenticate:(request:IncomingMessage)=>Promise<Actor|null>};
+ authenticate:(request:IncomingMessage)=>Promise<Actor|null>,
+ stripeTest?:{client:StripeTestClient,webhookSecret:string}};
 const MAX_BYTES=8192;
 function reply(res:ServerResponse,status:number,value:unknown){
  if(res.headersSent)return;
@@ -22,18 +26,18 @@ function reply(res:ServerResponse,status:number,value:unknown){
  });
  res.end(bytes);
 }
-async function readRaw(req:IncomingMessage):Promise<Buffer>{
+async function readRaw(req:IncomingMessage,maxBytes=MAX_BYTES):Promise<Buffer>{
  if(!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(
   req.headers['content-type']??''))
   throw new PaymentError('M8_CONTENT_TYPE_REQUIRED');
  const len=Number(req.headers['content-length']??0);
- if(!Number.isSafeInteger(len)||len<0||len>MAX_BYTES)
+ if(!Number.isSafeInteger(len)||len<0||len>maxBytes)
   throw new PaymentError('M8_BODY_TOO_LARGE');
  const pieces:Buffer[]=[];let used=0;
  for await(const x of req){
   const part=Buffer.isBuffer(x)?x:Buffer.from(x);
   used+=part.length;
-  if(used>MAX_BYTES)throw new PaymentError('M8_BODY_TOO_LARGE');
+  if(used>maxBytes)throw new PaymentError('M8_BODY_TOO_LARGE');
   pieces.push(part);
  }
  return Buffer.concat(pieces);
@@ -77,6 +81,15 @@ export function createPaymentsLabHttpServer(config:Config){
     reply(res,200,await ingestLabWebhook(pool,webhookSecret,raw,
      timestamp,signature));return;
    }
+   if(url.pathname==='/v1/payments/stripe-test-webhook'&&method==='POST'){
+    if(!config.stripeTest)throw new PaymentError('M8_STRIPE_TEST_DISABLED');
+    const raw=await readRaw(req,65536);
+    const sig=req.headers['stripe-signature'];
+    if(typeof sig!=='string')
+      throw new PaymentError('M8_STRIPE_SIGNATURE_INVALID');
+    reply(res,200,await ingestStripeTestWebhook(pool,
+      config.stripeTest.webhookSecret,raw,sig));return;
+   }
    const actor=await authenticate(req);
    if(!actor)throw new PaymentError('M8_UNAUTHORIZED');
    uuid(actor.actorId);
@@ -88,6 +101,19 @@ export function createPaymentsLabHttpServer(config:Config){
     const d=await readBody(req,
      ['operationId','orderRef','customerRef','amountCents','currency']);
     reply(res,201,await createPayment(pool,actor,d as never));return;
+   }
+   if(p.length===2&&p[1]==='stripe-test-intent'&&method==='POST'){
+    if(!config.stripeTest)throw new PaymentError('M8_STRIPE_TEST_DISABLED');
+    await readBody(req,[]);
+    reply(res,200,await createStripeTestIntent(pool,config.stripeTest.client,
+      actor,uuid(p[0])));return;
+   }
+   if(p.length===4&&p[1]==='refunds'&&
+      p[3]==='stripe-test-send'&&method==='POST'){
+    if(!config.stripeTest)throw new PaymentError('M8_STRIPE_TEST_DISABLED');
+    await readBody(req,[]);
+    reply(res,200,await sendStripeTestRefund(pool,config.stripeTest.client,
+      actor,uuid(p[2]),uuid(p[0])));return;
    }
    if(p.length===1&&method==='GET'){
     reply(res,200,await readPayment(pool,actor,uuid(p[0])));return;
@@ -107,10 +133,17 @@ export function createPaymentsLabHttpServer(config:Config){
      e.code==='M8_CONTENT_TYPE_REQUIRED'?415:
      e.code==='M8_BODY_TOO_LARGE'?413:
      e.code==='M8_PAYMENT_NOT_FOUND'||e.code==='M8_REFUND_NOT_FOUND'?404:
+     e.code==='M8_STRIPE_TEST_DISABLED'?503:
+     e.code==='M8_STRIPE_SIGNATURE_INVALID'||e.code==='M8_STRIPE_LIVEMODE_FORBIDDEN'?401:
+     e.code==='M8_STRIPE_NETWORK_UNCERTAIN'||
+      e.code==='M8_STRIPE_RECONCILIATION_REQUIRED'||
+      e.code==='M8_STRIPE_UNBOUND_EVENT'?503:
      ['M8_IDEMPOTENCY_CONFLICT','M8_ORDER_PAYMENT_EXISTS',
       'M8_PAYMENT_NOT_SETTLED','M8_REFUND_EXCEEDS_PAYMENT',
       'M8_WEBHOOK_REPLAY_CONFLICT','M8_EVENT_STATE_CONFLICT',
-      'M8_WEBHOOK_AMOUNT_MISMATCH','M8_PROVIDER_REFERENCE_CONFLICT']
+      'M8_WEBHOOK_AMOUNT_MISMATCH','M8_PROVIDER_REFERENCE_CONFLICT',
+      'M8_STRIPE_OPERATION_IN_PROGRESS','M8_STRIPE_EVENT_REPLAY_CONFLICT',
+      'M8_STRIPE_AMOUNT_MISMATCH','M8_PAYMENT_PROVIDER_CONFLICT']
        .includes(e.code)?409:400;
     reply(res,status,{error:e.code});return;
    }
