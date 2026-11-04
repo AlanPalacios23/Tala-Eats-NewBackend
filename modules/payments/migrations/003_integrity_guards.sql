@@ -88,9 +88,18 @@ BEGIN
    RAISE EXCEPTION 'M8_REFUND_PROVIDER_REFERENCE_IMMUTABLE' USING ERRCODE='23514';
   END IF;
  END IF;
- -- Serializable allocation-by-parent row lock even for direct SQL writes.
- SELECT amount_cents,state INTO authorized_amount,payment_state
- FROM tala_payments_v2.payments WHERE id=NEW.payment_id FOR UPDATE;
+ -- INSERT adds a reservation: take the parent lock first to serialize
+ -- competing raw SQL inserts with API-created refund requests.
+ -- UPDATE cannot increase a reservation (amount immutable, only requested
+ -- -> succeeded or failed), so never lock parent after acquiring refund row:
+ -- that reversed lock order could deadlock with the API's parent-first path.
+ IF TG_OP='INSERT' THEN
+  SELECT amount_cents,state INTO authorized_amount,payment_state
+  FROM tala_payments_v2.payments WHERE id=NEW.payment_id FOR UPDATE;
+ ELSE
+  SELECT amount_cents,state INTO authorized_amount,payment_state
+  FROM tala_payments_v2.payments WHERE id=NEW.payment_id;
+ END IF;
  IF NOT FOUND OR payment_state<>'succeeded' THEN
   RAISE EXCEPTION 'M8_REFUND_PAYMENT_NOT_SETTLED' USING ERRCODE='23514';
  END IF;
