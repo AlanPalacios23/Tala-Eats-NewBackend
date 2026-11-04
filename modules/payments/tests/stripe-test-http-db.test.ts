@@ -45,7 +45,7 @@ test('M8 LAB2 TEST-only HTTP API: host permissions, PaymentIntent, refunds and n
   return new Response('{}',{status:404});
  }});
  const actor={actorId:id(),canCreatePayments:true,canRefundPayments:true,
-  canReadPayments:true},denied={actorId:id()};
+  canReadPayments:true,canMonitorPayments:true},denied={actorId:id()};
  const server=createPaymentsLabHttpServer({pool,webhookSecret:randomBytes(32),
   stripeTest:{client,webhookSecret:whsec},
   authenticate:async req=>req.headers.authorization===token?actor:
@@ -72,6 +72,13 @@ test('M8 LAB2 TEST-only HTTP API: host permissions, PaymentIntent, refunds and n
   return {body,header:'t='+ts+',v1='+hmac};
  };
  try{
+  assert.equal((await call('GET','/v1/payments/stripe-test/diagnostics',
+   undefined,{authorization:'Bearer denied'})).status,403);
+  const initialDiagnostics=await call('GET','/v1/payments/stripe-test/diagnostics');
+  assert.equal(initialDiagnostics.status,200);
+  assert.equal(initialDiagnostics.body.environment,'test_only');
+  assert.equal(initialDiagnostics.body.liveFunds,false);
+  assert.equal(Object.hasOwn(initialDiagnostics.body,'customerId'),false);
   const p=await call('POST','/v1/payments',{operationId:id(),
    orderRef:id(),customerRef:id(),amountCents:49900,currency:'MXN'});
   assert.equal(p.status,201);
@@ -119,6 +126,11 @@ test('M8 LAB2 TEST-only HTTP API: host permissions, PaymentIntent, refunds and n
    signedRefund.body,{'stripe-signature':signedRefund.header})).status,200);
   const after=await call('GET','/v1/payments/'+pid);
   assert.equal(after.body.refunds[0]!.state,'succeeded');
+  const diag=await call('GET','/v1/payments/stripe-test/diagnostics');
+  assert.ok(diag.body.intents.total>=1);
+  assert.ok(diag.body.events.applied>=2);
+  assert.equal(diag.body.integrity.payment_missing,0);
+  assert.equal(diag.body.integrity.refund_missing,0);
  }finally{
   await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));
   await pool.end();
