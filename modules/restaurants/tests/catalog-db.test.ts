@@ -91,6 +91,10 @@ test('M6 stock ledger: idempotent operation, negative prevention and 18-way conc
       'M6_IDEMPOTENCY_CONFLICT');
     await fail(()=>adjustStock(pool,other,{...input,operationId:id()}),
       'M6_FORBIDDEN');
+    await fail(()=>adjustStock(pool,owner,{...input,operationId:id(),
+      delta:2,reason:'waste'}),'M6_STOCK_REASON_INVALID');
+    await fail(()=>adjustStock(pool,owner,{...input,operationId:id(),
+      delta:-2,reason:'restock'}),'M6_STOCK_REASON_INVALID');
     await fail(()=>adjustStock(pool,owner,{...input,operationId:id(),delta:-8}),
       'M6_STOCK_CONFLICT');
     const adjusts=Array.from({length:18},(_,i)=>
@@ -105,6 +109,12 @@ test('M6 stock ledger: idempotent operation, negative prevention and 18-way conc
       'FROM tala_restaurants_v2.stock_adjustments WHERE store_id=$1',[store.id]);
     assert.equal(rows.rows[0]?.n,19);
     assert.equal(rows.rows[0]?.total,15);
+    await assert.rejects(pool.query(
+      'DELETE FROM tala_restaurants_v2.stock_adjustments WHERE store_id=$1',
+      [store.id]),
+      (e:unknown)=>e instanceof Error&&
+        e.message.includes('RESTAURANTS_STOCK_HISTORY_IMMUTABLE'));
+
     await assert.rejects(pool.query(
       'UPDATE tala_restaurants_v2.audit SET action=$1 WHERE store_id=$2',
       ['hack.change',store.id]),
