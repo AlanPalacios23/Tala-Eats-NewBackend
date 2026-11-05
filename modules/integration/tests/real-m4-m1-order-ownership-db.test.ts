@@ -140,7 +140,7 @@ test('M11 LAB4: dual active M4/M1 sessions link customers; REAL M1 order scope +
   await assert.rejects(gate.authorizeLabOrderCancel({
    sessionToken:m4a.session,orderId:uid()
   }),e=>errorCode(e,'M11_OWNERSHIP_NOT_VERIFIED'));
-  const count=await lab.config.security.pool.query<{n:number}>(
+  const count=await lab.security.pool.query<{n:number}>(
    "SELECT count(*)::int AS n FROM tala_security_v2.audit_events "+
    "WHERE action='orders.cancel' AND decision='allow'");
   assert.ok(count.rows[0]!.n>=1);
