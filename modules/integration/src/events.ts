@@ -6,7 +6,7 @@ export class IntegrationError extends Error{
  constructor(readonly code:string){super(code);this.name='IntegrationError';}
 }
 export const ROUTES={
- 'orders.order_created':{source:'orders',consumers:['notifications']},
+ 'orders.order_created':{source:'orders',consumers:[]},
  'restaurants.order_ready':{source:'restaurants',consumers:['logistics','notifications']},
  'logistics.delivery_completed':{source:'logistics',consumers:['notifications','analytics']}
 } as const;
