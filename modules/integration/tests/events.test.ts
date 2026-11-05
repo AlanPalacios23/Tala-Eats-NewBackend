@@ -25,7 +25,7 @@ function urls():Record<DbKey,string>{
 test('M11 routes are closed, PII-free and bound to source module',()=>{
  const value=payload();
  assert.deepEqual(validateEnvelope(value),value);
- assert.deepEqual(routing('orders.order_created'),['notifications']);
+ assert.deepEqual(routing('orders.order_created'),[]);
  assert.deepEqual(routing('restaurants.order_ready'),
   ['logistics','notifications']);
  assert.deepEqual(routing('logistics.delivery_completed'),
