@@ -72,7 +72,7 @@ test('M11 routes the event to registered consumers, one lease per consumer',
     assert.equal(event.source,'restaurants');
    }
   });
-  assert.equal(noti.delivered,true);
+  assert.equal('delivered' in noti&&noti.delivered,true);
   const records=await pool.query<{consumer:string,state:string}>(
    'SELECT consumer,state FROM tala_integration_v2.deliveries '+
    'WHERE event_id=$1::uuid ORDER BY consumer',[e.eventId]);
