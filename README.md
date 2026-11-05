@@ -14,11 +14,16 @@ Este árbol de integración contiene el **código real de M1–M10** en una
   desactivadas, backend Kali anterior intacto, sin merge a `main`.
 - **Proveniencia:** `modules/integration/source-lock.json` fija los SHAs
   de los diez subárboles, M2 hereda M1 sin atrasos.
-- **Siguiente etapa:** conexiones M1→M8→M6→M2→M3→M10 con autorización
-  M4/M9, zonas M7 y notificaciones M5, más E2E entre apps.
+- **LAB5 verificado:** adaptador M6→M1 enlaza el catálogo de variantes
+  con pedidos pickup/cash de M1 usando inventario duplicado solo en LAB;
+  bloquea nuevas operaciones si precios o existencias divergen.
+- **Siguiente etapa:** reserva autoritativa de inventario M6,
+  compensación/outbox M1, contratos de pago M8 TEST y conciliación M3,
+  con autorización M4/M9 y E2E entre las apps.
 
 [README del ensamblador M11](modules/integration/README.md) ·
 [Arquitectura de integración](docs/MODULO11-INTEGRACION-ARQUITECTURA.md) ·
+[Acta LAB5](docs/MODULO11-INTEGRACION-LAB5.md) ·
 [Gates LAB1](docs/MODULO11-INTEGRACION-LAB1.md).
 
 ---

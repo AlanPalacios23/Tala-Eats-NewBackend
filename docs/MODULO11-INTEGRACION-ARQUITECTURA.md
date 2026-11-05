@@ -3,7 +3,7 @@
 **Fecha:** 5 de noviembre de 2026.
 **Rama:** `feat/core-v2-integracion-monolito-m11` (parent commit de `main`).
 **PR:** integración aislada como nueva capa, no merge de PRs de módulos.
-**Estado:** **LAB3 APROBADO**: integración de laboratorio M11→M10, M11→M5 y M4→M9 con funciones reales y 266 pruebas PASS; sin fusión ni despliegue comercial.
+**Estado:** **LAB5 VALIDADO en CI**: fuente de catálogo M6 y cotización/checkout M1 conectadas solo en laboratorio, junto a M4/M9, M5 y M10. 273 ejecuciones PASS, 0 FAIL; sin fusión ni despliegue comercial.
 **Protección:** NO-GO LIVE, NO-GO despliegue Kali, NO-GO sustituir backend anterior.
 
 ## 1. Ensamblaje físico comprobable
@@ -161,3 +161,41 @@ No se considera probado un flujo de dinero ni un pedido de producción.
 La [ejecución integrada #42073939450](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42073939450) aprobó en el HEAD funcional `be494737588f788e8202ae83cbb80ac71fae0154` las suites individuales de M1–M10 y los tests M11 (260 ejecuciones PASS contando la batería financiera adicional), incluida la prueba real de duplicación evitada en M10 ante reenvío de M11.
 
 **Certificación solo de ensamblaje y puente LAB2:** todavía faltan bindings comerciales reales de los demás módulos, un gateway único de escritura y E2E de aplicaciones.
+
+
+## LAB5 — catálogo de sucursal M6 → orden M1, con inventario en HOLD
+
+El adaptador `modules/integration/adapters/catalog-checkout-lab.ts`
+emplea funciones propias reales de **M6** para obtener disponibilidad,
+variante, versión, precio y stock, y funciones originales de **M1**
+para validar cotización y crear un pedido de **retiro / efectivo
+pendiente exclusivamente en laboratorio**.
+
+M11 guarda bindings inmutables por `(sucursal M6, variante M6)`
+a `(restaurante M1, producto M1)`; no interpreta identificadores del
+frontend como prueba de pertenencia y rechaza SKU/tenant/branch
+no mapeados, cambios de versión, precio/nombre o stock, productos
+inactivos y comercios fuera de horario. El comprador proviene de
+sesión M4 y vínculo M4↔M1 acreditado en LAB4. El checkout M1 tiene
+idempotencia sobre comprador y clave, y captura `price_snapshot`
+y outbox originales.
+
+**Invariante de seguridad:** la reserva de stock se produce **solo
+en M1**; M6 continúa como otro inventario independiente. M11 exige
+existencias idénticas y bloquea el siguiente pedido nuevo si divergen;
+no simula un decremento cruzado ni declara venta reservada. El
+bloqueo M11 por sucursal no alcanza transacciones directas de M6:
+**no es garantía LIVE de stock compartido**.
+
+**Política 17 % / 15 % no conciliada:** respuesta del LAB marca
+`pricingPolicyApproved=false`, `commercialReady=false`,
+`paid=false`. No se habilitan tarifas, cobros, restaurantes,
+wallets ni movimientos reales.
+
+[LAB5: pruebas y pendientes](MODULO11-INTEGRACION-LAB5.md) ·
+[CI #42125648088 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42125648088).
+
+**Siguiente puerta:** sistema autoritativo de reservas M6 con outbox
+y compensación M1, políticas financieras unificadas, M8 Stripe TEST
+de proveedor real y reconciliación de M3. Ninguna fase modifica
+el backend Kali existente por defecto.

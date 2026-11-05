@@ -1,7 +1,7 @@
 # Tala Eats Core v2 — M11 Integración del monolito (LAB1 aislado)
 
 **Rama:** `feat/core-v2-integracion-monolito-m11`, creada desde `main`.
-**Estado:** LAB3 aprobado; **LAB4 identidad M4→M1 desarrollada y en validación CI**, sin operaciones comerciales. **NO-GO LIVE, merge o Kali.** **NO-GO comercial, NO-GO merge, NO-GO Kali.**
+**Estado:** **LAB5 VALIDADO en CI**, integración M6→M1 para catálogo y pedido de prueba, más M4↔M1/M9, M11→M5/M10. **NO-GO LIVE, merge o Kali.**
 **El conjunto de fuentes aún NO equivale a un backend comercialmente integrado.**
 
 ## Qué hay realmente dentro de esta rama
@@ -124,6 +124,39 @@ antes de producción requiere migrar/unificar credenciales e identidades,
 cortar la dependencia de la sesión legacy y certificar el flujo E2E.
 
 [Informe LAB4](../../docs/MODULO11-INTEGRACION-LAB4.md).
+
+## LAB5 — catálogo real M6 → cotización/pedido real M1 (retiro LAB)
+
+El nuevo `adapters/catalog-checkout-lab.ts` usa las funciones
+**reales** `getBranchAvailability`, `readOfferSnapshot` de M6,
+y `previewCart`, `createCashOrder` de M1:
+
+- `004_branch_catalog_links.sql` vincula de forma irreversible sucursal
+  M6 ↔ restaurante M1 y variante M6 ↔ producto M1. El registro exige
+  host administrativo autenticado, ambas tiendas abiertas, misma
+  descripción `Producto — variante`, precio MXN y stock idénticos.
+- El preflight comprueba que la sucursal permite **pickup**, la
+  variante está disponible, versión/stock/precio exactos y que el M1
+  sombreador no diverge; ninguna cantidad/precio se acepta del frontend.
+- Para un pedido **solo LAB**, resuelve el comprador con la sesión real
+  M4 y la asociación M4↔M1 de LAB4, serializa por sucursal y llama
+  a `createCashOrder` original de M1. Este guarda en una transacción
+  el precio congelado, pedido, líneas, outbox y descuento del stock M1;
+  sus reintentos no descuentan de nuevo ni aceptan carrito cambiado.
+- **M6 no reserva ni descuenta stock**, porque los DB no comparten
+  transacción. Tras el primer pedido, si ambos inventarios no
+  coinciden, M11 **bloquea** nuevas operaciones. El checkout retorna
+  `paid=false`, `commercialReady=false` y
+  `inventoryNeedsReconciliation=true`.
+- **Política comercial en HOLD:** M1 aún calcula comisión 17 %, frente
+  a la decisión comercial previa de 15 %. No se modifica ni habilita
+  ese pricing para producción; `pricingPolicyApproved=false`.
+
+CI LAB5 [#42125648088 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42125648088):
+**273 ejecuciones de prueba PASS, 0 FAIL**; las cuatro pruebas nuevas
+cubren el flujo M6→M1, versiones, nombres, stock, cierres y carreras.
+
+[Acta técnica LAB5](../../docs/MODULO11-INTEGRACION-LAB5.md).
 
 ## Prueba de diez fronteras
 

@@ -3,7 +3,7 @@
 **Fecha de desarrollo:** 5 de noviembre de 2026 (LAB).
 **Rama:** `feat/core-v2-integracion-monolito-m11`.
 **PR:** [#13 — sigue Draft](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/13).
-**Validación:** pendiente del resultado de CI global en último HEAD.
+**Validación:** **LAB5 APROBADO en CI global del código**, [#42125648088 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42125648088), 273 pruebas PASS y 0 FAIL. La actualización documental del cierre requiere nueva CI del último HEAD.
 **Operación:** NO-GO Stripe LIVE, entrega, wallets, deployment Kali y merge.
 
 ## Problema real encontrado
@@ -89,4 +89,4 @@ Por ello, el adaptador retorna **`pricingPolicyApproved=false`** o **`policyAppr
 - **Entrega y apps:** zona M7, M2 presencia/despacho/PIN, M5 notificaciones después de confirmación verificable, M10 métricas de hechos verdaderos; E2E con apps.
 - **Seguridad de lanzamiento:** migraciones y rollback versionados, rate limit edge, backups, roles SQL mínimos, revisión de sesión/TOCTOU y estrés multiworker.
 
-**Veredicto LAB5:** solo cerrar tras CI integrada SUCCESS sobre el último commit. Sin merge ni despliegue Kali.
+**Veredicto LAB5:** **CERRADO EN LABORATORIO**, pendiente únicamente de confirmar la CI del commit documental final. **NO-GO comercial.** Sin merge, Stripe LIVE, transferencias ni despliegue Kali.
