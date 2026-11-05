@@ -1,7 +1,7 @@
 # Tala Eats Core v2 — M10 Analítica: arquitectura independiente
 
 **Rama:** `feat/core-v2-analitica-foundation`, creada **directamente desde `main`**.
-**Estado:** LAB1 en validación, sin merge, sin despliegue y sin acceso a fondos/usuarios reales.
+**Estado:** LAB2 en cierre técnico independiente, sin merge, sin despliegue y sin acceso a fondos/usuarios reales.
 **Runtime:** Node.js 24 + TypeScript estricto + PostgreSQL 16, `tala_analytics_v2_test` o `tala_analytics_v2_lab`.
 **PR:** módulo 10 autónomo, sin dependencias de los PR de M1–M9.
 
@@ -82,6 +82,39 @@ GET  /v1/analytics/platform?from=YYYY-MM-DD&to=YYYY-MM-DD
 - Ventana máxima de **31 días inclusivos**; salidas con conteos e importes **en cadenas de enteros** para conservar exactitud de BIGINT, `netPaymentFlowCents` puede ser negativo en periodos con devoluciones de cobros anteriores.
 - `orderGmvCents` es valor registrado de pedidos completados, **no ingreso neto ni beneficio**. `paymentsCents` y `refundsCents` son hechos operativos, **no liquidación**. El propietario de wallets, comisiones, doble partida y conciliación es M3.
 - HTTP LAB rechaza `NODE_ENV=production` y conexiones que no sean loopback. No publica CORS, tokens de issuer ni datos personales.
+
+## LAB2 — consistencia interevento y reparación administrativa
+
+El módulo añade una capa de **reconciliación del read model** que
+compara los hechos recibidos en `ingested_events` con los contadores
+derivados de `daily_merchant_metrics`.
+
+- `reconcileMerchantDay` en modo `audit`: lectura transaccional,
+  detecta diferencias por comercio/día y devuelve campos, esperado y
+  observado; requiere `authenticated` y `canAuditAnalytics` otorgados
+  por el host confiable.
+- En modo `repair`: requiere además `canRepairAnalytics` y restaura
+  únicamente la fila agregada desde los hechos originales. Nunca cambia
+  un evento ni marca un pago real; está pensado para restauración
+  técnica y diagnósticos de laboratorio.
+- Locks por `eventId`, `orderId` y `merchantId + event_day` se toman
+  siempre en orden estable durante la ingestión, mientras la reparación
+  bloquea solo `merchantId + event_day` antes de recalcular.
+- El mismo `orderId` no puede atribuirse a comercios diferentes
+  aunque los eventos lleguen en distinto orden.
+- Dos eventos con igual `eventId` pero distintos pedidos o contenidos
+  son conflictos, nunca dos ventas.
+- **No hay panel público de reparación**: únicamente API interna con
+  permiso del host, para no exponer un mecanismo que pueda cambiar
+  métricas de negocios desde el navegador.
+
+El control detecta desviaciones **dentro de los hechos de M10**.
+No detecta pedidos legítimos que nunca llegaron desde M1/M2/M8,
+ni certifica fondos del PSP o cifras contables de M3. Falta
+conciliación cruzada, almacenamiento de outbox y métricas de atraso.
+
+[Acta LAB2](MODULO10-ANALITICA-CIERRE-LAB.md) ·
+[Plan de integración de los 10 módulos](CORE-V2-ESTADO-DIEZ-MODULOS.md).
 
 ## GO / NO-GO de laboratorio
 
