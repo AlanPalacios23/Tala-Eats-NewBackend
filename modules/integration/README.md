@@ -1,7 +1,7 @@
 # Tala Eats Core v2 — M11 Integración del monolito (LAB1 aislado)
 
 **Rama:** `feat/core-v2-integracion-monolito-m11`, creada desde `main`.
-**Estado:** **M11 LAB3 en validación**: código M1–M10 ensamblado, CI global LAB2 aprobada y nuevos puentes a M5/M4/M9. **NO-GO comercial, NO-GO merge, NO-GO Kali.**
+**Estado:** **M11 LAB3 APROBADO** con 266 ejecuciones de prueba PASS en CI global; código M1–M10 ensamblado, puentes de LAB a M10/M5 y autenticación M4→M9. **NO-GO LIVE, merge o Kali.** **NO-GO comercial, NO-GO merge, NO-GO Kali.**
 **El conjunto de fuentes aún NO equivale a un backend comercialmente integrado.**
 
 ## Qué hay realmente dentro de esta rama

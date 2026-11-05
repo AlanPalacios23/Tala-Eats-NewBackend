@@ -3,7 +3,7 @@
 **Fecha:** 5 de noviembre de 2026.
 **Rama:** `feat/core-v2-integracion-monolito-m11` (parent commit de `main`).
 **PR:** integración aislada como nueva capa, no merge de PRs de módulos.
-**Estado:** LAB2 aprobado y LAB3 en validación; integración M11→M10, M11→M5 y M4→M9 con componentes reales en laboratorio; sin fusión ni despliegue comercial.
+**Estado:** **LAB3 APROBADO**: integración de laboratorio M11→M10, M11→M5 y M4→M9 con funciones reales y 266 pruebas PASS; sin fusión ni despliegue comercial.
 **Protección:** NO-GO LIVE, NO-GO despliegue Kali, NO-GO sustituir backend anterior.
 
 ## 1. Ensamblaje físico comprobable

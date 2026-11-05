@@ -20,7 +20,7 @@ const make=(kind:IntegrationEvent['kind'],merchantId=id(),
 });
 const rejected=(p:Promise<unknown>,code:string)=>assert.rejects(p,
  e=>e instanceof IntegrationError&&e.code===code);
-test('M11 25 concurrent duplicate publishes create exactly one durable event/delivery',
+test('M11 25 duplicate unpaid-order events store one fact but no notification deliveries',
  {skip:!enabled,timeout:80000},async()=>{
  const pool=new pg.Pool({connectionString:url,max:28});
  try{

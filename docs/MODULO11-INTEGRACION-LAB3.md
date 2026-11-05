@@ -4,7 +4,7 @@
 **Rama:** `feat/core-v2-integracion-monolito-m11`, independiente de `main`.
 **PR:** [#13](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/13), Draft.
 **Fase:** conectar adaptadores reales de identidad, seguridad y notificaciones sin modificar M1–M10.
-**Estado:** implementación LAB3 bajo CI global, pendiente de certificar el último commit documental.
+**Estado:** **LAB3 validado**: CI global aprobada (Node 24, PostgreSQL 16, 10 módulos y 266 ejecuciones de prueba). **NO-GO LIVE.**
 **Operación comercial:** **NO-GO**. Nada de Stripe LIVE, transferencias, cancelaciones reales ni despliegue Kali.
 
 ## Entregables LAB3
@@ -116,6 +116,15 @@ usuario. Sigue manteniendo locks, leases, `claimId` y DLQ.
 - Migración controlada de las DB a esquemas en un solo Postgres, roles
   mínimos, backups, trazas, alertas y rollback.
 
-**Decisión:** LAB3 podrá considerarse aprobado solo después de
-GitHub Actions SUCCESS en el HEAD final de esta rama. Aun así la
-habilitación comercial seguirá prohibida.
+**Evidencia de validación:** [GitHub Actions #42091955562 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42091955562),
+commit funcional y documental `6a6579271828c5e1e36b9f4804f67276b117661a`.
+El workflow integrado comprobó **266 ejecuciones de prueba aprobadas y
+cero fallos** (incluye la suite financiera complementaria), los diez
+árboles originales intactos, el adaptador de M10, la bandeja real de
+M5, el gate de identidad M4/M9, migraciones LAB y bloqueo de flags LIVE.
+La edición final de esta acta no modifica lógica de negocio ni
+migraciones; verificar CI nuevamente sobre el nuevo commit.
+
+**Decisión:** **GO** para continuar con la fase de integración de
+contratos reales M1/M6/M2/M8/M3 y staging seguro, **NO-GO** para
+cobros/transferencias LIVE, merge o despliegue en Kali.
