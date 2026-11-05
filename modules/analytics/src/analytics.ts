@@ -40,12 +40,33 @@ async function transaction<T>(pool:Pool,readOnly:boolean,
  }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;
  }finally{client.release();}
 }
+async function eventLock(c:PoolClient,eventId:string){
+ // Take the event lock before the order lock in every ingestion.
+ // This prevents two different order IDs sharing an event ID from racing
+ // into a raw SQL unique violation instead of a typed idempotency conflict.
+ await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text,1010))',
+  [eventId]);
+}
 async function orderLock(c:PoolClient,orderId:string){
  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text,2026))',
   [orderId]);
 }
+async function dayLock(c:PoolClient,merchantId:string,eventDay:string){
+ // Shared with privileged rollup-reconciliation, after the per-order lock.
+ await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text,3030))',
+  [merchantId+'|'+eventDay]);
+}
 async function checkBusinessFact(c:PoolClient,event:AnalyticsEvent){
  const {kind,orderId,merchantId,refundId,amountCents}=event;
+ const foreign=await c.query<{other:boolean}>(
+  'SELECT ('+
+  'EXISTS(SELECT 1 FROM tala_analytics_v2.order_outcomes WHERE order_id=$1::uuid AND merchant_id<>$2::uuid) OR '+
+  'EXISTS(SELECT 1 FROM tala_analytics_v2.payment_facts WHERE order_id=$1::uuid AND merchant_id<>$2::uuid) OR '+
+  'EXISTS(SELECT 1 FROM tala_analytics_v2.delivery_facts WHERE order_id=$1::uuid AND merchant_id<>$2::uuid) OR '+
+  'EXISTS(SELECT 1 FROM tala_analytics_v2.refund_facts WHERE order_id=$1::uuid AND merchant_id<>$2::uuid)'+
+  ') AS other',[orderId,merchantId]);
+ if(foreign.rows[0]!.other)
+  throw new AnalyticsError('M10_MERCHANT_ORDER_CONFLICT');
  const outcome=await c.query<{kind:string,merchant_id:string}>(
   'SELECT kind,merchant_id FROM tala_analytics_v2.order_outcomes '+
   'WHERE order_id=$1::uuid',[orderId]);
@@ -152,6 +173,7 @@ export async function ingestAnalyticsEvent(config:AnalyticsConfig,input:{
   input.signature,config.keys);
  const event=verified.event;
  return transaction(config.pool,false,async c=>{
+  await eventLock(c,event.eventId);
   await orderLock(c,event.orderId);
   const same=await c.query<{payload_hash:string,issuer:string}>(
    'SELECT payload_hash,issuer FROM tala_analytics_v2.ingested_events '+
@@ -172,6 +194,7 @@ export async function ingestAnalyticsEvent(config:AnalyticsConfig,input:{
     event.refundId,event.amountCents,event.occurredAt,event.occurredAt.slice(0,10),
     verified.hash]);
   await insertFact(c,event);
+  await dayLock(c,event.merchantId,event.occurredAt.slice(0,10));
   await addMetrics(c,event);
   return Object.freeze({eventId:event.eventId,duplicate:false as const,
    applied:true as const});
