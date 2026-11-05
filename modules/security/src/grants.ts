@@ -91,6 +91,8 @@ export function verifyHostGrant(token:string,keyring:KeyRing,now=Date.now()):Hos
  const signed=parts.slice(0,3).join('.');
  const expected=createHmac('sha256',key).update(signed).digest();
  const actual=Buffer.from(parts[3]!,'base64url');
+ if(actual.toString('base64url')!==parts[3])
+  throw new SecurityError('M9_GRANT_INVALID');
  if(actual.length!==expected.length||!timingSafeEqual(expected,actual))
   throw new SecurityError('M9_GRANT_INVALID');
  const bytes=Buffer.from(parts[2]!,'base64url');
