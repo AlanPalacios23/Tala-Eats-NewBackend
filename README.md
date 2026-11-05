@@ -1,5 +1,32 @@
 # TALA EATS CORE v2
 
+## M11 — rama de ensamblaje aislada de los diez dominios
+
+Este árbol de integración contiene el **código real de M1–M10** en una
+única rama independiente (copias Git verificadas), más el nuevo
+`modules/integration/` que gestiona contratos/inbox/reintentos LAB.
+
+- **Aún no existe un API único de producción ni una integración comercial
+  funcional:** los módulos siguen usando puertos LAB y bases propias.
+- **CI compartida:** Node.js 24, un PostgreSQL 16 descartable, diez DB
+  de laboratorio separadas y tests reales de cada módulo.
+- **Seguridad:** `commercialReady=false`, Stripe LIVE/transferencias
+  desactivadas, backend Kali anterior intacto, sin merge a `main`.
+- **Proveniencia:** `modules/integration/source-lock.json` fija los SHAs
+  de los diez subárboles, M2 hereda M1 sin atrasos.
+- **Siguiente etapa:** conexiones M1→M8→M6→M2→M3→M10 con autorización
+  M4/M9, zonas M7 y notificaciones M5, más E2E entre apps.
+
+[README del ensamblador M11](modules/integration/README.md) ·
+[Arquitectura de integración](docs/MODULO11-INTEGRACION-ARQUITECTURA.md) ·
+[Gates LAB1](docs/MODULO11-INTEGRACION-LAB1.md).
+
+---
+
+## Información histórica de M1/M2
+
+
+
 Backend modular nuevo de **TALA EATS**, desarrollado por fases.
 
 > **Estado actual: PEDIDOS + LOGÍSTICA LAB1 en laboratorio aislado (NO-GO comercial).**
