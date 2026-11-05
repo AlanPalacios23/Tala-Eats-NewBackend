@@ -6,7 +6,7 @@
  */
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
-import {readAuthenticatedProfile} from '../../users/src/auth.js';
+import {readAuthenticatedProfile,readMyIdentityRole} from '../../users/src/auth.js';
 import {authorizeSecurityAction,type SecurityConfig} from
  '../../security/src/gate.js';
 import {signHostGrant,type HostGrant} from
@@ -52,6 +52,13 @@ export function createIdentitySecurityLabGate(config:Config){
     throw new IntegrationError('M11_IDENTITY_NOT_AUTHENTICATED');
    }
    const subjectId=validUuid(actor.id);
+   // The link was created under the customer role, but role assignments
+   // can change later. Enforce CURRENT customer role per authorization.
+   const role=await readMyIdentityRole(config.usersPool,{
+    sessionToken:input.sessionToken,secret:config.usersPasswordPepper
+   }).catch(()=>null);
+   if(role?.userId!==subjectId||role.role!=='customer')
+    throw new IntegrationError('M11_CUSTOMER_ROLE_REQUIRED');
    const ownership=await config.verifyOwnershipFromHost({subjectId,orderId});
    if(!ownership||ownership.allowed!==true||
       ownership.evidenceSource!=='trusted_lab_host'||
