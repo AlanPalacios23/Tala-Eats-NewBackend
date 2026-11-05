@@ -6,5 +6,5 @@
     "exactOptionalPropertyTypes":true,
     "forceConsistentCasingInFileNames":true
   },
-  "include":["src/**/*.ts","tests/**/*.ts","scripts/**/*.ts"]
+  "include":["src/**/*.ts","adapters/**/*.ts","tests/**/*.ts","scripts/**/*.ts"]
 }
