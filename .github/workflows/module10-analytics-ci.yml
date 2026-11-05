@@ -1,0 +1,83 @@
+name: M10 Analitica — isolated signed facts and reports LAB
+on:
+  push:
+    branches: ['feat/core-v2-analitica-foundation']
+    paths:
+      - 'modules/analytics/**'
+      - 'docs/MODULO10-ANALITICA-ARQUITECTURA.md'
+      - 'docs/MODULO10-ANALITICA-CIERRE-LAB.md'
+      - 'docs/CORE-V2-ESTADO-DIEZ-MODULOS.md'
+      - '.github/workflows/module10-analytics-ci.yml'
+  pull_request:
+    paths:
+      - 'modules/analytics/**'
+      - 'docs/MODULO10-ANALITICA-ARQUITECTURA.md'
+      - 'docs/MODULO10-ANALITICA-CIERRE-LAB.md'
+      - 'docs/CORE-V2-ESTADO-DIEZ-MODULOS.md'
+      - '.github/workflows/module10-analytics-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  analytics-standalone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: analytics_lab
+          POSTGRES_PASSWORD: analytics_ci_only
+          POSTGRES_DB: tala_analytics_v2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U analytics_lab -d tala_analytics_v2_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install M10 dependencies only
+        working-directory: modules/analytics
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: TypeScript strict and pure domain test
+        working-directory: modules/analytics
+        run: npm run check
+      - name: Enforce no cross-module database imports or external money calls
+        run: |
+          if grep -RE 'from .*modules/(orders|logistics|finance|users|notifications|restaurants|locations|payments|security)' modules/analytics/src; then
+            echo 'M10 imports unrelated module internals'
+            exit 1
+          fi
+          if grep -RE '(sk_live_|rk_live_|https?://api.stripe.com|/v1/transfers|/v1/payouts)' modules/analytics/src; then
+            echo 'M10 must not access payment provider or live credentials'
+            exit 1
+          fi
+      - name: Apply isolated M10 PostgreSQL schema
+        env:
+          PGPASSWORD: analytics_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U analytics_lab \
+            -d tala_analytics_v2_test \
+            -f modules/analytics/migrations/001_analytics_foundation.sql
+      - name: Full signed ingestion, concurrency and report E2E
+        env:
+          ANALYTICS_CI_URL: postgresql://analytics_lab:analytics_ci_only@127.0.0.1:5432/tala_analytics_v2_test
+        working-directory: modules/analytics
+        run: npm test
+      - name: Reject M10 migration against unrelated DB
+        env:
+          PGPASSWORD: analytics_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U analytics_lab \
+            -d postgres -c 'CREATE DATABASE unrelated_m10_test'
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U analytics_lab \
+            -d unrelated_m10_test \
+            -f modules/analytics/migrations/001_analytics_foundation.sql; then
+            echo 'M10 SQL migrated an unrelated database'
+            exit 1
+          fi
+          test "$(psql -At -h 127.0.0.1 -U analytics_lab \
+            -d unrelated_m10_test \
+            -c "SELECT to_regnamespace('tala_analytics_v2') IS NULL")" = "t"
