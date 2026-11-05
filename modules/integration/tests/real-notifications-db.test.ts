@@ -171,7 +171,9 @@ test('M11 -> M5: unpaid order-created event never becomes restaurant notificatio
   }
  });
  try{
-  await publishEvent(bridgePool,{trustedHost:true,source:'orders'},evt);
+  const created=await publishEvent(bridgePool,{trustedHost:true,source:'orders'},evt);
+  assert.equal(created.consumers,0,
+   'do not even enqueue a customer/merchant notice before payment verification');
   await assert.rejects(consumer.handle(evt,evt.eventId+'|notifications'),
    e=>e instanceof IntegrationError&&
     e.code==='M11_NOTIFICATION_PAYMENT_UNVERIFIED');
