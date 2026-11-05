@@ -36,7 +36,7 @@ test('M11 25 concurrent duplicate publishes create exactly one durable event/del
   const d=await pool.query<{n:number}>(
    'SELECT count(*)::int AS n FROM tala_integration_v2.deliveries '+
    'WHERE event_id=$1::uuid',[e.eventId]);
-  assert.equal(d.rows[0]?.n,1);
+  assert.equal(d.rows[0]?.n,0,'unpaid order-created events must not fan out');
   await rejected(publishEvent(pool,{trustedHost:true,source:'orders'},
    {...e,merchantId:id()}),'M11_EVENT_CONFLICT');
   await rejected(publishEvent(pool,{trustedHost:false as true,source:'orders'},e),
@@ -46,9 +46,7 @@ test('M11 25 concurrent duplicate publishes create exactly one durable event/del
   await assert.rejects(pool.query('UPDATE tala_integration_v2.events '+
    "SET kind='restaurants.order_ready' WHERE event_id=$1::uuid",[e.eventId]),
    /M11_EVENT_IMMUTABLE/);
-  const firstDelivery=await claimDelivery(pool,'notifications');
-  assert.equal(firstDelivery?.event.eventId,e.eventId);
-  if(firstDelivery)await acknowledgeDelivery(pool,firstDelivery);
+  // No notification delivery for a merely created, unpaid order.
  }finally{await pool.end();}
 });
 test('M11 routes the event to registered consumers, one lease per consumer',
