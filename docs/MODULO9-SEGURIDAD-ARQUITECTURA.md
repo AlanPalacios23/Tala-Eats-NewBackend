@@ -1,8 +1,38 @@
-# Tala Eats Core v2 — M9 Seguridad: arquitectura independiente
+# Tala Eats Core v2 — M9 Seguridad: arquitectura independiente (LAB2)
 
 **Rama:** `feat/core-v2-seguridad-foundation`, creada **desde `main`**, sin depender de los PR de M1–M8.
-**Estado:** LAB1 por validar. **NO-GO LIVE, NO-GO merge, NO-GO despliegue Kali.**
+**Estado:** LAB2, cierre técnico sujeto a CI; **NO-GO LIVE, NO-GO merge, NO-GO despliegue Kali**.
 **Infraestructura:** Node 24 + TypeScript estricto + PostgreSQL 16 descartable, DB `tala_security_v2_test` / `tala_security_v2_lab`, esquema `tala_security_v2`.
+
+## LAB2 — revocación transaccional y detección local de abuso
+
+La migración `002_revocation_abuse.sql`, exclusiva de las bases descartables
+M9, añade `grant_revocations`, `subject_revocations` y `abuse_alerts`.
+
+El host verificado puede revocar un grant firmado o todos los grants emitidos
+para un sujeto hasta el segundo de revocación, usando
+`canRevokeSecurity=true`. La evaluación de un grant, su consumo único y
+las revocaciones se coordinan con el mismo bloqueo transaccional de un hash
+de sujeto. La revocación invalida **nuevas autorizaciones**, pero no revierte
+transacciones de negocio ya realizadas.
+
+Se generan alertas internas cuando se observan **3 o más** denegaciones
+del mismo tipo en una ventana de **5 minutos** para un sujeto y acción,
+incluidos intentos de replay, alcance indebido y exceso de solicitudes.
+Las alertas son idempotentes, inmutables y se consultan como agregados por
+un operador con `canMonitorSecurity`. No existe un worker externo de
+notificaciones o sistema de defensa en el edge; esas integraciones siguen
+siendo pendientes explícitos.
+
+Para evitar retención indefinida de seudónimos, el mantenimiento LAB limpia
+revocaciones de grants vencidos y revocaciones de sujeto después de 150
+segundos, tiempo suficiente para que hayan expirado todos los grants
+previos de TTL máximo 120 segundos. **La retención de auditorías y alertas
+requiere una política legal/operacional aparte**. El pseudonym key debe ser
+estable dentro de la ventana; una rotación sin migración invalidaría
+revocaciones y cuotas previas.
+
+[Acta de cierre LAB2](MODULO9-SEGURIDAD-CIERRE-LAB2.md).
 
 ## Responsabilidad del módulo
 
@@ -62,7 +92,7 @@ Los cupos son límites **de laboratorio**, no política de producto aprobada. Op
 
 ## Almacenamiento, privacidad y concurrencia
 
-**Solo tres tablas M9**, con migración protegida `001_security_foundation.sql`:
+**Tres tablas iniciales M9** en la migración 001 (más tres tablas LAB2 en la migración 002):
 
 - `used_grants`: ID de nonce UUID, hash seudónimo del actor y caducidad, único por ID; condición de carrera resuelta con índice único en la misma transacción.
 - `rate_buckets`: HMAC del par sujeto/acción (secreto propio del host), ventana de 60 s, UPSERT atómico y TTL.
