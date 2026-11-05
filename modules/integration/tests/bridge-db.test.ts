@@ -46,6 +46,9 @@ test('M11 25 concurrent duplicate publishes create exactly one durable event/del
   await assert.rejects(pool.query('UPDATE tala_integration_v2.events '+
    "SET kind='restaurants.order_ready' WHERE event_id=$1::uuid",[e.eventId]),
    /M11_EVENT_IMMUTABLE/);
+  const firstDelivery=await claimDelivery(pool,'notifications');
+  assert.equal(firstDelivery?.event.eventId,e.eventId);
+  if(firstDelivery)await acknowledgeDelivery(pool,firstDelivery);
  }finally{await pool.end();}
 });
 test('M11 routes the event to registered consumers, one lease per consumer',
@@ -105,24 +108,24 @@ test('M11 repeated safe failures end in DLQ after exactly 3 attempts',
  {skip:!enabled,timeout:85000},async()=>{
  const pool=new pg.Pool({connectionString:url,max:12});
  try{
-  const e=make('orders.order_created');
-  await publishEvent(pool,{trustedHost:true,source:'orders'},e);
+  const e=make('restaurants.order_ready');
+  await publishEvent(pool,{trustedHost:true,source:'restaurants'},e);
   for(let i=1;i<=3;i++){
-   const claim=await claimDelivery(pool,'notifications');
+   const claim=await claimDelivery(pool,'logistics');
    assert.ok(claim?.event.eventId===e.eventId);
    const outcome=await rejectDelivery(pool,claim);
    assert.equal(outcome.state,i===3?'dead':'pending');
    if(i<3)await pool.query('UPDATE tala_integration_v2.deliveries '+
     "SET next_attempt_at=clock_timestamp()-interval '1 second' "+
     'WHERE event_id=$1::uuid AND consumer=$2',
-    [e.eventId,'notifications']);
+    [e.eventId,'logistics']);
   }
   const gone=await pool.query<{state:string,attempts:number}>(
    'SELECT state,attempts FROM tala_integration_v2.deliveries '+
    'WHERE event_id=$1::uuid AND consumer=$2',
-   [e.eventId,'notifications']);
+   [e.eventId,'logistics']);
   assert.deepEqual(gone.rows,[{state:'dead',attempts:3}]);
-  const claimed=await claimDelivery(pool,'notifications');
+  const claimed=await claimDelivery(pool,'logistics');
   assert.ok(claimed===null||claimed.event.eventId!==e.eventId);
  }finally{await pool.end();}
 });
