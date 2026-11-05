@@ -3,7 +3,7 @@
 **Fecha:** 5 de noviembre de 2026.
 **Rama:** `feat/core-v2-integracion-monolito-m11` (parent commit de `main`).
 **PR:** integración aislada como nueva capa, no merge de PRs de módulos.
-**Estado:** candidato LAB1; CI única en validación.
+**Estado:** **LAB2 aprobado en CI combinada** — diez árboles ensamblados, un adaptador M11→M10 conectado en laboratorio, sin fusión ni despliegue comercial.
 **Protección:** NO-GO LIVE, NO-GO despliegue Kali, NO-GO sustituir backend anterior.
 
 ## 1. Ensamblaje físico comprobable
@@ -123,3 +123,9 @@ M2 antes de LIVE. No se consideran listos otros ports del monolito.
 - **NO-GO para LIVE / merge / Kali:** mantener PR M11 Draft y los diez PR originales sin fusionar.
 
 [M11 README](../modules/integration/README.md).
+
+## Evidencia de CI
+
+La [ejecución integrada #42073939450](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42073939450) aprobó en el HEAD funcional `be494737588f788e8202ae83cbb80ac71fae0154` las suites individuales de M1–M10 y los tests M11 (260 ejecuciones PASS contando la batería financiera adicional), incluida la prueba real de duplicación evitada en M10 ante reenvío de M11.
+
+**Certificación solo de ensamblaje y puente LAB2:** todavía faltan bindings comerciales reales de los demás módulos, un gateway único de escritura y E2E de aplicaciones.

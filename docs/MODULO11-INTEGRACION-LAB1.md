@@ -3,7 +3,7 @@
 **Fecha:** 5 de noviembre de 2026.
 **Rama:** `feat/core-v2-integracion-monolito-m11` desde `main`.
 **Objetivo:** consolidar las copias **de código** de M1–M10 en una sola rama de integración, sin fusionar PRs originales, y crear el módulo M11 para transportar eventos de dominio mínimos en laboratorio.
-**Veredicto:** pendiente de CI unificada sobre último HEAD.
+**Veredicto:** **LAB2 aprobado para desarrollo de integración de laboratorio**, CI unificada de los diez módulos y adaptador M11→M10 aprobado. **NO-GO comercial.**
 **Comercial:** NO-GO — sin pagos LIVE, escrituras financieras, conexión a las apps o despliegue en Kali.
 
 ## Avances verificables
@@ -58,3 +58,11 @@
 
 [Arquitectura M11](MODULO11-INTEGRACION-ARQUITECTURA.md) ·
 [README M11](../modules/integration/README.md).
+
+## Evidencia de gate cumplido (antes del cierre documental)
+
+- **[GitHub Actions #42073939450 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42073939450)**, HEAD funcional `be494737588f788e8202ae83cbb80ac71fae0154`.
+- Node.js 24, PostgreSQL 16, **carga real de los diez módulos**, hashes de árbol intactos y migraciones de diez bases descatables.
+- **260 ejecuciones de prueba aprobadas, cero fallos**, contando la batería adicional de Finanzas ejecutada por separado. 54 corresponden a M1/M2 y 10 a M11, incluido el test real M11→M10 con replay tras commit.
+- La auditoría de DB ajena rechaza `M11_LAB_ONLY` como se esperaba. No hubo CI con credenciales ni datos LIVE.
+- Esta acta documental no cambia lógica ni migraciones: el último HEAD de documentación deberá pasar su propia CI para ratificar el estado.
