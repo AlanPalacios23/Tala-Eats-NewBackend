@@ -75,6 +75,14 @@ test('M9 LAB2 subject revocation invalidates all previous grants but not unrelat
   const repeated=await revokeSecuritySubject(config(pool),
    {canRevokeSecurity:true},subject);
   assert.ok(repeated.revokedBefore>=revoked.revokedBefore);
+  // A short-lived revocation should not retain a pseudonym forever:
+  // at 150+ seconds every affected grant has naturally expired.
+  await pool.query('UPDATE tala_security_v2.subject_revocations '+
+   "SET revoked_before=floor(extract(epoch FROM clock_timestamp()))::bigint-180 "+
+   'WHERE subject_hash=(SELECT subject_hash FROM tala_security_v2.subject_revocations '+
+   'ORDER BY changed_at DESC LIMIT 1)');
+  const pruned=await pruneExpiredSecurityState(pool,{canMaintainSecurity:true});
+  assert.ok(pruned.expiredSubjectRevocations>=1);
  }finally{await pool.end();}
 });
 
