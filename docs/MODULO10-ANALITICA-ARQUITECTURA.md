@@ -1,7 +1,7 @@
 # Tala Eats Core v2 — M10 Analítica: arquitectura independiente
 
 **Rama:** `feat/core-v2-analitica-foundation`, creada **directamente desde `main`**.
-**Estado:** LAB2 en cierre técnico independiente, sin merge, sin despliegue y sin acceso a fondos/usuarios reales.
+**Estado:** **LAB2 cerrado como módulo independiente**, sin merge, sin despliegue y sin acceso a fondos/usuarios reales.
 **Runtime:** Node.js 24 + TypeScript estricto + PostgreSQL 16, `tala_analytics_v2_test` o `tala_analytics_v2_lab`.
 **PR:** módulo 10 autónomo, sin dependencias de los PR de M1–M9.
 
