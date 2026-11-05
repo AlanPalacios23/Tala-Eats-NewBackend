@@ -4,7 +4,7 @@
 **Rama:** `feat/core-v2-seguridad-foundation`, creada desde `main`.
 **PR:** [#11](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/11), Draft y sin merge.
 **Objetivo:** cerrar el desarrollo **autónomo de laboratorio** del dominio Seguridad.
-**Certificación:** condicional hasta comprobar CI en el último commit.
+**Certificación:** **CERRADO EN LAB2** tras CI Node.js 24, TypeScript estricto y PostgreSQL 16.
 **Producción:** **NO-GO para Kali, autenticación real, pagos, retiros y todas las acciones comerciales.**
 
 ## Frontera exacta del módulo
@@ -54,4 +54,4 @@ M9 evalúa una **condición de seguridad adicional**, no sustituye el control de
 - [README](../modules/security/README.md)
 - [Arquitectura](MODULO9-SEGURIDAD-ARQUITECTURA.md)
 - [PR #11](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/11)
-- **CI final:** pendiente de confirmar; documentar la ejecución del último commit una vez terminada.
+- **CI LAB2:** [GitHub Actions #41970995091](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/41970995091) — **SUCCESS** sobre commit `244acb8956197061cd41d36d345b9ff091a40c7b`. La ejecución validó firma HMAC, SQL 001–002, TypeScript, revocación, 18 replays simultáneos, limitación, alertas, HTTP local y rechazo de migración a bases ajenas. La presente actualización del acta no modifica el código funcional.
