@@ -55,4 +55,11 @@ test('M9 LAB strict grant length, signatures, noncanonical payload and duplicate
    'M9_GRANT_INVALID');
  err(()=>verifyHostGrant(t.replace('v1.','v2.'),keyring),
    'M9_GRANT_INVALID');
+ // A 32-byte SHA-256 signature has two unused bits in its last base64url
+ // character; noncanonical encodings must not be accepted as aliases.
+ const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+ const index=alphabet.indexOf(t.at(-1)!);
+ assert.equal(index%4,0);
+ const alias=t.slice(0,-1)+alphabet[index+1]!;
+ err(()=>verifyHostGrant(alias,keyring),'M9_GRANT_INVALID');
 });
