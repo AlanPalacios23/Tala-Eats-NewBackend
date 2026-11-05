@@ -102,8 +102,14 @@ test('M9 LAB2 replay and scope probing generate deduplicated local abuse alerts'
   const byKind=Object.fromEntries(alerts.rows.map(x=>[x.kind,x.n]));
   assert.ok((byKind.replay_burst??0)>=1);
   assert.ok((byKind.scope_probing??0)>=1);
-  assert.ok((byKind.replay_burst??0)<=1,
-   'one replay-burst alert per subject/action/window');
+  const duplicates=await pool.query<{n:number}>(
+   'SELECT count(*)::int AS n FROM ('+
+   'SELECT subject_hash,action,kind,window_start '+
+   'FROM tala_security_v2.abuse_alerts '+
+   'GROUP BY subject_hash,action,kind,window_start '+
+   'HAVING count(*)>1) duplicates');
+  assert.equal(duplicates.rows[0]!.n,0,
+   'one abuse alert per subject/action/kind/window');
   const metrics=await readSecurityMetrics(pool,{canMonitorSecurity:true});
   assert.equal(metrics.aggregateOnly,true);
   assert.ok(metrics.alerts.some(x=>x.kind==='replay_burst'));
