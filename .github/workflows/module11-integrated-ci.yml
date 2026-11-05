@@ -1,0 +1,133 @@
+name: M11 Integracion — assembled ten-module staging LAB
+on:
+  push:
+    branches: ['feat/core-v2-integracion-monolito-m11']
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'migrations/**'
+      - 'modules/**'
+      - 'package.json'
+      - 'tsconfig.json'
+      - '.github/workflows/module11-integrated-ci.yml'
+      - 'docs/MODULO11-**'
+      - 'docs/CORE-V2-INTEGRACION-**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-composed-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: integration_ci
+          POSTGRES_PASSWORD: integration_ci_local_only
+          POSTGRES_DB: tala_core_v2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U integration_ci -d tala_core_v2_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      PG_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_core_v2_test
+      CORE_V2_INTEGRATION_RUNTIME: isolated-lab
+      CORE_V2_INTEGRATION_WRITES_ENABLED: 'false'
+      CORE_V2_INTEGRATION_LIVE_PAYMENTS_ENABLED: 'false'
+      CORE_V2_INTEGRATION_PAYOUTS_ENABLED: 'false'
+      CORE_V2_WRITES_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prove the ten source trees are immutable pinned copies
+        run: node modules/integration/scripts/verify-snapshots.mjs
+      - name: Install source packages and M11 without lifecycle scripts
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          for module in finance users notifications restaurants locations payments security analytics integration; do
+            npm --prefix "modules/$module" install --ignore-scripts --no-audit --no-fund
+          done
+      - name: Import real source entrypoints into the same Node 24 runtime
+        run: npm --prefix modules/integration run probe:imports
+      - name: Prohibit LIVE payment or production DB glue in M11
+        run: |
+          set -Eeuo pipefail
+          if grep -RE '(sk_live_|rk_live_|https?://api.stripe.com|/v1/payouts|/v1/transfers)' modules/integration/src; then
+            echo 'M11 attempted a LIVE payment/provider operation'
+            exit 1
+          fi
+          if grep -RE 'from .*modules/(orders|logistics|finance|users|notifications|restaurants|locations|payments|security|analytics)' modules/integration/src; then
+            echo 'M11 reached into another domain internal implementation'
+            exit 1
+          fi
+      - name: Create ten disposable databases on ONE PostgreSQL 16 server
+        run: |
+          set -Eeuo pipefail
+          declare -A DATABASE=(
+            [finance]=tala_finance_v2_test [users]=tala_users_v2_test
+            [notifications]=tala_notifications_v2_test
+            [restaurants]=tala_restaurants_v2_test
+            [locations]=tala_locations_v2_test
+            [payments]=tala_payments_v2_test
+            [security]=tala_security_v2_test
+            [analytics]=tala_analytics_v2_test
+            [integration]=tala_integration_v2_test
+          )
+          for module in finance users notifications restaurants locations payments security analytics integration; do
+            db="${DATABASE[$module]}"
+            psql -v ON_ERROR_STOP=1 "$PG_CI_URL" -c "CREATE DATABASE $db"
+            for file in "modules/$module/migrations/"*.sql; do
+              echo "APPLY_ISOLATED_MIGRATION $module $(basename "$file")"
+              psql -v ON_ERROR_STOP=1 "postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/$db" -f "$file"
+            done
+          done
+          for file in migrations/*.sql; do
+            echo "APPLY_ISOLATED_MIGRATION M1_M2 $(basename "$file")"
+            psql -v ON_ERROR_STOP=1 "$PG_CI_URL" -f "$file"
+          done
+          for db in tala_finance_v2_test tala_users_v2_test tala_notifications_v2_test tala_restaurants_v2_test tala_locations_v2_test tala_payments_v2_test tala_security_v2_test tala_analytics_v2_test tala_integration_v2_test; do
+            test "$(psql -At "$PG_CI_URL" -c "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname='$db')")" = "t"
+          done
+      - name: Build and exercise the REAL combined M1/M2 source
+        run: npm run check
+      - name: Run all eight isolated domain suites against same PG SERVER
+        run: |
+          set -Eeuo pipefail
+          export FINANCE_CI_URL='postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_finance_v2_test'
+          export USERS_CI_URL='postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_users_v2_test'
+          export NOTIFICATIONS_CI_URL='postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_notifications_v2_test'
+          export RESTAURANTS_CI_URL='postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_restaurants_v2_test'
+          export LOCATIONS_CI_URL='postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_locations_v2_test'
+          export PAYMENTS_CI_URL='postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_payments_v2_test'
+          export SECURITY_CI_URL='postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_security_v2_test'
+          export ANALYTICS_CI_URL='postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_analytics_v2_test'
+          for module in finance users notifications restaurants locations payments security analytics; do
+            echo "M11_REAL_MODULE_TEST_START=$module"
+            npm --prefix "modules/$module" run check
+            echo "M11_REAL_MODULE_TEST_PASS=$module"
+          done
+          (cd modules/finance && node --test tests/*.test.mjs)
+      - name: M11 integration inbox contract, DB, lab HTTP and full ten-port smoke
+        env:
+          INTEGRATION_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_integration_v2_test
+        run: npm --prefix modules/integration run check
+      - name: Guard M11 DB migration from accidental use on another database
+        run: |
+          set -Eeuo pipefail
+          psql "$PG_CI_URL" -c 'CREATE DATABASE unrelated_m11_test'
+          if psql -v ON_ERROR_STOP=1             'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test'             -f modules/integration/migrations/001_integration_inbox.sql; then
+            echo 'M11_SQL_ESCAPED_ITS_LAB_DATABASE'
+            exit 1
+          fi
+          test "$(psql -At             'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test'             -c "SELECT to_regnamespace('tala_integration_v2') IS NULL")" = "t"
+      - name: Assert integrated code never enables commercial writes
+        run: |
+          set -Eeuo pipefail
+          test "$CORE_V2_WRITES_ENABLED" = 'false'
+          test "$CORE_V2_INTEGRATION_WRITES_ENABLED" = 'false'
+          test "$CORE_V2_INTEGRATION_LIVE_PAYMENTS_ENABLED" = 'false'
+          test "$CORE_V2_INTEGRATION_PAYOUTS_ENABLED" = 'false'
+          echo 'M11_COMMERCIAL_NO_GO_ENFORCED'
