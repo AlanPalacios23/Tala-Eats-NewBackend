@@ -20,8 +20,7 @@ CREATE TABLE tala_integration_v2.customer_identity_links (
    CHECK(proof_method='dual_active_sessions_lab'),
  verified_email_match boolean NOT NULL DEFAULT true
    CHECK(verified_email_match=true),
- created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
- CHECK(m4_user_id<>m1_customer_id)
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 
 -- Revocations are append-only; once revoked, neither user may reuse
