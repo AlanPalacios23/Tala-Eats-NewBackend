@@ -48,8 +48,8 @@ test('M11 -> real M5: restaurant-ready and delivery become scoped customer inbox
   await allowInboxOnly(notificationPool,customerId);
   await publishEvent(bridgePool,{trustedHost:true,source:'restaurants'},ready);
   await publishEvent(bridgePool,{trustedHost:true,source:'logistics'},delivered);
-  const a=await deliverOnce(bridgePool,'notifications',consumer);
-  const b=await deliverOnce(bridgePool,'notifications',consumer);
+  const a=await deliverOnce(bridgePool,'notifications',consumer,ready.eventId);
+  const b=await deliverOnce(bridgePool,'notifications',consumer,delivered.eventId);
   assert.equal('delivered' in a&&a.delivered,true);
   assert.equal('delivered' in b&&b.delivered,true);
   const inbox=await readInbox(notificationPool,{recipientId:customerId,
@@ -90,7 +90,7 @@ test('M11 -> M5: replay after M5 commit never duplicates recipient receipt or in
  try{
   await allowInboxOnly(notificationPool,recipientId);
   await publishEvent(bridgePool,{trustedHost:true,source:'logistics'},evt);
-  const claim=await claimDelivery(bridgePool,'notifications');
+  const claim=await claimDelivery(bridgePool,'notifications',evt.eventId);
   assert.equal(claim?.event.eventId,evt.eventId);
   assert.ok(claim);
   // M5 committed but M11 process crashed before it could ACK.
@@ -98,7 +98,7 @@ test('M11 -> M5: replay after M5 commit never duplicates recipient receipt or in
   await bridgePool.query('UPDATE tala_integration_v2.deliveries '+
    "SET lease_until=clock_timestamp()-interval '1 second' "+
    "WHERE event_id=$1::uuid AND consumer='notifications'",[evt.eventId]);
-  const retry=await deliverOnce(bridgePool,'notifications',consumer);
+  const retry=await deliverOnce(bridgePool,'notifications',consumer,evt.eventId);
   assert.equal('delivered' in retry&&retry.delivered,true);
   await assert.rejects(acknowledgeDelivery(bridgePool,claim),
    e=>e instanceof IntegrationError&&e.code==='M11_STALE_LEASE');
