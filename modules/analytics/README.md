@@ -1,6 +1,6 @@
 # M10 Analítica — Tala Eats Core v2
 
-**Último módulo de la propuesta modular. LAB2 independiente — cierre técnico sujeto a validación CI final. NO-GO para LIVE, merge o despliegue Kali.**
+**M10 CERRADO EN LAB2 como módulo autónomo**, con ingestión firmada, métricas de comercio/plataforma y reconciliación verificada. **NO-GO LIVE / NO-GO merge / NO-GO despliegue Kali.**
 
 M10 es un **read model** de KPIs operativos a partir de eventos mínimos, firmados por productores confiables. Es dueño solo de sus propias estadísticas, no de pagos, wallets, catálogo, cuentas, logística ni los datos de pedido.
 
