@@ -1,4 +1,4 @@
-name: M9 Seguridad — standalone signed gateway LAB
+name: M9 Seguridad — independent revocation and threat signals LAB
 on:
   push:
     branches: ['feat/core-v2-seguridad-foundation']
@@ -6,12 +6,14 @@ on:
       - 'modules/security/**'
       - 'docs/MODULO9-SEGURIDAD-ARQUITECTURA.md'
       - 'docs/MODULO9-SEGURIDAD-LAB1.md'
+      - 'docs/MODULO9-SEGURIDAD-CIERRE-LAB2.md'
       - '.github/workflows/module9-security-ci.yml'
   pull_request:
     paths:
       - 'modules/security/**'
       - 'docs/MODULO9-SEGURIDAD-ARQUITECTURA.md'
       - 'docs/MODULO9-SEGURIDAD-LAB1.md'
+      - 'docs/MODULO9-SEGURIDAD-CIERRE-LAB2.md'
       - '.github/workflows/module9-security-ci.yml'
   workflow_dispatch:
 permissions:
@@ -59,6 +61,13 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U security_lab \
             -d tala_security_v2_test \
             -f modules/security/migrations/001_security_foundation.sql
+      - name: Apply isolated revocation and abuse detection migration
+        env:
+          PGPASSWORD: security_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U security_lab \
+            -d tala_security_v2_test \
+            -f modules/security/migrations/002_revocation_abuse.sql
       - name: Full atomic security, PostgreSQL and HTTP E2E suite
         env:
           SECURITY_CI_URL: postgresql://security_lab:security_ci_only@127.0.0.1:5432/tala_security_v2_test
@@ -74,6 +83,12 @@ jobs:
             -d unrelated_m9_test \
             -f modules/security/migrations/001_security_foundation.sql; then
             echo 'M9 SQL escaped LAB-only guard'
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U security_lab \
+            -d unrelated_m9_test \
+            -f modules/security/migrations/002_revocation_abuse.sql; then
+            echo 'M9 revocation migration escaped LAB-only guard'
             exit 1
           fi
           test "$(psql -At -h 127.0.0.1 -U security_lab \
