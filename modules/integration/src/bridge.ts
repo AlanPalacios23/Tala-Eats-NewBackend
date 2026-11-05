@@ -64,9 +64,11 @@ export async function publishEvent(pool:Pool,publisher:Publisher,raw:unknown){
    consumers:routing(event.kind).length});
  });
 }
-export async function claimDelivery(pool:Pool,consumer:Consumer):Promise<Claim|null>{
+export async function claimDelivery(pool:Pool,consumer:Consumer,
+ eventId?:string):Promise<Claim|null>{
  if(!['notifications','logistics','analytics'].includes(consumer))
   throw new IntegrationError('M11_CONSUMER_INVALID');
+ const onlyEvent=eventId===undefined?null:validUuid(eventId);
  return inTransaction(pool,async c=>{
   const row=await c.query<{
    event_id:string,consumer:Consumer,attempts:number,source:Producer,
@@ -79,11 +81,12 @@ export async function claimDelivery(pool:Pool,consumer:Consumer):Promise<Claim|n
    "'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS occurred_at "+
    'FROM tala_integration_v2.deliveries d '+
    'JOIN tala_integration_v2.events e ON e.event_id=d.event_id '+
-   'WHERE d.consumer=$1 AND d.attempts<$2 AND ('+
+   'WHERE d.consumer=$1 AND d.attempts<$2 '+
+   'AND ($3::uuid IS NULL OR d.event_id=$3::uuid) AND ('+
    "(d.state='pending' AND d.next_attempt_at<=clock_timestamp()) OR "+
    "(d.state='leased' AND d.lease_until<=clock_timestamp())) "+
    'ORDER BY e.created_at,d.event_id LIMIT 1 FOR UPDATE OF d SKIP LOCKED',
-   [consumer,MAX_ATTEMPTS]);
+   [consumer,MAX_ATTEMPTS,onlyEvent]);
   if(!row.rows[0])return null;
   const picked=row.rows[0],claimId=randomUUID();
   await c.query('UPDATE tala_integration_v2.deliveries SET '+
@@ -124,8 +127,9 @@ export const acknowledgeDelivery=(pool:Pool,claim:Claim)=>settle(pool,claim,true
 export const rejectDelivery=(pool:Pool,claim:Claim)=>settle(pool,claim,false);
 
 export async function deliverOnce(pool:Pool,consumer:Consumer,
- adapter:{handle:(event:IntegrationEvent,deliveryId:string)=>Promise<void>}){
- const claim=await claimDelivery(pool,consumer);
+ adapter:{handle:(event:IntegrationEvent,deliveryId:string)=>Promise<void>},
+ eventId?:string){
+ const claim=await claimDelivery(pool,consumer,eventId);
  if(!claim)return Object.freeze({processed:false as const});
  try{
   // Idempotent consumer must use eventId + consumer as its delivery key.
