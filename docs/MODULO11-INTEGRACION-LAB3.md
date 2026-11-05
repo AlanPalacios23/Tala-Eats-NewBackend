@@ -4,7 +4,7 @@
 **Rama:** `feat/core-v2-integracion-monolito-m11`, independiente de `main`.
 **PR:** [#13](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/13), Draft.
 **Fase:** conectar adaptadores reales de identidad, seguridad y notificaciones sin modificar M1–M10.
-**Estado:** implementación lista para validación CI global del último HEAD.
+**Estado:** implementación LAB3 bajo CI global, pendiente de certificar el último commit documental.
 **Operación comercial:** **NO-GO**. Nada de Stripe LIVE, transferencias, cancelaciones reales ni despliegue Kali.
 
 ## Entregables LAB3
@@ -19,9 +19,9 @@ sustituta. Los estados que puede notificar son:
 | --- | --- | --- |
 | `restaurants.order_ready` (M6 futuro) | `order.ready` | Cliente |
 | `logistics.delivery_completed` (M2 futuro) | `order.delivered` | Cliente |
-| `orders.order_created` (M1 futuro) | **BLOQUEADO** | — |
+| `orders.order_created` (M1 futuro) | **Sin consumidores ni publicación** | — |
 
-**P0 comercial:** registrar un pedido **no acredita pago**. No se
+**P0 comercial:** registrar un pedido **no acredita pago**. M11 preserva el evento para auditoría pero crea **cero entregas** hasta que exista un hecho de cobro válido. No se
 enviará `restaurant.new_order` hasta recibir un evento diferente de
 pago verificado y ligado al pedido, respaldado por M8/Stripe y validado
 por M1. Evita notificar y preparar pedidos aún no pagados.

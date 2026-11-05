@@ -3,7 +3,7 @@
 **Fecha:** 5 de noviembre de 2026.
 **Rama:** `feat/core-v2-integracion-monolito-m11` (parent commit de `main`).
 **PR:** integración aislada como nueva capa, no merge de PRs de módulos.
-**Estado:** **LAB2 aprobado en CI combinada** — diez árboles ensamblados, un adaptador M11→M10 conectado en laboratorio, sin fusión ni despliegue comercial.
+**Estado:** LAB2 aprobado y LAB3 en validación; integración M11→M10, M11→M5 y M4→M9 con componentes reales en laboratorio; sin fusión ni despliegue comercial.
 **Protección:** NO-GO LIVE, NO-GO despliegue Kali, NO-GO sustituir backend anterior.
 
 ## 1. Ensamblaje físico comprobable
@@ -102,6 +102,38 @@ Esta prueba es un **enlace de funciones reales M11→M10**, pero no
 una prueba de M2 real ni un mensaje firmado y emitido por el outbox
 auténtico de Logística. La custodia de la clave de emisor debe pasar a
 M2 antes de LIVE. No se consideran listos otros ports del monolito.
+
+## 3.2 LAB3 — nuevos enlaces reales y bloqueo de pedidos impagos
+
+**M11→M5 Notificaciones:** el adaptador llama a
+`publishNotification` y `readInbox` de M5 en su DB real de LAB,
+con recibos idempotentes y un binding irreversible de destinatario
+en la DB de M11. El `recipientId` es resuelto fuera del frontend
+por un host que acredita el vínculo con pedido/comercio/evento.
+Un retry con un destinatario diferente se rechaza; un retry después
+del commit M5 pero antes del ACK M11 no duplica el aviso.
+
+**Decisión importante:** `orders.order_created` conserva su
+registro de hecho, pero ahora tiene **cero consumidores**. M11 nunca
+despacha `restaurant.new_order` desde una mera creación de pedido
+sin confirmación financiera. Para notificar a la tienda se deberá
+introducir un evento versionado y respaldado por M8/M1 que acredite
+el pago verificado. Evitamos pendientes que terminarían en DLQ por
+eventos cuyo aviso no es procedente.
+
+**M4→M9:** un adaptador del M11 comprueba una sesión real en M4,
+exige que un host confiable acredite la propiedad del pedido, y
+usa firmas/grants reales del M9 para autorizar el recurso concreto.
+No firma `step_up` para permisos que M4 no haya verificado:
+solo `orders.cancel` con sesión; el módulo M1 **no recibe la orden
+de cancelación**. La futura atestación de propiedad deberá basarse
+en M1 y resolver la vinculación M4↔M1.
+
+Las pruebas usan PostgreSQL real de M4, M5, M9 y M11 con cuentas,
+sesiones, auditorías y bandejas de entrada **solo de laboratorio**.
+No se considera probado un flujo de dinero ni un pedido de producción.
+
+[Acta LAB3](MODULO11-INTEGRACION-LAB3.md).
 
 ## 4. Condiciones bloqueantes de un monolito modular realmente funcional
 

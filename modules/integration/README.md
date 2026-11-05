@@ -1,7 +1,7 @@
 # Tala Eats Core v2 — M11 Integración del monolito (LAB1 aislado)
 
 **Rama:** `feat/core-v2-integracion-monolito-m11`, creada desde `main`.
-**Estado:** **M11 LAB2 VALIDADO**: composición real de código M1–M10, CI global SUCCESS y primer adaptador real M11→M10 en laboratorio. **NO-GO comercial, NO-GO merge, NO-GO Kali.**
+**Estado:** **M11 LAB3 en validación**: código M1–M10 ensamblado, CI global LAB2 aprobada y nuevos puentes a M5/M4/M9. **NO-GO comercial, NO-GO merge, NO-GO Kali.**
 **El conjunto de fuentes aún NO equivale a un backend comercialmente integrado.**
 
 ## Qué hay realmente dentro de esta rama
@@ -23,7 +23,7 @@ Eventos LAB aceptados:
 
 | Emisor | Evento | Consumidores permitidos |
 | --- | --- | --- |
-| Pedidos | `orders.order_created` | Notificaciones |
+| Pedidos | `orders.order_created` | **Ninguno**: no hay pago verificado |
 | Restaurantes | `restaurants.order_ready` | Logística, Notificaciones |
 | Logística | `logistics.delivery_completed` | Notificaciones, Analítica |
 
@@ -62,6 +62,35 @@ firmado. El adaptador LAB actual firma datos ya admitidos por un host
 de pruebas: no demuestra la autenticidad de un conductor ni que la
 entrega ocurrió realmente. Los otros consumidores
 Notificaciones/Logística y Finanzas/Pagos siguen pendientes de integración.
+
+## LAB3 — puentes reales M11→M5 y M4→M9
+
+**Notificaciones M5:** `adapters/notifications-lab.ts` llama al
+`publishNotification` real de M5 para `order.ready` y
+`order.delivered`. El destinatario no sale del frontend: un resolver
+del host debe probar asociación con evento, pedido y comercio. La
+migración `002_notification_binding.sql` guarda esa identidad en M11
+como binding inmutable. Tras caída de M11, el reintento usa el recibo
+idempotente de M5: no crea otra notificación. Un cambio de destinatario
+se rechaza. **Un mero `orders.order_created` no encola notificación ni
+dispara preparación; faltan confirmación PSP verdadera y validación M1.**
+La CI desactiva email/push al probar la bandeja para no enviar mensajes.
+
+**Identidad M4 y seguridad M9:**
+`adapters/identity-security-lab.ts` invoca
+`readAuthenticatedProfile` del M4 real, exige una declaración de
+propiedad de recurso emitida por un host confiable (simulado en LAB),
+firma un grant de 45 segundos y obtiene una decisión del M9 real.
+El logout invalida sesiones y bloquea el intento antes de otorgar
+permiso. **No cancela pedidos** y el callback de propiedad todavía
+no lee M1; `orderMutationPerformed=false`.
+
+Estos vínculos forman pruebas **entre funciones reales de M4, M5 y M9**,
+no un API operativo ni un pedido extremo a extremo. Los productores
+siguen siendo eventos de laboratorio emitidos por host, no outboxes
+transaccionales de los módulos.
+
+[LAB3: pruebas, bloqueos y alcance](../../docs/MODULO11-INTEGRACION-LAB3.md).
 
 ## Prueba de diez fronteras
 
