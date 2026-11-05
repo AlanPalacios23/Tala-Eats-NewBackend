@@ -115,6 +115,8 @@ jobs:
           INTEGRATION_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_integration_v2_test
           ANALYTICS_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_analytics_v2_test
           NOTIFICATIONS_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_notifications_v2_test
+          USERS_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_users_v2_test
+          SECURITY_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_security_v2_test
         run: npm --prefix modules/integration run check
       - name: Guard M11 DB migration from accidental use on another database
         run: |
