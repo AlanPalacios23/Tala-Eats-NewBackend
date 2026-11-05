@@ -35,6 +35,16 @@
 | Aislamiento | Migración SQL M11 rechazada en base ajena |
 | Producción | Flags de LIVE, payout, escritura y HTTP público rechazadas |
 
+## Extensión LAB2: primer contrato conectado a código real
+
+- `M11 logística.delivery_completed → M10 delivery.completed` usa
+  la implementación real de `ingestAnalyticsEvent`, con firma de
+  laboratorio separada, mensaje mínimo y **DB distinta**.
+- Se prueba replay sin duplicar métricas ante caída después del
+  commit en M10 y antes del ACK de M11, y rechazo del lease obsoleto.
+- Sigue siendo un evento **simulado**: no valida un pedido ni una
+  entrega real, no ejecuta M2 Logística y no toca dinero.
+
 ## Riesgos sin resolver, incluso si todos los tests pasan
 
 - Los diez módulos **compilan y pueden convivir en la misma rama**, pero todavía usan DB separadas y servidores LAB distintos. No se les ha conectado a un único gateway Express con autenticación de cuenta real y adaptadores comerciales.
