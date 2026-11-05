@@ -211,8 +211,15 @@ export async function pruneExpiredSecurityState(pool:Pool,hostAccess:{
    'WHERE expires_at<clock_timestamp()');
   const revoked=await c.query('DELETE FROM tala_security_v2.grant_revocations '+
    'WHERE expires_at<clock_timestamp()');
+  // A subject revocation blocks only older short-lived grants.
+  // Once revoked_before is >150 seconds old, every affected grant
+  // (max TTL 120s) has already expired, so the pseudonym may be pruned.
+  const subjectStates=await c.query(
+   'DELETE FROM tala_security_v2.subject_revocations WHERE '+
+   'revoked_before<floor(extract(epoch FROM clock_timestamp()))::bigint-150');
   return Object.freeze({expiredGrants:grants.rowCount??0,
    expiredBuckets:buckets.rowCount??0,
-   expiredRevocations:revoked.rowCount??0});
+   expiredRevocations:revoked.rowCount??0,
+   expiredSubjectRevocations:subjectStates.rowCount??0});
  });
 }
