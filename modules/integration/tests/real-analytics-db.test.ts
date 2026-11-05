@@ -65,7 +65,7 @@ test('M11 -> real M10: durable delivery event becomes one analytics fact, not a 
    'WHERE event_id=$1::uuid AND consumer=$2',[second.eventId,'analytics']);
   const retry=await deliverOnce(bridgePool,'analytics',adapter);
   assert.equal('delivered' in retry&&retry.delivered,true);
-  assert.equal(retry.eventId,second.eventId);
+  assert.equal('eventId' in retry&&retry.eventId,second.eventId);
   await assert.rejects(acknowledgeDelivery(bridgePool,leased),
    e=>e instanceof IntegrationError&&e.code==='M11_STALE_LEASE');
 
