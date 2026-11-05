@@ -6,12 +6,14 @@ on:
       - 'modules/analytics/**'
       - 'docs/MODULO10-ANALITICA-ARQUITECTURA.md'
       - 'docs/MODULO10-ANALITICA-CIERRE-LAB.md'
+      - 'docs/CORE-V2-ESTADO-DIEZ-MODULOS.md'
       - '.github/workflows/module10-analytics-ci.yml'
   pull_request:
     paths:
       - 'modules/analytics/**'
       - 'docs/MODULO10-ANALITICA-ARQUITECTURA.md'
       - 'docs/MODULO10-ANALITICA-CIERRE-LAB.md'
+      - 'docs/CORE-V2-ESTADO-DIEZ-MODULOS.md'
       - '.github/workflows/module10-analytics-ci.yml'
   workflow_dispatch:
 permissions:
