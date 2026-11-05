@@ -17,7 +17,7 @@ export type CatalogLabConfig={
  integrationPool:Pool,restaurantsPool:Pool,ordersPool:Pool,
  usersPool:Pool,usersPasswordPepper:Buffer
 };
-export type CatalogHost={authenticated:true,canLinkCatalog:true};
+export type CatalogHost={authenticated:boolean,canLinkCatalog:boolean};
 export type LinkedCartLine={
  variantId:string,quantity:number,expectedVariantVersion:number
 };
@@ -231,7 +231,7 @@ async function previewInTransaction(config:CatalogLabConfig,
  // M6 prices and stock are read first; M1 independently validates its
  // own saved price/stock and calculates the ORIGINAL M1 pricing policy.
  const at=new Date();
- const verified=[];
+ const verified:Awaited<ReturnType<typeof checkedOffer>>[]=[];
  for(const line of mapped.lines){
   verified.push(await checkedOffer(config,{storeId:cart.storeId,
    branchId:cart.branchId,variantId:line.variantId,
