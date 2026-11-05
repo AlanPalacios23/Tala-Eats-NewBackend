@@ -116,6 +116,7 @@ jobs:
           ANALYTICS_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_analytics_v2_test
           NOTIFICATIONS_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_notifications_v2_test
           USERS_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_users_v2_test
+          RESTAURANTS_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_restaurants_v2_test
           SECURITY_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_security_v2_test
           CORE_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_core_v2_test
         run: npm --prefix modules/integration run check
@@ -133,6 +134,10 @@ jobs:
           fi
           if psql -v ON_ERROR_STOP=1 'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' -f modules/integration/migrations/003_customer_identity_links.sql; then
             echo 'M11_CUSTOMER_IDENTITY_MIGRATION_ESCAPED_LAB_GUARD'
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' -f modules/integration/migrations/004_branch_catalog_links.sql; then
+            echo 'CATALOG_MAPPING_MUST_BE_LAB_ONLY'
             exit 1
           fi
           test "$(psql -At             'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test'             -c "SELECT to_regnamespace('tala_integration_v2') IS NULL")" = "t"
