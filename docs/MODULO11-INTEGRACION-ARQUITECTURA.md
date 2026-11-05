@@ -84,6 +84,25 @@ flowchart LR
 
 **La fuente de autoridad real todavía no está conectada**: M4 autenticaría identidad, M9 verificaría grants y autorización reforzada, M6 precio/stock/aceptación, M7 cobertura, M8 PSP TEST, M3 ledger, M2 entrega, M5 notificación, M10 KPI. Un mero import de código no valida esa secuencia.
 
+## 3.1 Primer puente de código real a un módulo consumidor
+
+LAB2 incorpora `modules/integration/adapters/analytics-lab.ts`.
+Cuando M11 recibe un evento `logistics.delivery_completed`
+**sintético** de su host de laboratorio, el adaptador llama a
+`ingestAnalyticsEvent` **del M10 real** con un hecho de entrega de
+monto cero, `eventId` original y firma HMAC logística de pruebas.
+
+La CI usa dos bases propias, `tala_integration_v2_test` y
+`tala_analytics_v2_test`, dentro del mismo PostgreSQL y verifica
+que una caída después del commit en M10 y antes del ACK M11 provoque
+un segundo intento sin duplicar métricas. También impide que se
+traduzcan eventos no logísticos o se creen hechos financieros.
+
+Esta prueba es un **enlace de funciones reales M11→M10**, pero no
+una prueba de M2 real ni un mensaje firmado y emitido por el outbox
+auténtico de Logística. La custodia de la clave de emisor debe pasar a
+M2 antes de LIVE. No se consideran listos otros ports del monolito.
+
 ## 4. Condiciones bloqueantes de un monolito modular realmente funcional
 
 1. **Contratos/ports de implementación** M1–M10 con tipado compartido, sin importar subtablas ni exponer interfaces LAB en Internet.
