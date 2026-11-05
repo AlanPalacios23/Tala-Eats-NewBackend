@@ -202,7 +202,7 @@ test('M11 LAB4: email equality is insufficient; BOTH valid customer sessions req
   const second=await makeM4Account(lab.config.usersPool,b,
    lab.pepper,lab.emailSecret);
   await assert.rejects(linkControlledCustomerAccounts(lab.config,{
-   m4SessionToken:second.session,m1SessionToken:m1same.session
+   m4SessionToken:second.session,m1SessionToken:freshM1Session
   }),e=>errorCode(e,'M11_IDENTITY_EMAIL_MISMATCH'));
   const stored=await lab.config.integrationPool.query<{n:number}>(
    'SELECT count(*)::int AS n FROM tala_integration_v2.customer_identity_links '+
