@@ -5,7 +5,7 @@
 **Rama:** `feat/core-v2-analitica-foundation` desde `main`.
 **PR:** [#12](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/12), **Draft y sin merge**.
 **Objeto:** cierre del desarrollo de laboratorio, **no** declaración de monolito unificado ni certificación comercial.
-**Estado:** candidato a cierre LAB2, sujeto a CI sobre último HEAD.
+**Estado:** **M10 CERRADO EN LAB2** — último conjunto de pruebas y documentación aprobado en PostgreSQL 16. Esto certifica únicamente la fase de laboratorio.
 **Operación comercial:** **NO-GO** — cero datos reales, cero Stripe LIVE, cero despliegues Kali.
 
 ## Alcance implementado
@@ -44,6 +44,8 @@ Evidencia funcional ya comprobada antes del ajuste documental:
 
 Resultado real de la última batería con código: **13/13 pruebas de integración + dominio aprobadas**, además de controles de compilación, migración y aislamiento.
 
+**Verificación más reciente anterior a esta acta:** [GitHub Actions #41979991452](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/41979991452), **SUCCESS** sobre `aac3b9b386466f28fb5f1305ddd5b64a3e6d676e`. Esta actualización textual del acta no altera las operaciones ni la migración; comprobar la nueva CI del commit documental antes de cerrar el PR.
+
 Incluye 20 ingestiones simultáneas del mismo evento (una aplicada), 15 eventos concurrentes en paralelo con una reparación de agregado, misma referencia de evento entre pedidos distintos, separación entre comercios, errores de importe, devolución parcial, reclamos de diferentes emisores, HTTP E2E, fecha UTC histórica, alteración del contador diario y reparación privilegiada.
 
 ## Dependencias de producción no aprobadas
@@ -58,7 +60,7 @@ Incluye 20 ingestiones simultáneas del mismo evento (una aplicada), 15 eventos 
 
 ## Decisión de ingeniería
 
-**M10 podrá declararse CERRADO EN LAB2 solo tras CI final SUCCESS sobre su último HEAD.** Con eso se completará la **lista de diez dominios independientes propuestos** de Tala Eats Core v2, no un monolito ya ensamblado en `main`.
+**M10 CERRADO EN LAB2:** la CI de la implementación y la documentación de arquitectura del módulo pasó en el último HEAD funcional verificado. Con eso se completará la **lista de diez dominios independientes propuestos** de Tala Eats Core v2, no un monolito ya ensamblado en `main`.
 
 **GO siguiente fase:** preparar un plan explícito y seguro de fusión/integración, backend de staging único, contratos de eventos entre módulos, tests E2E comerciales y reconciliación antes de cualquier release.
 
