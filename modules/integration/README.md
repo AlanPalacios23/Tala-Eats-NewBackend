@@ -40,6 +40,29 @@ La API **in-process** `publishEvent(pool,trustedPublisher,event)` exige que el h
 - El **consumidor final debe ser idempotente** ante entregas repetidas, y debe usar `eventId+consumer` como clave. M11 garantiza entrega **al menos una vez**, no exactly-once de efectos externos.
 - **Pendiente:** fuente real de outbox transaccional M1/M2/M6, autenticación de productores, worker real con bindings M5/M2/M10 y reconciliación de fallos de red.
 
+## LAB2 — primer adaptador real M11 → M10 (solo datos simulados)
+
+Se añadió `adapters/analytics-lab.ts`, que **invoca la función real
+`ingestAnalyticsEvent` de M10** usando su propia base
+`tala_analytics_v2_test`. Toma un hecho M11
+`logistics.delivery_completed`, lo adapta al contrato
+`delivery.completed` de M10, lo firma con una clave HMAC **de pruebas**
+del emisor Logística y conserva `eventId`, `merchantId`, `orderId`
+y UTC. No calcula ingresos, pagos, refunds ni wallets.
+
+El test `real-analytics-db.test.ts` valida dos hechos en el PostgreSQL
+real de CI, y simula un crash **después** del commit en M10 pero **antes**
+del ACK de M11: el reprocesamiento no duplica `deliveriesCompleted`,
+el claim viejo no puede confirmar el nuevo lease y M10 mantiene las dos
+entregas exactas.
+
+**Límite de confianza:** para producción, la clave HMAC debe ser
+custodiada por **M2** y el evento debe nacer de su outbox durable
+firmado. El adaptador LAB actual firma datos ya admitidos por un host
+de pruebas: no demuestra la autenticidad de un conductor ni que la
+entrega ocurrió realmente. Los otros consumidores
+Notificaciones/Logística y Finanzas/Pagos siguen pendientes de integración.
+
 ## Prueba de diez fronteras
 
 `runIsolatedTenModuleSmoke` ejecuta un escenario de **contratos inyectados**, no endpoints de producción:
