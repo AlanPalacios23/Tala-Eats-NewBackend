@@ -119,7 +119,7 @@ export async function authorizeSecurityAction(config:SecurityConfig,input:{
  const rules=ACTIONS[action];
  return tx(config.pool,async c=>{
   await subjectLock(c,subjectHash);
-  const denied=async(decision:'deny_scope'|'deny_assurance'|'deny_replay'|'deny_rate',
+  const denied=async(decision:'deny_scope'|'deny_assurance'|'deny_replay'|'deny_rate'|'deny_revoked',
    code:Decision['code'],retryAfterSeconds?:number):Promise<Decision>=>{
    await audit(c,subjectHash,action,decision);
    return Object.freeze({allowed:false,code,
