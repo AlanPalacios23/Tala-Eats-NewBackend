@@ -50,7 +50,7 @@ test('M10 LAB rollup audit detects drift and privileged repair rebuilds derived 
   assert.ok(drift.differingFields.includes('order_gmv_cents'));
   assert.equal(drift.expected.order_gmv_cents,'22000');
   assert.equal(drift.observed.order_gmv_cents,'100000000');
-  await fails(reconcileMerchantDay(pool,{},m,day()),'M10_FORBIDDEN');
+  await fails(reconcileMerchantDay(pool,{authenticated:false},m,day()),'M10_FORBIDDEN');
   await fails(reconcileMerchantDay(pool,audited,m,day(),'repair'),
    'M10_FORBIDDEN');
   const fix=await reconcileMerchantDay(pool,repaired,m,day(),'repair');
