@@ -1,6 +1,6 @@
 # M9 Seguridad — Tala Eats Core v2 · LAB2
 
-**LAB2 independiente: revocación y detección local de abuso. Cierre técnico sujeto a CI. NO-GO LIVE.**
+**M9 CERRADO EN LAB2 como módulo independiente**, con revocación, protección criptográfica, detección local de abuso y pruebas CI. **NO-GO LIVE / NO-GO merge / NO-GO despliegue Kali.**
 
 M9 verifica **grants firmados por un gateway de confianza**, autorización por acción y recurso, requisitos de MFA recientes declarados por el host, uso único de grants, limitación de operaciones sensibles y auditoría mínima con hashes HMAC. Es una capa transversal de evaluación, **no** un servicio de identidad, login, TOTP, sesiones, roles de negocio, Stripe, pedidos ni wallets.
 
