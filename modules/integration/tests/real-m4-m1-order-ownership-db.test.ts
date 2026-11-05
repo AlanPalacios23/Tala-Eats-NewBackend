@@ -11,7 +11,7 @@ import {registerCredentialedPendingUser,loginLabUser,logoutLabSession}
  from '../../users/src/auth.js';
 import {issueLabEmailChallenge,verifyLabEmailChallenge}
  from '../../users/src/store.js';
-import {hashPassword,issueSession,resolveSession}
+import {hashPassword,issueSession,resolveSession,tokenHash}
  from '../../../src/modules/orders/lab-auth.ts';
 import {createCashOrder}
  from '../../../src/modules/orders/checkout.ts';
@@ -184,8 +184,16 @@ test('M11 LAB4: email equality is insufficient; BOTH valid customer sessions req
   await assert.rejects(linkControlledCustomerAccounts(lab.config,{
    m4SessionToken:'invalid',m1SessionToken:m1same.session
   }),e=>errorCode(e,'M11_DUAL_SESSION_REQUIRED'));
-  const ok=await linkControlledCustomerAccounts(lab.config,{
+  // A previously valid M1 session must not be usable after expiry.
+  await lab.config.ordersPool.query(
+   "UPDATE tala_core_v2.sessions SET expires_at=clock_timestamp()-interval '1 second' "+
+   "WHERE token_hash=$1",[tokenHash(m1same.session)]);
+  await assert.rejects(linkControlledCustomerAccounts(lab.config,{
    m4SessionToken:m4.session,m1SessionToken:m1same.session
+  }),e=>errorCode(e,'M11_DUAL_SESSION_REQUIRED'));
+  const freshM1Session=await issueSession(lab.config.ordersPool,m1same.id);
+  const ok=await linkControlledCustomerAccounts(lab.config,{
+   m4SessionToken:m4.session,m1SessionToken:freshM1Session
   });
   assert.equal(ok.linked,true);
 
