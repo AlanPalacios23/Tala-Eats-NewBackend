@@ -20,6 +20,7 @@ import {hashPassword,issueSession}
  from '../../../src/modules/orders/lab-auth.ts';
 import {PRICING_POLICY_VERSION}
  from '../../../src/modules/orders/pricing.ts';
+import {OrderServiceError} from '../../../src/modules/orders/checkout.ts';
 
 const urls={
  integration:process.env.INTEGRATION_CI_URL??'',
@@ -159,11 +160,11 @@ test('M11 LAB5 real M6 offer -> M1 quote -> frozen cash pickup order, no money o
   });
   assert.equal(same.replayed,true);
   assert.equal(same.orderId,one.orderId);
-  await fail(createLinkedLabCashPickup(f.config,{
+  await assert.rejects(createLinkedLabCashPickup(f.config,{
    sessionToken:buyer.sessionToken,
    cart:{...row.cart,lines:[{...row.cart.lines[0]!,quantity:2}]},
    idempotencyKey:key
-  }),'M11_M1_QUOTE_DIVERGENCE').catch(()=>{}); // M1 performs idempotency check below
+  }),e=>e instanceof OrderServiceError&&e.code==='IDEMPOTENCY_CONFLICT');
   const persisted=await f.config.ordersPool.query<{
    status:string,payment_status:string,total_minor:string,
    price_snapshot:{policyVersion:string,itemsMinor:string},
@@ -279,8 +280,7 @@ test('M11 LAB5 serializes competing pickup orders and rejects the second due to 
   const rejected=requests.find(r=>r.status==='rejected');
   assert.ok(rejected?.status==='rejected');
   assert.ok(rejected.reason instanceof IntegrationError);
-  assert.equal(rejected.reason.code,'M11_M6_OFFER_UNAVAILABLE'==='never'
-   ?'M11_M6_OFFER_UNAVAILABLE':'M11_STOCK_LEDGER_DRIFT');
+  assert.equal(rejected.reason.code,'M11_STOCK_LEDGER_DRIFT');
   const count=await f.config.ordersPool.query<{n:number}>(
    'SELECT count(*)::int AS n FROM tala_core_v2.orders WHERE buyer_id=$1::uuid',
    [buyer.buyerId]);
