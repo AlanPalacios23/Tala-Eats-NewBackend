@@ -1,0 +1,81 @@
+name: M9 Seguridad — standalone signed gateway LAB
+on:
+  push:
+    branches: ['feat/core-v2-seguridad-foundation']
+    paths:
+      - 'modules/security/**'
+      - 'docs/MODULO9-SEGURIDAD-ARQUITECTURA.md'
+      - 'docs/MODULO9-SEGURIDAD-LAB1.md'
+      - '.github/workflows/module9-security-ci.yml'
+  pull_request:
+    paths:
+      - 'modules/security/**'
+      - 'docs/MODULO9-SEGURIDAD-ARQUITECTURA.md'
+      - 'docs/MODULO9-SEGURIDAD-LAB1.md'
+      - '.github/workflows/module9-security-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  security-standalone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: security_lab
+          POSTGRES_PASSWORD: security_ci_only
+          POSTGRES_DB: tala_security_v2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U security_lab -d tala_security_v2_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install M9 dependencies only
+        working-directory: modules/security
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: TypeScript strict and offline checks
+        working-directory: modules/security
+        run: npm run check
+      - name: Enforce strict module boundaries and no production credentials
+        run: |
+          if grep -RE 'from .*modules/(orders|logistics|finance|users|notifications|restaurants|locations|payments)' modules/security/src; then
+            echo 'M9 illegally imports another module'
+            exit 1
+          fi
+          if grep -RE '(sk_live_|rk_live_|https?://api.stripe.com)' modules/security/src; then
+            echo 'M9 must not use payment-provider secrets or external payments'
+            exit 1
+          fi
+      - name: Apply only M9 SQL to discardable test DB
+        env:
+          PGPASSWORD: security_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U security_lab \
+            -d tala_security_v2_test \
+            -f modules/security/migrations/001_security_foundation.sql
+      - name: Full atomic security, PostgreSQL and HTTP E2E suite
+        env:
+          SECURITY_CI_URL: postgresql://security_lab:security_ci_only@127.0.0.1:5432/tala_security_v2_test
+        working-directory: modules/security
+        run: npm test
+      - name: Reject accidental migration to unrelated database
+        env:
+          PGPASSWORD: security_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U security_lab \
+            -d postgres -c 'CREATE DATABASE unrelated_m9_test'
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U security_lab \
+            -d unrelated_m9_test \
+            -f modules/security/migrations/001_security_foundation.sql; then
+            echo 'M9 SQL escaped LAB-only guard'
+            exit 1
+          fi
+          test "$(psql -At -h 127.0.0.1 -U security_lab \
+            -d unrelated_m9_test \
+            -c "SELECT to_regnamespace('tala_security_v2') IS NULL")" = "t"
