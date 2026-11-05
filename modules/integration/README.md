@@ -1,7 +1,7 @@
 # Tala Eats Core v2 — M11 Integración del monolito (LAB1 aislado)
 
 **Rama:** `feat/core-v2-integracion-monolito-m11`, creada desde `main`.
-**Estado:** **M11 LAB3 APROBADO** con 266 ejecuciones de prueba PASS en CI global; código M1–M10 ensamblado, puentes de LAB a M10/M5 y autenticación M4→M9. **NO-GO LIVE, merge o Kali.** **NO-GO comercial, NO-GO merge, NO-GO Kali.**
+**Estado:** LAB3 aprobado; **LAB4 identidad M4→M1 desarrollada y en validación CI**, sin operaciones comerciales. **NO-GO LIVE, merge o Kali.** **NO-GO comercial, NO-GO merge, NO-GO Kali.**
 **El conjunto de fuentes aún NO equivale a un backend comercialmente integrado.**
 
 ## Qué hay realmente dentro de esta rama
@@ -91,6 +91,39 @@ siguen siendo eventos de laboratorio emitidos por host, no outboxes
 transaccionales de los módulos.
 
 [LAB3: pruebas, bloqueos y alcance](../../docs/MODULO11-INTEGRACION-LAB3.md).
+
+## LAB4 — vínculo auténtico entre cuentas M4 y dueño de pedido M1
+
+`adapters/order-ownership-lab.ts` usa **las sesiones y funciones reales**
+de M4 y M1. Es importante porque los dos módulos tienen identidades
+independientes: **comparar emails o confiar en `buyerId` enviado por
+la app no prueba que sea la misma persona**.
+
+- Alta del vínculo: se comprueban simultáneamente una sesión M4 vigente
+  y otra sesión legacy M1 vigente, rol cliente en ambas cuentas y el mismo
+  correo normalizado. Es una **prueba dual de control**, no una
+  equivalencia inferida por email.
+- `003_customer_identity_links.sql`: tabla M11 de identificadores UUID
+  inmutables y revocación append-only; no guarda tokens, correos, nombres,
+  direcciones ni contraseñas. Una cuenta M1 no puede vincularse con dos
+  cuentas M4, ni al revés.
+- Lectura de propiedad: M11 consulta el vínculo vigente y verifica con la
+  función **`readOrderTimeline` real de M1**, que aplica el
+  `orders.buyer_id` dentro de SQL. Se confirma además que la cuenta
+  legacy siga activa y tenga rol cliente.
+- Autorización: M4 valida la sesión y **rol actual** en cada solicitud,
+  el resolver M1 comprueba al propietario del pedido y M9 verifica el
+  grant firmado. Devuelve `orderMutationPerformed=false`:
+  **no cancela ni modifica el pedido**.
+- Pruebas SQL de dos clientes reales, checkout de efectivo real de M1,
+  titularidad y acceso cruzado, expiración/revocación de sesiones, mismatch
+  de email, desactivación de M1 y revocación irrevocable de vínculos.
+
+Este método dual-sesión es una **solución de migración de LAB**;
+antes de producción requiere migrar/unificar credenciales e identidades,
+cortar la dependencia de la sesión legacy y certificar el flujo E2E.
+
+[Informe LAB4](../../docs/MODULO11-INTEGRACION-LAB4.md).
 
 ## Prueba de diez fronteras
 
