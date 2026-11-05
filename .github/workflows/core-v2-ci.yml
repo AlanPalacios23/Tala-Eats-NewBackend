@@ -1,0 +1,178 @@
+name: TALA EATS CORE v2 - Pedidos
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orders-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: tala_core_v2_test
+          POSTGRES_USER: core_v2_ci
+          POSTGRES_PASSWORD: ci_password_not_for_production
+        ports:
+          - 15450:5432
+        options: >-
+          --health-cmd "pg_isready -U core_v2_ci -d tala_core_v2_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PG_CI_URL: postgresql://core_v2_ci:ci_password_not_for_production@127.0.0.1:15450/tala_core_v2_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies (isolated, no production secrets)
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Apply isolated PostgreSQL migration
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/001_orders.sql
+      - name: Apply isolated permissions migration
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/002_order_permissions.sql
+      - name: Apply isolated HTTP lab migration
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/003_orders_http_lab.sql
+      - name: Apply isolated order handoff migration
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/004_order_handoffs_lab.sql
+      - name: Apply order integrity migration (isolated DB)
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/005_orders_integrity_lab.sql
+      - name: Apply order PIN budget migration (isolated DB)
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/006_order_pin_rate_lab.sql
+      - name: Apply address and handoff proof integrity (isolated DB)
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/007_orders_address_handoff_integrity_lab.sql
+      - name: Apply logistics presence and GPS migration (isolated DB only)
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/008_logistics_lab.sql
+      - name: Apply Tala Dispatch Engine migration (disposable database)
+        run: psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -f migrations/009_tala_dispatch_engine_lab.sql
+      - name: Run unit, schema and E2E HTTP tests
+        run: npm test
+      - name: Smoke isolated merchant and driver seed tools
+        run: |
+          CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_LAB_MERCHANT_EMAIL=merchant-ci@example.test CORE_V2_LAB_MERCHANT_PASSWORD='CI-Only-Strong-Pass-2026!' node --experimental-strip-types scripts/seed-lab.mjs
+          CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_LAB_DRIVER_EMAIL=driver-ci@example.test CORE_V2_LAB_DRIVER_PASSWORD='CI-Only-Strong-Pass-2026!' node --experimental-strip-types scripts/seed-driver-lab.mjs
+          test "$(psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM tala_core_v2.driver_profiles p JOIN tala_core_v2.accounts a ON a.id=p.account_id WHERE p.approved AND p.is_online AND a.email='driver-ci@example.test'")" = "1"
+      - name: Verify Orders postdeploy audit works with SELECT-only account
+        run: |
+          set -Eeuo pipefail
+          psql "$PG_CI_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE orders_readonly_ci LOGIN PASSWORD 'ci_orders_readonly_only';
+          GRANT CONNECT ON DATABASE tala_core_v2_test TO orders_readonly_ci;
+          GRANT USAGE ON SCHEMA tala_core_v2 TO orders_readonly_ci;
+          GRANT SELECT ON ALL TABLES IN SCHEMA tala_core_v2 TO orders_readonly_ci;
+          SQL
+          if CORE_V2_AUDIT_DATABASE_URL="$PG_CI_URL" ORDER_AUDIT_MAX_ORDERS=1 \
+            node --experimental-strip-types scripts/orders-postdeploy-audit.mjs > /tmp/orders-unsafe-audit.txt 2>&1; then
+            echo "AUDIT_WRITER_ACCEPTED"; exit 1
+          fi
+          grep -q 'ORDERS_AUDIT_REQUIRES_SELECT_ONLY_ROLE' /tmp/orders-unsafe-audit.txt
+          set +e
+          CORE_V2_AUDIT_DATABASE_URL='postgresql://orders_readonly_ci:ci_orders_readonly_only@127.0.0.1:15450/tala_core_v2_test' \
+            ORDER_AUDIT_MAX_ORDERS=1 \
+            node --experimental-strip-types scripts/orders-postdeploy-audit.mjs > /tmp/orders-audit-report.json
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q '"mode":"read-only"' /tmp/orders-audit-report.json
+          grep -q '"status":"INCOMPLETE"' /tmp/orders-audit-report.json
+      - name: Strict TypeScript build
+        run: npm run build
+      - name: Verify source and compiled JavaScript syntax
+        run: |
+          set -Eeuo pipefail
+          while IFS= read -r -d '' file; do node --check "$file"; done < <(find scripts tests -type f -name '*.mjs' -print0)
+          while IFS= read -r -d '' file; do node --check "$file"; done < <(find dist -type f -name '*.js' -print0)
+      - name: Verify isolated HTTP startup and deployment safety
+        run: |
+          set -Eeuo pipefail
+          if CORE_V2_WRITES_ENABLED=true CORE_V2_RUNTIME=disabled CORE_V2_DATABASE_URL="$PG_CI_URL" node dist/server.js > /tmp/unsafe-core.log 2>&1; then
+            echo "UNSAFE_SERVER_STARTED"; exit 1
+          fi
+          grep -q "CORE_V2_WRITES_MUST_REMAIN_DISABLED" /tmp/unsafe-core.log
+          CORE_V2_WRITES_ENABLED=true CORE_V2_RUNTIME=isolated-lab CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_PORT=18210 node dist/server.js > /tmp/lab-core.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18210/ready > /tmp/core-ready.json; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1 || { cat /tmp/lab-core.log; exit 1; }
+          grep -q '"ready":true' /tmp/core-ready.json
+          curl --fail --silent http://127.0.0.1:18210/api/v2/health | grep -q '"commercialReady":false'
+          set +e
+          CORE_V2_POSTDEPLOY_BASE_URL=http://127.0.0.1:18210 \
+            node scripts/orders-postdeploy-http.mjs > /tmp/orders-http-report.json
+          result=$?
+          set -e
+          test "$result" -eq 2
+          grep -q '"decision":"NO_GO"' /tmp/orders-http-report.json
+      - name: Verify Render staging exposes health only and no Orders writes
+        run: |
+          set -Eeuo pipefail
+          NODE_ENV=production CORE_V2_RUNTIME=render-staging \
+            CORE_V2_WRITES_ENABLED=false CORE_V2_HOST=0.0.0.0 PORT=18217 \
+            node dist/server.js > /tmp/render-staging-core.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          healthy=0
+          for i in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:18217/health >/tmp/render-staging-health.json; then healthy=1; break; fi
+            sleep 1
+          done
+          test "$healthy" -eq 1 || { cat /tmp/render-staging-core.log; exit 1; }
+          grep -q '"commercialReady":false' /tmp/render-staging-health.json
+          test "$(curl -s -o /tmp/render-staging-orders.json -w '%{http_code}' \
+            http://127.0.0.1:18217/api/v2/orders/mine)" = "404"
+          test "$(curl -s -o /tmp/render-staging-post.json -w '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' -d '{}' \
+            http://127.0.0.1:18217/api/v2/orders)" = "404"
+          test "$(curl -s -o /tmp/render-staging-ready.json -w '%{http_code}' \
+            http://127.0.0.1:18217/ready)" = "503"
+          test "$(curl -s -o /tmp/render-staging-dispatch.json -w '%{http_code}' \
+            http://127.0.0.1:18217/api/v2/driver/dispatch-offers)" = "404"
+          test "$(curl -s -o /tmp/render-staging-heartbeat.json -w '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' -d '{}' \
+            http://127.0.0.1:18217/api/v2/driver/heartbeat)" = "404"
+          kill "$pid"; wait "$pid" || true
+          trap - EXIT
+          # A public bind must fail if any flag tries to enable live writes.
+          if NODE_ENV=production CORE_V2_RUNTIME=render-staging \
+            CORE_V2_WRITES_ENABLED=true CORE_V2_HOST=0.0.0.0 PORT=18217 \
+            node dist/server.js >/tmp/render-staging-bad.log 2>&1; then
+            echo "STAGING_WRITER_UNEXPECTEDLY_STARTED"; exit 1
+          fi
+          grep -q "CORE_V2_WRITES_MUST_REMAIN_DISABLED" /tmp/render-staging-bad.log
+      - name: Verify incomplete order migration refuses startup (disposable DB)
+        run: |
+          set -Eeuo pipefail
+          # This deliberately mutates ONLY the disposable PostgreSQL CI database.
+          psql "$PG_CI_URL" -v ON_ERROR_STOP=1 -c \
+            "ALTER TABLE tala_core_v2.order_handoffs DROP COLUMN pin_generation_count"
+          if CORE_V2_WRITES_ENABLED=true CORE_V2_RUNTIME=isolated-lab \
+            CORE_V2_DATABASE_URL="$PG_CI_URL" CORE_V2_PORT=18210 \
+            node dist/server.js > /tmp/incomplete-core.log 2>&1; then
+            echo "INCOMPLETE_SCHEMA_WAS_ALLOWED"; exit 1
+          fi
+          grep -q "CORE_V2_LAB_DATABASE_ADMISSION_FAILED" /tmp/incomplete-core.log
+      - name: Verify Tala Dispatch worker refuses public/prod runtime
+        run: |
+          set -Eeuo pipefail
+          if NODE_ENV=production CORE_V2_RUNTIME=render-staging CORE_V2_WRITES_ENABLED=false \
+            CORE_V2_DATABASE_URL="$PG_CI_URL" \
+            node --experimental-strip-types scripts/dispatch-lab-once.mjs \
+            > /tmp/dispatch-denied.log 2>&1; then
+            echo "DISPATCH_RUNNER_PUBLIC_GATE_BYPASSED"; exit 1
+          fi
+          grep -q 'DISPATCH_LAB_ONLY' /tmp/dispatch-denied.log
+      - name: Verify read-only admission gate
+        run: |
+          grep -q 'CORE_V2_WRITES_MUST_REMAIN_DISABLED' src/server.ts
+          grep -q 'commercialReady:false' src/server.ts
