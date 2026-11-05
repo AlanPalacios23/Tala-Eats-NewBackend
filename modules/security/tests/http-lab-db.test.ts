@@ -62,8 +62,9 @@ test('M9 LAB HTTP: signed grant, no body-scopes, replay, step-up and protected m
   const replay=await call('POST','/v1/security/authorize',fresh);
   assert.equal(replay.status,409);
   assert.equal(replay.body.code,'M9_GRANT_REPLAYED');
+  const alteredLast=fresh.grant.endsWith('A')?'B':'A';
   const forged=await call('POST','/v1/security/authorize',
-   {...fresh,grant:fresh.grant.slice(0,-1)+'A'});
+   {...fresh,grant:fresh.grant.slice(0,-1)+alteredLast});
   assert.equal(forged.status,401);
   const metrics=await call('GET','/v1/security/metrics',undefined,
    {authorization:admin});
