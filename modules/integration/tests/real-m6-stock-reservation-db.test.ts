@@ -22,6 +22,21 @@ import {registerCredentialedPendingUser,loginLabUser}
  from '../../users/src/auth.js';
 import {issueLabEmailChallenge,verifyLabEmailChallenge}
  from '../../users/src/store.js';
+import {createHmac} from 'node:crypto';
+import {advanceLabPickupMerchant,issueLabPickupPin,
+ attestLabPickupBuyerCash,attestLabPickupMerchantCash,finishLabPickup,
+ relayVerifiedM1PickupOutbox,verifiedM1PickupEvents}
+ from '../adapters/pickup-lifecycle-lab.js';
+import {createRealM1PickupRecipientResolver,
+ createM1PickupAnalyticsLabConsumer,recordRealM1PickupHeldFinance}
+ from '../adapters/pickup-consumers-lab.js';
+import {createM5NotificationLabConsumer}
+ from '../adapters/notifications-lab.js';
+import {deliverOnce} from '../src/bridge.js';
+import {readInbox} from '../../notifications/src/store.js';
+import {setRecipientPreference} from '../../notifications/src/recipients.js';
+import {merchantAnalytics} from '../../analytics/src/analytics.js';
+import type {IssuerKeys} from '../../analytics/src/contract.js';
 import {hashPassword,issueSession}
  from '../../../src/modules/orders/lab-auth.ts';
 import {OrderServiceError} from '../../../src/modules/orders/checkout.ts';
@@ -433,5 +448,204 @@ test('LAB6 atomic multi-variant hold: failure on second line rolls back first st
    'SELECT count(*)::int AS n FROM tala_restaurants_v2.order_stock_hold_events '+
    'WHERE hold_id=$1::uuid',[holdId]);
   assert.equal(rows.rows[0]?.n,0);
+ }finally{await f.close();}
+});
+
+async function merchantM1(c:CatalogLabConfig,store:Setup){
+ const actor=id(),email='lab7-merchant.'+id()+'@example.test';
+ await c.ordersPool.query(
+  'INSERT INTO tala_core_v2.accounts(id,email,display_name,password_hash,role) '+
+  "VALUES($1::uuid,$2,'M11 staff lab',$3,'merchant')",
+  [actor,email,await hashPassword(password)]);
+ await c.ordersPool.query(
+  'INSERT INTO tala_core_v2.restaurant_memberships '+
+  '(restaurant_id,member_id,is_active) VALUES($1::uuid,$2::uuid,true)',
+  [store.restaurantId,actor]);
+ return {id:actor,sessionToken:await issueSession(c.ordersPool,actor)};
+}
+test('LAB7 M4+M6+M1 pickup -> M11 real outbox -> M5 inbox + M10 completion + M3 held, never payouts',
+ {skip:!enabled,timeout:150000},async()=>{
+ const f=fixture();
+ const notificationPool=new pg.Pool({
+  connectionString:process.env.NOTIFICATIONS_CI_URL??'',max:12});
+ const analyticsPool=new pg.Pool({
+  connectionString:process.env.ANALYTICS_CI_URL??'',max:12});
+ const financePool=new pg.Pool({
+  connectionString:process.env.FINANCE_CI_URL??'',max:12});
+ try{
+  const s=await setup(f.config,3),buyer=await customer(f.config),
+   operator=await merchantM1(f.config,s);
+  const order=await createReservedLabPickup(f.config,{
+   sessionToken:buyer.sessionToken,cart:s.cart,
+   idempotencyKey:'lab7-real-pickup-'+id()
+  });
+  const view=await f.config.ordersPool.query<{status:string}>(
+   'SELECT status FROM tala_core_v2.orders WHERE id=$1::uuid',[order.orderId]);
+  assert.equal(view.rows[0]?.status,'received');
+  await assert.rejects(relayVerifiedM1PickupOutbox(f.config,{
+   authenticated:false,canRelayM1Outbox:true},order.orderId),
+   isError('M11_OUTBOX_RELAY_FORBIDDEN'));
+  assert.equal((await relayVerifiedM1PickupOutbox(f.config,{
+   authenticated:true,canRelayM1Outbox:true
+  },order.orderId)).receipts.length,0,'order created is unpaid and never emitted');
+
+  await setRecipientPreference(notificationPool,{
+   recipientId:buyer.m4Id,app:'customer',category:'transactional',
+   channel:'email',enabled:false});
+  await setRecipientPreference(notificationPool,{
+   recipientId:buyer.m4Id,app:'customer',category:'transactional',
+   channel:'push',enabled:false});
+  let expected='1';
+  for(const target of ['confirmed','preparing','ready'] as const){
+   const next=await advanceLabPickupMerchant(f.config,{
+    merchantM1SessionToken:operator.sessionToken,orderId:order.orderId,
+    target,commandKey:'lab7-progress-'+id(),expectedVersion:expected
+   });
+   assert.equal(next.status,target);
+   expected=next.version;
+  }
+  assert.equal(expected,'4');
+  const ready=await relayVerifiedM1PickupOutbox(f.config,{
+   authenticated:true,canRelayM1Outbox:true},order.orderId);
+  assert.equal(ready.receipts.length,1);
+  assert.equal(ready.receipts[0]?.duplicate,false);
+  const readyEvent=(await verifiedM1PickupEvents(f.config,order.orderId))
+   .find(e=>e.kind==='orders.pickup_ready');
+  assert.ok(readyEvent);
+  const consumer=createM5NotificationLabConsumer({
+   bridgePool:f.config.integrationPool,notificationPool,
+   resolveTrustedRecipient:createRealM1PickupRecipientResolver(f.config)
+  });
+  const read1=await deliverOnce(f.config.integrationPool,'notifications',
+   consumer,readyEvent.eventId);
+  assert.equal('delivered' in read1&&read1.delivered,true);
+  const firstInbox=await readInbox(notificationPool,{
+   recipientId:buyer.m4Id,app:'customer'});
+  assert.deepEqual(firstInbox.items.map(x=>x.eventType),['order.ready']);
+  // Finance cannot post on an unfinished, unpaid cash order.
+  await assert.rejects(recordRealM1PickupHeldFinance({
+   pickup:f.config,financePool
+  },{authenticated:true,canRecordHeldFinance:true},order.orderId),
+   isError('M11_CASH_HANDOFF_NOT_PROVEN'));
+
+  const pin=await issueLabPickupPin(f.config,{
+   m4SessionToken:buyer.sessionToken,orderId:order.orderId});
+  assert.match(pin.pin,/^\\d{8}$/);
+  const ackBuyer=await attestLabPickupBuyerCash(f.config,{
+   m4SessionToken:buyer.sessionToken,orderId:order.orderId});
+  assert.equal(ackBuyer.role,'customer');
+  await assert.rejects(finishLabPickup(f.config,{
+   merchantM1SessionToken:operator.sessionToken,orderId:order.orderId,
+   commandKey:'lab7-finish-early-'+id(),expectedVersion:expected,pin:pin.pin
+  }),e=>(e as {code?:string}).code==='CASH_DUAL_ACK_REQUIRED');
+  const ackMerchant=await attestLabPickupMerchantCash(f.config,{
+   merchantM1SessionToken:operator.sessionToken,orderId:order.orderId});
+  assert.equal(ackMerchant.role,'merchant');
+  const finishKey='lab7-finish-'+id();
+  const done=await finishLabPickup(f.config,{
+   merchantM1SessionToken:operator.sessionToken,orderId:order.orderId,
+   commandKey:finishKey,expectedVersion:expected,pin:pin.pin});
+  assert.equal(done.status,'delivered');
+  assert.equal(done.paymentStatus,'paid_cash_in_custody');
+  assert.equal(done.custodySettled,false);
+  const again=await finishLabPickup(f.config,{
+   merchantM1SessionToken:operator.sessionToken,orderId:order.orderId,
+   commandKey:finishKey,expectedVersion:expected,pin:pin.pin});
+  assert.equal(again.replayed,true);
+
+  const emitted=await relayVerifiedM1PickupOutbox(f.config,{
+   authenticated:true,canRelayM1Outbox:true},order.orderId);
+  assert.equal(emitted.receipts.length,2);
+  assert.equal(emitted.receipts.filter(x=>x.duplicate===false).length,1);
+  const pickup=(await verifiedM1PickupEvents(f.config,order.orderId))
+   .find(e=>e.kind==='orders.pickup_completed');
+  assert.ok(pickup);
+  const notification=await deliverOnce(f.config.integrationPool,'notifications',
+   consumer,pickup.eventId);
+  assert.equal('delivered' in notification&&notification.delivered,true);
+  const inbox=await readInbox(notificationPool,{
+   recipientId:buyer.m4Id,app:'customer'});
+  assert.deepEqual(inbox.items.map(x=>x.eventType).sort(),
+   ['order.delivered','order.ready']);
+  const another=await readInbox(notificationPool,{
+   recipientId:id(),app:'customer'});
+  assert.equal(another.items.length,0);
+  const keys:IssuerKeys={
+   orders:{sample01:randomBytes(32)},
+   payments:{sample01:randomBytes(32)},
+   logistics:{sample01:randomBytes(32)}
+  };
+  const analytics=createM1PickupAnalyticsLabConsumer({
+   pickup:f.config,analyticsPool,keys,kid:'sample01'});
+  const metric=await deliverOnce(f.config.integrationPool,'analytics',
+   analytics,pickup.eventId);
+  assert.equal('delivered' in metric&&metric.delivered,true);
+  const day=pickup.occurredAt.slice(0,10);
+  const report=await merchantAnalytics(analyticsPool,{
+   actorId:id(),authenticated:true,merchantId:s.restaurantId,
+   canReadMerchantAnalytics:true
+  },s.restaurantId,day,day);
+  assert.equal(report.totals.ordersCompleted,'1');
+  assert.equal(report.totals.deliveriesCompleted,'0');
+  assert.equal(report.totals.paymentsConfirmed,'0');
+  assert.equal(report.totals.orderGmvCents,order.totalMinor);
+
+  await assert.rejects(recordRealM1PickupHeldFinance({
+   pickup:f.config,financePool
+  },{authenticated:false,canRecordHeldFinance:true},order.orderId),
+   isError('M11_FINANCE_FORBIDDEN'));
+  const posted=await recordRealM1PickupHeldFinance({
+   pickup:f.config,financePool
+  },{authenticated:true,canRecordHeldFinance:true},order.orderId);
+  assert.equal(posted.replayed,false);
+  assert.equal(posted.availableMinor,'0');
+  assert.equal(posted.withdrawable,false);
+  assert.equal(posted.cashCustodySettled,false);
+  assert.equal(posted.policyApproved,false);
+  const postedAgain=await recordRealM1PickupHeldFinance({
+   pickup:f.config,financePool
+  },{authenticated:true,canRecordHeldFinance:true},order.orderId);
+  assert.equal(postedAgain.replayed,true);
+  assert.equal(postedAgain.journalId,posted.journalId);
+  const sums=await financePool.query<{n:number}>(
+   'SELECT count(*)::int AS n FROM tala_finance_v2.journals '+
+   'WHERE order_id=$1::uuid',[order.orderId]);
+  assert.equal(sums.rows[0]?.n,1);
+  assert.deepEqual(await physical(f.config,s),{m6:2,m1:2});
+ }finally{
+  await Promise.all([f.close(),notificationPool.end(),
+   analyticsPool.end(),financePool.end()]);
+ }
+});
+
+test('LAB7 customer/merchant cross-tenant authorization and uncommitted pickup outbox are denied',
+ {skip:!enabled,timeout:120000},async()=>{
+ const f=fixture();
+ try{
+  const s=await setup(f.config,2),owner=await customer(f.config);
+  const foreign=await customer(f.config),operator=await merchantM1(f.config,s);
+  const made=await createReservedLabPickup(f.config,{
+   sessionToken:owner.sessionToken,cart:s.cart,
+   idempotencyKey:'lab7-authorization-'+id()});
+  await assert.rejects(issueLabPickupPin(f.config,{
+   m4SessionToken:foreign.sessionToken,orderId:made.orderId
+  }),isError('M11_BUYER_NOT_AUTHORIZED'));
+  await assert.rejects(advanceLabPickupMerchant(f.config,{
+   merchantM1SessionToken:'not-a-valid-session',
+   orderId:made.orderId,target:'confirmed',
+   expectedVersion:'1',commandKey:'lab7-invalid-'+id()
+  }),isError('M11_MERCHANT_SESSION_REQUIRED'));
+  const original=await relayVerifiedM1PickupOutbox(f.config,{
+   authenticated:true,canRelayM1Outbox:true},made.orderId);
+  assert.equal(original.receipts.length,0);
+  await f.config.ordersPool.query(
+   'UPDATE tala_core_v2.restaurant_memberships SET is_active=false '+
+   'WHERE member_id=$1::uuid AND restaurant_id=$2::uuid',
+   [operator.id,s.restaurantId]);
+  await assert.rejects(advanceLabPickupMerchant(f.config,{
+   merchantM1SessionToken:operator.sessionToken,
+   orderId:made.orderId,target:'confirmed',
+   expectedVersion:'1',commandKey:'lab7-revoked-'+id()
+  }),isError('M11_MERCHANT_NOT_AUTHORIZED'));
  }finally{await f.close();}
 });
