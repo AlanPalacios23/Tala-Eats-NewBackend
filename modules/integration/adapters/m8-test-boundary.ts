@@ -42,11 +42,11 @@ export async function createM8StripeTestClient(
   'stripe-test-client');
  return new source.StripeTestClient(options);
 }
-export async function createM8TestPayment(pool:Pool,actor:Actor,input:{
- operationId:string,orderRef:string,customerRef:string,
- amountCents:number,currency:'MXN'
-}):Promise<M8PaymentSummary>{
- const source=await m8<{createPayment:(pool:Pool,actor:Actor,input:typeof input)=>
+type M8PaymentInput={operationId:string,orderRef:string,
+ customerRef:string,amountCents:number,currency:'MXN'};
+export async function createM8TestPayment(pool:Pool,actor:Actor,
+ input:M8PaymentInput):Promise<M8PaymentSummary>{
+ const source=await m8<{createPayment:(pool:Pool,actor:Actor,input:M8PaymentInput)=>
   Promise<M8PaymentSummary>}>('payments');
  return source.createPayment(pool,actor,input);
 }
