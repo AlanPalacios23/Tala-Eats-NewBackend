@@ -20,7 +20,7 @@ La rama `feat/core-v2-m11-rc1-pricing-and-gates` (PR de revisión) actualiza la 
 | --- | --- | --- |
 | G1 — Árbol único | LAB9 montó las factories de los 10 módulos desde una rama de M11; falta integrar el gateway real y resolver duplicación de PR #13/#14 | PARCIAL (NO-GO) |
 | G2 — Contratos de dinero | Política v3 17/7 sin tope + prueba cruzada M1/M11/M3 y guardia M8 TEST; aún faltan impuestos, descuentos, cancelación, reembolsos, conciliación y wallets completos | PARCIAL (NO-GO) |
-| G3 — Autorización | Unificar M4/M9 y reemplazar vínculo dual-sesión transitorio; pruebas de acceso cruzado y permisos en cada mutación | PENDIENTE |
+| G3 — Autorización | RC2 gateway local de permiso de cancelación verificado con M4→M1 ownership→M9; aún faltan identidad unificada, gateway público seguro y autorizaciones por cada mutación | PARCIAL (NO-GO) |
 | G4 — Checkout definitivo | Migrar extensiones LAB de M1/M6 a módulos propietarios; reservas/compensaciones, expiración y recuperación tras crash | PENDIENTE |
 | G5 — Stripe TEST real | Cuenta de prueba y webhooks remotos firmados; pagos tardíos, reembolsos, idempotencia, conciliación M8→M3 | PENDIENTE |
 | G6 — Logística y efectivo | M1→M2/M7→M3, reparto, GPS, PIN, prueba de custodia, handoff efectivo y saldos retenidos | PENDIENTE |
