@@ -46,7 +46,7 @@ function respond(res:ServerResponse,status:number,body:unknown){
   'Referrer-Policy':'no-referrer'
  });res.end(bytes);
 }
-type Factory=(config:Record<string,unknown>)=>unknown;
+type Factory=(config:unknown)=>unknown;
 async function importFunction(root:string,domain:Domain):Promise<Factory>{
  const entry=ENTRYPOINTS[domain];
  const file=join(root,entry.source,entry.file);
