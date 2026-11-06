@@ -20,7 +20,8 @@ function priced(subtotal:bigint,fulfillment:Fulfillment='pickup',tip=0n){
   driverBaseMinor:delivery?3200n:0n,tipMinor:tip});
  const source={policyVersion:q.policyVersion,
   ...Object.fromEntries(money.map(key=>[key,q[key].toString()])),
-  lines:[{productId:'not-sensitive',quantity:1}]};
+  lines:[{productId:'129a9ba5-5dda-4bdb-82d8-19bac483e7e1',
+   unitMinor:subtotal.toString(),quantity:1}]};
  return {q,source};
 }
 const deny=(snapshot:unknown,fulfillment:Fulfillment,total:string)=>
@@ -78,4 +79,52 @@ test('tampered commission, 7% service, merchant, driver, or platform fails close
  deny(source,'delivery','0');
  deny(null,'delivery',total);
  deny({},'delivery',total);
+});
+
+test('M11 rejects altered frozen line price, quantity, identity and cart totals',()=>{
+ const {q,source}=priced(50000n,'delivery',500n);
+ const total=q.totalMinor.toString();
+ const line=source.lines[0]!;
+ const changes=[
+  {...source,lines:[]},
+  {...source,lines:[{...line,unitMinor:'49999'}]},
+  {...source,lines:[{...line,unitMinor:'50001'}]},
+  {...source,lines:[{...line,quantity:2}]},
+  {...source,lines:[{...line,quantity:1.5}]},
+  {...source,lines:[{...line,productId:'invalid'}]},
+  {...source,lines:[line,{...line}]},
+  {...source,lines:[{...line,unitMinor:'-1'}]}
+ ];
+ for(const value of changes)deny(value,'delivery',total);
+ // An absent cart is not an accepted alternative to frozen M1 evidence.
+ deny({...source,lines:undefined},'delivery',total);
+});
+test('M11 refuses wrong currency or fulfillment when provided by M1',()=>{
+ const {q,source}=priced(10000n);
+ const total=q.totalMinor.toString();
+ deny({...source,currency:'USD'},'pickup',total);
+ deny({...source,currency:null},'pickup',total);
+ deny({...source,fulfillment:'delivery'},'pickup',total);
+ deny({...source,fulfillment:'other'},'pickup',total);
+ const approved=requireApprovedV3Snapshot({...source,currency:'MXN',
+  fulfillment:'pickup'},'pickup',total);
+ assert.equal(approved.currency,'MXN');
+});
+test('M11 matches M1 multi-line cart with independent cents rounding',()=>{
+ const products=[
+  {productId:'129a9ba5-5dda-4bdb-82d8-19bac483e7e1',
+   unitMinor:'101',quantity:2},
+  {productId:'219a9ba5-5dda-4bdb-82d8-19bac483e7e1',
+   unitMinor:'333',quantity:1}
+ ];
+ const q=quoteOrder({lines:products.map(p=>({
+  unitMinor:BigInt(p.unitMinor),quantity:p.quantity
+ })),fulfillment:'pickup',deliveryFeeMinor:0n,
+  driverBaseMinor:0n,tipMinor:0n});
+ const source={policyVersion:q.policyVersion,fulfillment:'pickup',
+  currency:'MXN',lines:products,
+  ...Object.fromEntries(money.map(key=>[key,q[key].toString()]))};
+ assert.equal(q.itemsMinor,535n);
+ assert.equal(requireApprovedV3Snapshot(source,'pickup',
+  q.totalMinor.toString()).itemsMinor,'535');
 });
