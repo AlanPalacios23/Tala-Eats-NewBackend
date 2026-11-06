@@ -405,17 +405,29 @@ test('LAB6 atomic multi-variant hold: failure on second line rolls back first st
    stockQuantity:0,trackStock:true});
   await enableBranchInventory(f.config.restaurantsPool,sample.actor,{
    storeId:sample.storeId,variantId:v.id,expectedVersion:1});
+  await adjustBranchStock(f.config.restaurantsPool,sample.actor,{
+   storeId:sample.storeId,branchId:sample.branchId,variantId:v.id,
+   operationId:id(),delta:1,reason:'restock'});
+  const ordered=[
+   {variantId:sample.variantId,quantity:1,expectedVersion:2,
+    expectedPriceMinor:'3500',expectedName:'Jitomate saladet — 500 g'},
+   {variantId:v.id,quantity:1,expectedVersion:2,
+    expectedPriceMinor:'3000',expectedName:'Cebolla blanca — 1 kg'}
+  ].sort((a,b)=>a.variantId.localeCompare(b.variantId));
+  // Force failure on the SECOND physically locked variant, so the first
+  // row has already been debited and MUST be restored by transaction rollback.
+  ordered[1]!.expectedPriceMinor='9999';
   const holdId=id();
   await assert.rejects(reserveM6BranchStock(f.config.restaurantsPool,{
    holdId,storeId:sample.storeId,branchId:sample.branchId,
-   lines:[
-    {variantId:sample.variantId,quantity:1,expectedVersion:2,
-     expectedPriceMinor:'3500',expectedName:'Jitomate saladet — 500 g'},
-    {variantId:v.id,quantity:1,expectedVersion:2,
-     expectedPriceMinor:'3000',expectedName:'Cebolla blanca — 1 kg'}
-   ]
-  }),isError('M11_M6_BRANCH_OFFER_UNAVAILABLE'));
+   lines:ordered
+  }),isError('M11_HOLD_PRICE_DRIFT'));
   assert.deepEqual(await physical(f.config,sample),{m6:2,m1:2});
+  const other=await f.config.restaurantsPool.query<{quantity:number}>(
+   'SELECT quantity FROM tala_restaurants_v2.branch_stock '+
+   'WHERE branch_id=$1::uuid AND variant_id=$2::uuid',
+   [sample.branchId,v.id]);
+  assert.equal(other.rows[0]?.quantity,1);
   assert.equal(await inspectM6StockHold(f.config.restaurantsPool,holdId),null);
   const rows=await f.config.restaurantsPool.query<{n:number}>(
    'SELECT count(*)::int AS n FROM tala_restaurants_v2.order_stock_hold_events '+
