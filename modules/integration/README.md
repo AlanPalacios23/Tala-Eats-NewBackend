@@ -258,3 +258,10 @@ No monta ninguna ruta de cliente, cobros, restaurante, repartidor, wallet o reti
 **No se han fusionado los PR M1–M10 a `main`; siguen abiertos para su revisión.** El backend antiguo de Kali sigue intacto.
 
 [Arquitectura M11](../../docs/MODULO11-INTEGRACION-ARQUITECTURA.md)
+
+
+## LAB9 — politica comercial aprobada; lanzamiento todavía bloqueado (2026-11-06)
+
+El propietario confirmó **17 % de comisión a negocios** y **7 % de tarifa de servicio al cliente**. Se mantiene el tope de **$25 MXN** que ya figura en `src/modules/orders/pricing.ts`; el cálculo del 17 % aplica al subtotal de productos. No se habilitan pagos LIVE ni retiros por aprobar estos porcentajes.
+
+`adapters/pricing-policy-lab.ts` verifica el snapshot persistido en M1 contra las líneas auténticas del pedido y recalcula cada campo de centavos antes de llamar a Finanzas M3 para una asignación **HELD**. Al pasar el gate, `policyApproved=true` pero `commercialReady=false`, `withdrawable=false` y `externalTransfersEnabled=false` siguen vigentes. Ver [preparación LIVE LAB9](../../docs/MODULO11-PREPARACION-LIVE-LAB9.md) para el inventario exacto de P0 pendientes; **el PR no está listo para merge ni producción**.
