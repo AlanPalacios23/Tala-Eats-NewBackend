@@ -32,7 +32,7 @@ function minor(value:unknown):bigint{
 }
 
 /** Recompute a persisted order's complete allocation from its ORIGINAL lines.
- * Never trust an amount/version supplied by a browser or integration event.
+ * M1 cash snapshots predate currency/fulfillment fields: these are sourced\n * exclusively from the trusted order record, not the browser. If present in\n * the snapshot they must match the trusted values.\n * Never trust an amount/version supplied by a browser or integration event.
  * For delivery, base courier amount is derived only to validate consistency:
  * the real driver assignment and entitlement still require M2/M3 settlement.
  */
@@ -46,7 +46,8 @@ export function verifyApprovedM11PricingSnapshot(input:{
  const obj=s as Record<string,unknown>;
  if(PRICING_POLICY_VERSION!==PILOT_POLICY||
     obj.policyVersion!==PILOT_POLICY||
-    obj.currency!=='MXN'||obj.fulfillment!==input.fulfillment||
+    (obj.currency!==undefined&&obj.currency!=='MXN')||
+    (obj.fulfillment!==undefined&&obj.fulfillment!==input.fulfillment)||
     !['pickup','delivery'].includes(input.fulfillment)||
     !Array.isArray(input.lines)||input.lines.length===0||
     input.lines.length>100)
