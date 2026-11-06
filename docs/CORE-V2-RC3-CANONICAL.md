@@ -63,3 +63,16 @@ PR #14, `feat/core-v2-monolito-integracion`, branched separately from `main`; it
 The current Kali LIVE backend stays untouched. First pass G1–G9 in disposable staging, then complete a **read-only Kali inventory**, verified backup/restore and deployment rehearsal. Only after an explicit fresh human GO and tested rollback should the release be promoted. Do **not** reuse RC3's intentionally non-activatable LAB guard as a production deployment mechanism.
 
 Evidence: [PR #19](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/19), [Issue #20](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/issues/20), [PR #14](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/14).
+
+## RC3 LAB customer cancellation — M4 + M9 + M1 (new)
+
+`modules/integration/adapters/customer-cancel-lab.ts` now implements an **internal, non-HTTP cash-order cancellation** using real owner services:
+1. Authenticate the live session in **M4**, validate current customer role (not a client-supplied actor ID).
+2. Verify the durable, non-revoked M4→M1 link, read the **M1 order timeline** to prove current ownership, and obtain the canonical M1 customer ID from the link.
+3. Issue an ephemeral, scoped host grant and obtain an audited **M9** `orders.cancel` authorization.
+4. Recheck ownership and delegate to **M1 `cancelCashOrder`** with its SQL buyer check, version lock, idempotency key, stock restoration, event, outbox, and one atomic transaction.
+5. Return a minimal status. No Stripe refund, wallet transfer, or public API is exposed; all databases are disposable LAB names and `NODE_ENV=production` rejects the adapter.
+
+Regression coverage was added to `real-m4-m1-order-ownership-db.test.ts`: genuine account sessions and link, order cancellation, recovered stock, idempotent replay, unrelated customer rejection, and revocation denial.
+
+**Evidence boundary:** A working internal LAB cancellation is progress on G3/G4, **not** a complete commercial gateway. The dual-session enrollment procedure is still transitional, cross-DB revocation is not atomic with an M1 write, and Stripe-paid orders require real refund/compensation contracts. No LIVE readiness is implied.
