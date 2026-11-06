@@ -111,6 +111,12 @@ function createGate(modules:ReadonlyMap<Domain,ActiveModule>):Server{
   if(req.method==='GET'&&!url.search){
    const found=DOMAINS.find(d=>HEALTH[d]===url.pathname);
    if(found){
+    // M4 currently queries its private rate limiter *before* its health
+    // handler. An inert lab pool must never fake database readiness.
+    if(found==='users'){
+     respond(res,503,{module:'users',sourceLoaded:true,
+      dbReady:false,reason:'M4_DATABASE_NOT_COMPOSED'});return;
+    }
     const target=modules.get(found);
     if(target?.kind!=='http'||!target.handler){
      respond(res,503,{error:'M11_MODULE_NOT_READY'});return;
