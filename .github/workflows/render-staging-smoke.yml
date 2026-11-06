@@ -1,0 +1,68 @@
+name: Tala Eats CORE — Render Free staging external smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/core-v2-pedidos-foundation]
+    paths:
+      - .github/workflows/render-staging-smoke.yml
+      - src/server.ts
+
+permissions:
+  contents: read
+
+jobs:
+  verify-public-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify safe public staging only
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const base='https://tala-eats-core-staging.onrender.com';
+          async function check(path,method='GET') {
+            let last;
+            for(let attempt=0;attempt<5;attempt++){
+              try{
+                const r=await fetch(base+path,{
+                  method,
+                  redirect:'error',
+                  signal:AbortSignal.timeout(85000),
+                  headers:method==='POST'?{'Content-Type':'application/json'}:{},
+                  body:method==='POST'?'{}':undefined
+                });
+                if([502,503,504].includes(r.status)&&path==='/health'&&attempt<4){
+                  await new Promise(resolve=>setTimeout(resolve,3000));
+                  continue;
+                }
+                return {status:r.status,text:await r.text()};
+              }catch(e){
+                last=e;
+                if(attempt<4)await new Promise(resolve=>setTimeout(resolve,3000));
+              }
+            }
+            throw last||Error('STAGING_REQUEST_FAILED');
+          }
+          const health=await check('/health');
+          assert.equal(health.status,200,'Render runtime did not become healthy');
+          const data=JSON.parse(health.text);
+          assert.equal(data.service,'tala-eats-core-v2');
+          assert.equal(data.commercialReady,false);
+          const ready=await check('/ready');
+          assert.equal(ready.status,503,'No DB must mean NOT READY');
+          const missing=JSON.parse(ready.text);
+          assert.equal(missing.ready,false);
+          const forbidden=await check('/api/v2/orders/mine');
+          assert.equal(forbidden.status,404,'Buyer order routes must not be exposed');
+          const write=await check('/api/v2/orders','POST');
+          assert.equal(write.status,404,'Order writes must never be exposed');
+          console.log(JSON.stringify({
+            staging:'PASS',commercialReady:false,ordersExposed:false,
+            health:health.status,ready:ready.status,
+            ordersGet:forbidden.status,ordersPost:write.status
+          }));
+          NODE

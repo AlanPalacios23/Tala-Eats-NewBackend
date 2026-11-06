@@ -1,0 +1,85 @@
+{
+  "version": 2,
+  "purpose": "Ten-module isolated M11 CI snapshot pins; M1 pricing 17/7 version v3 deliberately upgraded in RC1 without merging upstream PRs",
+  "rootSource": "feat/core-v2-logistica-lab1",
+  "rootTree": "43774c0f6cada4582fe4dce2d88952bcdae2afec",
+  "origins": [
+    {
+      "id": "M1",
+      "domain": "orders",
+      "source": "feat/core-v2-m11-rc1-pricing-and-gates",
+      "path": "src/modules/orders",
+      "tree": "bf748011e6288f1d8c7b16afb0932fd8fb72dc9d",
+      "note": "M1 core pricing changed intentionally in RC1 to 17% merchant, uncapped 7% service; pin tree verified in CI. M2 logistics tree remains unchanged."
+    },
+    {
+      "id": "M2",
+      "domain": "logistics",
+      "source": "feat/core-v2-logistica-lab1",
+      "path": "src/modules/logistics",
+      "tree": "e8b7895a06f8eee0a052c12be95d4d24fcdf8bb7"
+    },
+    {
+      "id": "M3",
+      "domain": "finance",
+      "source": "feat/core-v2-finanzas-foundation",
+      "path": "modules/finance",
+      "tree": "d0fdaeb26e4a6875abc5c15b704ca2e0b879ddc4"
+    },
+    {
+      "id": "M4",
+      "domain": "users",
+      "source": "feat/core-v2-usuarios-foundation",
+      "path": "modules/users",
+      "tree": "f34c12b8d3460f690d4a8556e7952666faca2604"
+    },
+    {
+      "id": "M5",
+      "domain": "notifications",
+      "source": "feat/core-v2-notificaciones-foundation",
+      "path": "modules/notifications",
+      "tree": "47d40eb6a5a2234f5063950f02b88a91b561b60c"
+    },
+    {
+      "id": "M6",
+      "domain": "restaurants",
+      "source": "feat/core-v2-restaurantes-foundation",
+      "path": "modules/restaurants",
+      "tree": "8ef8580b88ff24748167d0948c6968390e435bc2"
+    },
+    {
+      "id": "M7",
+      "domain": "locations",
+      "source": "feat/core-v2-ubicaciones-foundation",
+      "path": "modules/locations",
+      "tree": "e5a25f39e4ca08f67b644d32e1746bdc8f0da1f8"
+    },
+    {
+      "id": "M8",
+      "domain": "payments",
+      "source": "feat/core-v2-pagos-foundation",
+      "path": "modules/payments",
+      "tree": "7a90e290a21369b5720de7a0123e53e4df6b35e7"
+    },
+    {
+      "id": "M9",
+      "domain": "security",
+      "source": "feat/core-v2-seguridad-foundation",
+      "path": "modules/security",
+      "tree": "c5332c7243d4f0c4e4d18ee5e6c9f31e101b9c36"
+    },
+    {
+      "id": "M10",
+      "domain": "analytics",
+      "source": "feat/core-v2-analitica-foundation",
+      "path": "modules/analytics",
+      "tree": "5e46d4a906111142c9fd97ca726adb4450969d21"
+    }
+  ],
+  "restrictions": {
+    "commercialReady": false,
+    "livePayment": false,
+    "transferEnabled": false,
+    "existingKaliUntouched": true
+  }
+}

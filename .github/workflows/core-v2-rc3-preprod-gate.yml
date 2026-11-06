@@ -1,0 +1,43 @@
+name: Core v2 RC3 - Preproduction Gate (NO-GO by design)
+on:
+  push:
+    branches:
+      - 'release/core-v2-rc3-canonical-preprod'
+  pull_request:
+    paths:
+      - 'release/**'
+      - 'scripts/verify-core-v2-preprod.mjs'
+      - 'tests/release-gates.test.mjs'
+      - 'modules/integration/**'
+      - '.github/workflows/core-v2-rc3-preprod-gate.yml'
+      - 'docs/CORE-V2-RC3-CANONICAL.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gate-no-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CORE_V2_WRITES_ENABLED: 'false'
+      CORE_V2_INTEGRATION_LIVE_PAYMENTS_ENABLED: 'false'
+      CORE_V2_INTEGRATION_PAYOUTS_ENABLED: 'false'
+      CORE_V2_INTEGRATION_PUBLIC_HTTP_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify source pins (M1-M10 provenance)
+        run: node modules/integration/scripts/verify-snapshots.mjs
+      - name: Validate RC3 release guard regression
+        run: node --test tests/release-gates.test.mjs
+      - name: Assert RC3 is not eligible for live deployment
+        run: |
+          set -Eeuo pipefail
+          node scripts/verify-core-v2-preprod.mjs
+          test "$CORE_V2_WRITES_ENABLED" = false
+          test "$CORE_V2_INTEGRATION_LIVE_PAYMENTS_ENABLED" = false
+          test "$CORE_V2_INTEGRATION_PAYOUTS_ENABLED" = false
+          test "$CORE_V2_INTEGRATION_PUBLIC_HTTP_ENABLED" = false
+          echo 'CORE_V2_RC3_PREPROD_NO_GO_ENFORCED'

@@ -1,0 +1,46 @@
+# TALA EATS · Módulo 2 — Tala Dispatch Engine LAB2
+
+**Estado: implementación de laboratorio. NO-GO comercial.** Depende del PR #1 Pedidos y de Logística LAB1 del PR #4.
+
+## Política de despacho actual
+
+- Pedidos **cash/pending** a domicilio en estado **ready**; se selecciona el más antiguo **entre los que tienen conductor elegible**. Un pedido sin candidatos no bloquea los siguientes de la misma cohorte.
+- Un trabajador interno invoca `dispatchNext(pool)`; no hay endpoint HTTP público para iniciar el despacho. Acepta un `DispatchScope` interno de IDs de pedidos y conductores para cohortes aisladas. Este control no puede enviarlo un cliente HTTP.
+- Orden de candidatos: repartidor activo, aprobado, online, con **heartbeat autenticado de menos de 90 segundos**, libre (capacidad=1), sin ofertas pendientes, sin ofertas previas del mismo pedido; prioridad a quien no tenga ofertas recientes, después `presence_updated_at` e ID. Evita sesiones online abandonadas y distribuye mejor los ofrecimientos.
+- El motor **no fuerza una asignación**: genera una oferta con vencimiento a **60 segundos**. El conductor acepta o rechaza voluntariamente.
+- **Una oferta pertenece a una sesión de presencia concreta**. El instante de creación se toma de `clock_timestamp()`, y una desconexión/reconexión posterior invalida definitivamente esa oferta, aunque el conductor vuelva a enviar heartbeat. La API no la muestra ni la cuenta como pendiente y la aceptación devuelve `OFFER_SESSION_CHANGED`. Se utiliza `presence_updated_at` existente, sin añadir otra migración.
+- Una oferta pendiente por pedido y por conductor, garantizado mediante índices únicos parciales PostgreSQL, incluso bajo concurrencia.
+- Después de diez ofertas históricas para un pedido, no se generan nuevas ofertas automáticas y el worker responde **`needs_review`**, con el ID del pedido para revisión manual. Un pedido sin conductor disponible responde **`no_driver`**, mientras que **`idle`** significa que no hay pedidos despachables en el ámbito consultado. No se prometen tiempos de entrega.
+- No hay coordenadas verificadas de comercios; por lo tanto **NO calcula cercanía, ruta óptima, distancia o ETA** ni sugiere tiempos simulados.
+
+## API exclusivamente en LAB local
+
+| Método | Ruta | Propósito |
+| --- | --- | --- |
+| GET | `/api/v2/driver/logistics` | Resumen de capacidad, presencia y ofertas pendientes **accionables**. No cuenta ofertas que ya no pueden aceptarse (vencidas, pedido modificado, cuenta no apta, heartbeat caducado). El heartbeat se evalúa con el reloj de PostgreSQL. |
+| POST | `/api/v2/driver/heartbeat` | Cuerpo `{}`. Renueva una señal de presencia solo si la sesión es de driver aprobado y online; máximo una actualización cada 10 segundos; caduca a los 90 segundos. No exige ni registra GPS. |
+| GET | `/api/v2/driver/dispatch-offers` | Muestra únicamente ofertas propias vigentes, restaurante y vencimiento; jamás el domicilio ni el nombre del comprador. |
+| POST | `/api/v2/driver/dispatch-offers/:offerId/accept` | Requiere identidad driver y cuerpo JSON `{}`; valida vencimiento, perfil, versión, efectivo y capacidad en una transacción. |
+| POST | `/api/v2/driver/dispatch-offers/:offerId/decline` | Rechazo seguro; un reintento del mismo rechazo es idempotente. |
+
+Las rutas existentes de `claim` se bloquean mientras una oferta pendiente afecte al pedido o al conductor. El domicilio solo se lee por su titular o un repartidor con asignación confirmada. Una oferta que expire durante una espera de bloqueos no puede convertirse en una asignación: se valida de nuevo el vencimiento directamente en PostgreSQL antes de escribir.
+
+## Worker y recuperación
+
+- Runner de **un ciclo**: `scripts/dispatch-lab-once.mjs`. Requiere `CORE_V2_RUNTIME=isolated-lab`, `CORE_V2_WRITES_ENABLED=true`, `NODE_ENV` distinto de production, PostgreSQL localhost y nombre `tala_core_v2_lab` o `tala_core_v2_test`.
+- El runner no se instala como servicio, no tiene cron y no está desplegado a Render/Kali; ejecutar varias veces es una decisión explícita del operador de LAB. `needs_review` es una señal de decisión operativa, **no** un cambio automático de estado del pedido.
+- `expireDispatchOffers(pool)` reconcilia lotes de hasta 100 ofertas: las caducadas o inválidas por pedido actualizado, repartidor desconectado/desactivado, heartbeat vencido **o sesión de presencia sustituida** se liberan anticipadamente, sin esperar los 60 segundos. Bloquea siempre en orden **pedido → oferta** y deja eventos append-only y outbox con `reason` (`timeout`, `order_changed`, `courier_unavailable`, `heartbeat_stale`, `session_changed`). La hora de referencia es `clock_timestamp()` de PostgreSQL. No reasigna pedidos recogidos ni altera pagos.
+- `recoverUncollectedAssignment(pool, orderId, expectedVersion, commandKey)` es una función **interna para revisión manual**, nunca una ruta HTTP. Requiere estado `assigned`, asignación con 20 minutos o más, y **sin PIN emitido, efectivo confirmado ni evidencia de custodia**. Comprueba tanto la evidencia actual como el historial append-only de eventos y outbox: un registro de handoff faltante no permite borrar pruebas anteriores de PIN/efectivo. Rechaza `picked_up` y `on_the_way`; registra recuperación y elimina solo GPS efímero del conductor anterior.
+- Todas las operaciones persistentes usan transacciones, versionado de pedidos, eventos y outbox. **Aceptar efectivo no equivale a liquidarlo**; el módulo de Finanzas aún no implementa ledger final.
+
+## Esquema y pruebas
+
+- Migración nueva `migrations/009_tala_dispatch_engine_lab.sql`, **después de 001–008, únicamente en una base descartable**.
+- `tests/tala-dispatch-engine.test.mjs`: workers concurrentes, privacidad y pertenencia, consentimiento, idempotencia, vencimiento, FIFO sin bloqueo, recuperación protegida, cierre anticipado por desconexión/heartbeat, motivos auditados, límite de diez intentos y comprobación de vencimiento al aceptar después de una espera por bloqueo SQL.
+- La suite CI usa PostgreSQL 16 aislado y comprueba el gate de servidor: en Render público las rutas de logística/despacho siguen inexistentes (`CORE_V2_WRITES_ENABLED=false`).
+
+## Pendiente antes de cualquier GO
+
+Geocodificación y consentimiento del usuario; coordenadas verificadas de comercio/entrega y alcance geográfico; GPS autenticado en dispositivos; ETA de proveedor real; propuesta/ranking espacial; límites por zona; seguridad contra ataques de ubicación; cola de trabajo con reintentos distribuidos y alertas; expiración programada; respaldo/rollback; integración PWA; reconciliación financiera; prueba E2E comercial. **Ninguno está certificado en LAB2.**
+
+**Kali, PM2, apps de producción, Stripe LIVE, el servicio Render y su base Free no se modifican.**
