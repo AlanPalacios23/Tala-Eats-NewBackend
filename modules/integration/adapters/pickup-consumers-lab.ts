@@ -12,6 +12,8 @@ import type {NotificationRecipientResolver}
  from './notifications-lab.js';
 import {IntegrationError,type IntegrationEvent,validUuid}
  from '../src/events.js';
+import {verifyApprovedM11PricingSnapshot}
+ from '../src/pricing-policy.js';
 import {proveLabPickupCashDelivery,verifiedM1PickupEvents,
  type PickupLabConfig} from './pickup-lifecycle-lab.js';
 // M3 is a JavaScript-only native ESM module with its own runtime contract.
@@ -113,23 +115,19 @@ export async function recordRealM1PickupHeldFinance(config:{
  const real=await verifiedM1PickupEvents(config.pickup,order.id);
  if(!real.some(x=>x.kind==='orders.pickup_completed'))
   throw new IntegrationError('M11_CASH_HANDOFF_NOT_PROVEN');
- const keys=['itemsMinor','merchantCommissionMinor','merchantPayableMinor',
-  'serviceFeeMinor','deliveryFeeMinor','driverPayableMinor','tipMinor',
-  'totalMinor','platformGrossMinor'] as const;
- const original=order.price_snapshot;
- if(!original||original.policyVersion!=='pilot-2026-11-v2-17pct'||
-    original.totalMinor!==order.total_minor||order.fulfillment!=='pickup')
-  throw new IntegrationError('M11_FINANCE_SNAPSHOT_INVALID');
- const snapshot:Record<string,unknown>={
-  currency:'MXN',policyVersion:original.policyVersion,
-  fulfillment:order.fulfillment
- };
- for(const name of keys){
-  if(typeof original[name]!=='string'||!/^(0|[1-9][0-9]*)$/.test(
-      original[name] as string))
-   throw new IntegrationError('M11_FINANCE_SNAPSHOT_INVALID');
-  snapshot[name]=original[name];
- }
+ // The true M1 order lines and immutable price snapshot must match the
+ // approved 17% / 7% policy before M3 accepts the held allocation.
+ // This is NOT approval for a payout or Stripe LIVE.
+ const lines=await config.pickup.ordersPool.query<{
+  unitMinor:string,quantity:number
+ }>(
+  'SELECT unit_minor::text AS "unitMinor",quantity '+
+  'FROM tala_core_v2.order_lines WHERE order_id=$1::uuid '+
+  'ORDER BY line_number',[order.id]);
+ const snapshot=verifyApprovedM11PricingSnapshot({
+  raw:order.price_snapshot,orderTotalMinor:order.total_minor,
+  fulfillment:'pickup',lines:lines.rows
+ });
  const ledger=await recordLabHeldAllocation(config.financePool,{
   orderId:order.id,restaurantId:order.restaurant_id,
   snapshot,commandKey:'m11-pickup-held-'+order.id
@@ -140,5 +138,5 @@ export async function recordRealM1PickupHeldFinance(config:{
   replayed:ledger.replayed,merchantPendingMinor:balance.pendingMinor,
   availableMinor:'0' as const,withdrawable:false as const,
   cashCustodySettled:false as const,externalTransfersEnabled:false as const,
-  policyApproved:false as const,commercialReady:false as const});
+  policyApproved:true as const,commercialReady:false as const});
 }
