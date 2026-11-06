@@ -117,7 +117,7 @@ export async function recordRealM1PickupHeldFinance(config:{
   'serviceFeeMinor','deliveryFeeMinor','driverPayableMinor','tipMinor',
   'totalMinor','platformGrossMinor'] as const;
  const original=order.price_snapshot;
- if(!original||original.policyVersion!=='pilot-2026-11-v2-17pct'||
+ if(!original||original.policyVersion!=='pilot-2026-11-v3-17pct-7pct-uncapped'||
     original.totalMinor!==order.total_minor||order.fulfillment!=='pickup')
   throw new IntegrationError('M11_FINANCE_SNAPSHOT_INVALID');
  const snapshot:Record<string,unknown>={
