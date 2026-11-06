@@ -1,0 +1,136 @@
+name: M11 Monolito — ten pinned real module exports, LAB1
+on:
+  push:
+    branches: ['feat/core-v2-monolito-integracion']
+    paths:
+      - 'modules/integration/**'
+      - '.github/workflows/module11-integration-ci.yml'
+      - 'docs/MODULO11-INTEGRACION-MONOLITO.md'
+  pull_request:
+    paths:
+      - 'modules/integration/**'
+      - '.github/workflows/module11-integration-ci.yml'
+      - 'docs/MODULO11-INTEGRACION-MONOLITO.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integration-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      M11_REQUIRE_SOURCES: '1'
+    steps:
+      - name: Checkout M11 branch, without any source merge
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Checkout immutable orders-logistics
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 43774c0f6cada4582fe4dce2d88952bcdae2afec
+          path: modules/integration/.upstream/orders-logistics
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout immutable finance
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 41114de89fb2a0cc2b1ce47affbb0ce94310175e
+          path: modules/integration/.upstream/finance
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout immutable users
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 867c5d8d88c052c6cca9b6f83de3032908fb34e9
+          path: modules/integration/.upstream/users
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout immutable notifications
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 7cce5fb3f3ffe9baf077c77f78e409ae052961d0
+          path: modules/integration/.upstream/notifications
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout immutable restaurants
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 0258af67162f2b3dded81dfa57d7af0baaf382ed
+          path: modules/integration/.upstream/restaurants
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout immutable locations
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 7d51f6c288b26dc63ac8a3e66394dd72fafa1d8b
+          path: modules/integration/.upstream/locations
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout immutable payments
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 711d7dabeec70b03e45d227cbdb02a770939c59a
+          path: modules/integration/.upstream/payments
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout immutable security
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 4b119305a188bcf924fb8ea190870dcf141268e8
+          path: modules/integration/.upstream/security
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout immutable analytics
+        uses: actions/checkout@v4
+        with:
+          repository: AlanPalacios23/Tala-Eats-NewBackend
+          ref: 4b3cd87c3bac12dc4a1677dbb88a4e2fb2379b5d
+          path: modules/integration/.upstream/analytics
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Link isolated upstream imports to M11 dependencies
+        working-directory: modules/integration
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          for dir in .upstream/*; do
+            test -d "$dir/.git"
+            test ! -e "$dir/node_modules"
+            ln -s "$PWD/node_modules" "$dir/node_modules"
+          done
+      - name: TypeScript strict and ten-domain single-process gateway E2E
+        working-directory: modules/integration
+        run: npm run check
+      - name: Prove M1 ancestor of M2 and exact immutable source revisions
+        working-directory: modules/integration
+        run: |
+          node --import tsx --input-type=module <<'NODE'
+          import {loadManifest,verifyCheckoutRevisions} from './src/manifest.ts';
+          const manifest=await loadManifest('./upstreams.json');
+          const checked=await verifyCheckoutRevisions('./.upstream',manifest);
+          console.log('M11_PINNED_SOURCES_PASS='+Object.keys(checked).length);
+          console.log('M11_DOMAINS_PASS='+manifest.sources.flatMap(x=>x.includes).length);
+          NODE
+      - name: Assert M11 never contains deploy, secrets or Stripe LIVE bridge
+        run: |
+          if grep -R -n -E '(sk_live_|rk_live_|api\.stripe\.com|cloudflared.*tunnel|I_APPROVE_.*LIVE)' modules/integration/src; then
+            echo 'M11 must not contain live payment provider/deploy side effects'
+            exit 1
+          fi
+      - name: Assert no business routes accidentally enabled
+        run: |
+          grep -F "M11_BUSINESS_ROUTES_DISABLED" modules/integration/src/assembly.ts
+          grep -F "INTEGRATION_BUSINESS_CONTRACTS_NOT_VALIDATED" modules/integration/src/assembly.ts
+          grep -F "NODE_ENV==='production'" modules/integration/src/assembly.ts
