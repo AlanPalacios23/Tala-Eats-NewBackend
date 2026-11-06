@@ -19,6 +19,10 @@ export type NotificationRecipientResolver=(e:IntegrationEvent)=>
 
 type NotificationTarget=Pick<PublishInput,'app'|'eventType'>;
 function notificationTarget(event:IntegrationEvent):NotificationTarget{
+ if(event.kind==='orders.pickup_ready'&&event.source==='orders')
+  return {app:'customer',eventType:'order.ready'};
+ if(event.kind==='orders.pickup_completed'&&event.source==='orders')
+  return {app:'customer',eventType:'order.delivered'};
  if(event.kind==='restaurants.order_ready'&&event.source==='restaurants')
   return {app:'customer',eventType:'order.ready'};
  if(event.kind==='logistics.delivery_completed'&&event.source==='logistics')
