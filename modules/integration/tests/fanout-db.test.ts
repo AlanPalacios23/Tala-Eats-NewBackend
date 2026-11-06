@@ -27,9 +27,9 @@ const domainIssuer:Record<EventKind,Issuer>={
 const keys={orders:{int01:randomBytes(32)},
  payments:{int01:randomBytes(32)},logistics:{int01:randomBytes(32)}};
 type OriginalM10={
- signAnalyticsEvent:(raw:Buffer,issuer:Issuer,kid:string,keys:typeof keys)=>string,
+ signAnalyticsEvent:(raw:Buffer,issuer:Issuer,kid:string,keyring:typeof keys)=>string,
  verifySignedEvent:(raw:Buffer,issuer:Issuer,kid:string,sig:string,
-  keys:typeof keys)=>{event:EventFact,hash:string}
+  keyring:typeof keys)=>{event:EventFact,hash:string}
 };
 let original:OriginalM10;
 async function getM10(){
