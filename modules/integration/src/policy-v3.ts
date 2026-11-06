@@ -32,7 +32,7 @@ export function requireApprovedV3Snapshot(
  for(const key of FIELDS){
   const rawMinor=value[key];
   if(typeof rawMinor!=='string'||!valid.test(rawMinor))reject();
-  m[key]=BigInt(rawMinor);
+  m[key]=BigInt(rawMinor as string);
   if(m[key]>max)reject();
  }
  const items=m.itemsMinor,fee=m.serviceFeeMinor,commission=m.merchantCommissionMinor;
@@ -50,8 +50,9 @@ export function requireApprovedV3Snapshot(
   // NEVER take a percentage or rounding deduction from a tip.
   if(m.deliveryFeeMinor<=0n||m.driverPayableMinor<=m.tipMinor)reject();
  }
+ const normalized=Object.fromEntries(
+  FIELDS.map(k=>[k,m[k].toString()])) as Record<MoneyKey,string>;
  return Object.freeze({currency:'MXN' as const,
-  policyVersion:APPROVED_POLICY_V3,fulfillment,
-  ...Object.fromEntries(FIELDS.map(k=>[k,m[k].toString()]))
+  policyVersion:APPROVED_POLICY_V3,fulfillment,...normalized
  });
 }
