@@ -360,3 +360,33 @@ test('LAB6 direct M6 reservation: 8-way same-id replay, bounded stock, immutable
   assert.equal(events.rows[0]?.n,2);
  }finally{await f.close();}
 });
+
+test('LAB6 expired reservation with existing committed M1 order must not restore units',
+ {skip:!enabled,timeout:120000},async()=>{
+ const f=fixture();
+ try{
+  const sample=await setup(f.config,2),buyer=await customer(f.config);
+  const key='lab6-expired-committed-'+id();
+  await assert.rejects(createReservedLabPickup(f.config,{
+   sessionToken:buyer.sessionToken,cart:sample.cart,
+   idempotencyKey:key,labFaultAfter:'after_m1_commit'
+  }),isError('M11_TEST_INJECTED_CRASH'));
+  const q=await f.config.integrationPool.query<{intent_id:string}>(
+   'SELECT intent_id FROM tala_integration_v2.inventory_checkout_intents '+
+   'WHERE buyer_m1_id=$1::uuid AND idempotency_key=$2',
+   [buyer.buyerId,key]);
+  const holdId=q.rows[0]!.intent_id;
+  await f.config.restaurantsPool.query(
+   "UPDATE tala_restaurants_v2.order_stock_holds SET "+
+   "expires_at=clock_timestamp()-interval '1 second' "+
+   "WHERE hold_id=$1::uuid",[holdId]);
+  const done=await reconcileReservedLabIntent(f.config,{
+   sessionToken:buyer.sessionToken,cart:sample.cart,
+   idempotencyKey:key,releaseIfExpired:true
+  });
+  assert.equal(done.state,'confirmed');
+  assert.deepEqual(await physical(f.config,sample),{m6:1,m1:1});
+  await assert.rejects(releaseM6BranchStock(f.config.restaurantsPool,holdId),
+   isError('M11_HOLD_ALREADY_CONFIRMED'));
+ }finally{await f.close();}
+});
