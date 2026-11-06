@@ -44,24 +44,28 @@ export function requireApprovedV3Snapshot(
  // internally balanced snapshot is NOT enough if its product totals were
  // changed without changing the actual frozen line prices/quantities.
  const lines=value.lines;
- if(!Array.isArray(lines)||lines.length<1||lines.length>100)reject();
+ if(!Array.isArray(lines))return reject();
+ if(lines.length<1||lines.length>100)return reject();
  let lineTotal=0n;
  const seen=new Set<string>();
  for(const entry of lines){
-  if(!entry||typeof entry!=='object'||Array.isArray(entry))reject();
+  if(!entry||typeof entry!=='object'||Array.isArray(entry))
+   return reject();
   const line=entry as Record<string,unknown>;
   const productId=line.productId,unitMinor=line.unitMinor;
   const quantity=line.quantity;
-  if(typeof productId!=='string'||!uuid.test(productId)||
-     seen.has(productId.toLowerCase())||
-     typeof unitMinor!=='string'||!valid.test(unitMinor)||
-     typeof quantity!=='number'||!Number.isSafeInteger(quantity)||
-     quantity<1||quantity>100)reject();
+  if(typeof productId!=='string')return reject();
+  if(!uuid.test(productId)||seen.has(productId.toLowerCase()))
+   return reject();
+  if(typeof unitMinor!=='string'||!valid.test(unitMinor))
+   return reject();
+  if(typeof quantity!=='number'||!Number.isSafeInteger(quantity)||
+     quantity<1||quantity>100)return reject();
   seen.add(productId.toLowerCase());
   const unit=BigInt(unitMinor);
-  if(unit>max)reject();
+  if(unit>max)return reject();
   lineTotal+=unit*BigInt(quantity);
-  if(lineTotal>max)reject();
+  if(lineTotal>max)return reject();
  }
  const items=m.itemsMinor,fee=m.serviceFeeMinor,commission=m.merchantCommissionMinor;
  if(items!==lineTotal)reject();
