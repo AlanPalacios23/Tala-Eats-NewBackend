@@ -13,22 +13,25 @@ const reject=():never=>{throw new IntegrationError('M11_ORDER_LINES_MISMATCH');}
  */
 export function assertFrozenOrderLines(snapshot:unknown,stored:readonly DbLine[]){
  if(!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot))
-  reject();
+  return reject();
  const lines=(snapshot as Record<string,unknown>).lines;
- if(!Array.isArray(lines)||lines.length<1||lines.length>100||
-    lines.length!==stored.length)reject();
+ if(!Array.isArray(lines))return reject();
+ if(lines.length<1||lines.length>100||
+    lines.length!==stored.length)return reject();
  for(let i=0;i<lines.length;i++){
   const raw=lines[i];
   const db=stored[i];
   if(!db||!raw||typeof raw!=='object'||Array.isArray(raw))
-   reject();
+   return reject();
   const line=raw as Record<string,unknown>;
-  if(typeof line.productId!=='string'||
+  if(typeof line.productId!=='string')return reject();
+  if(typeof line.unitMinor!=='string')return reject();
+  if(typeof line.quantity!=='number')return reject();
+  if(typeof db.product_id!=='string'||typeof db.unit_minor!=='string'||
+     typeof db.quantity!=='number'||
      line.productId.toLowerCase()!==db.product_id.toLowerCase()||
-     typeof line.unitMinor!=='string'||
      line.unitMinor!==db.unit_minor||
-     typeof line.quantity!=='number'||
-     line.quantity!==db.quantity)reject();
+     line.quantity!==db.quantity)return reject();
  }
  return true as const;
 }
