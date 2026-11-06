@@ -23,8 +23,8 @@ CREATE TABLE tala_integration_v2.stripe_test_checkout_intents (
  m1_order_id uuid UNIQUE,
  m8_payment_id uuid UNIQUE,
  state text NOT NULL DEFAULT 'started'
-  CHECK(state IN ('started','reserved','awaiting_payment',
-                  'test_intent_created','verified','review')),
+  CHECK(state IN ('started','reserved','order_created',
+                  'payment_created','verified','review')),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  UNIQUE(m1_buyer_id,idempotency_key),
