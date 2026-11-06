@@ -556,7 +556,7 @@ test('LAB7 M4+M6+M1 pickup -> M11 real outbox -> M5 inbox + M10 completion + M3 
   const again=await finishLabPickup(f.config,{
    merchantM1SessionToken:operator.sessionToken,orderId:order.orderId,
    commandKey:finishKey,expectedVersion:expected,pin:pin.pin});
-  assert.equal(again.replayed,true);
+  assert.equal('replayed' in again&&again.replayed,true);
 
   const emitted=await relayVerifiedM1PickupOutbox(f.config,{
    authenticated:true,canRelayM1Outbox:true},order.orderId);
@@ -744,8 +744,8 @@ test('LAB8 M6 hold -> real M1 awaiting_payment -> M8 Stripe TEST intent -> signe
     (e as {code?:string}).code==='M8_STRIPE_SIGNATURE_INVALID');
   assert.equal((await ingestStripeTestWebhook(paymentsPool,signed.secret,
    signed.raw,signed.signature)).applied,true);
-  assert.equal((await ingestStripeTestWebhook(paymentsPool,signed.secret,
-   signed.raw,signed.signature)).replayed,true);
+  assert.equal('replayed' in (await ingestStripeTestWebhook(paymentsPool,signed.secret,
+   signed.raw,signed.signature)),true);
   const result=await reconcileStripeTestLabPickup(config,{
    authenticated:true,canReconcileStripeTest:true},first.intentId);
   assert.equal(result.status,'received');
@@ -763,8 +763,7 @@ test('LAB8 M6 hold -> real M1 awaiting_payment -> M8 Stripe TEST intent -> signe
    'FROM tala_core_v2.orders WHERE id=$1::uuid',[first.orderId]);
   assert.equal(row.rows[0]?.status,'received');
   assert.equal(row.rows[0]?.payment_status,'paid');
-  assert.equal(row.rows[0]?.total_minor,first.paymentStatus==='pending'?
-   String(gateway.amount()):'NOT_EXPECTED');
+  assert.equal(row.rows[0]?.total_minor,String(gateway.amount()));
   assert.equal(row.rows[0]?.version,'2');
   const audit=await f.config.ordersPool.query<{n:number}>(
    'SELECT count(*)::int AS n FROM tala_core_v2.outbox '+
@@ -799,7 +798,7 @@ test('LAB8 M8 remains unverified without a signed webhook and keeps M6 physical 
    m4SessionToken:u.sessionToken,cart:s.cart,idempotencyKey:key});
   const r=await reconcileStripeTestLabPickup(config,{
    authenticated:true,canReconcileStripeTest:true},pending.intentId);
-  assert.equal(r.paymentConfirmed,false);
+  assert.equal('paymentConfirmed' in r&&r.paymentConfirmed,false);
   assert.equal(r.status,'awaiting_verified_test_webhook');
   assert.deepEqual(await physical(f.config,s),{m6:0,m1:0});
   const hold=await inspectM6StockHold(f.config.restaurantsPool,pending.intentId);
