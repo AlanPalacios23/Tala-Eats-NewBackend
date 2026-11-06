@@ -72,7 +72,7 @@ function configGuard(config:CatalogLabConfig){
   throw new IntegrationError('M11_CATALOG_CONFIG_INVALID');
 }
 const checkoutKeys=['storeId','branchId','lines'];
-function normalizedCart(input:LinkedPickupCart):LinkedPickupCart{
+export function normalizedCart(input:LinkedPickupCart):LinkedPickupCart{
  if(!input||typeof input!=='object'||Array.isArray(input)||
   Object.keys(input).some(x=>!checkoutKeys.includes(x))||
   Object.keys(input).length!==checkoutKeys.length||
@@ -272,7 +272,7 @@ export async function previewLinkedM6M1Pickup(config:CatalogLabConfig,
    m6StockReserved:false as const,paymentConfirmed:false as const});
  },true);
 }
-async function resolveLinkedBuyer(config:CatalogLabConfig,
+export async function resolveLinkedBuyer(config:CatalogLabConfig,
  sessionToken:string,c:PoolClient){
  const user=await readAuthenticatedProfile(config.usersPool,{
   sessionToken,secret:config.usersPasswordPepper
