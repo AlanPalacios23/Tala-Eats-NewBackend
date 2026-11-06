@@ -20,6 +20,18 @@ jobs:
     timeout-minutes: 30
     env:
       M11_REQUIRE_SOURCES: '1'
+      INTEGRATION_CI_URL: postgresql://integration_lab:integration_ci_only@127.0.0.1:5432/tala_integration_v2_test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: integration_lab
+          POSTGRES_PASSWORD: integration_ci_only
+          POSTGRES_DB: tala_integration_v2_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U integration_lab -d tala_integration_v2_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
     steps:
       - name: Checkout M11 branch, without any source merge
         uses: actions/checkout@v4
@@ -110,9 +122,31 @@ jobs:
             test ! -e "$dir/node_modules"
             ln -s "$PWD/node_modules" "$dir/node_modules"
           done
-      - name: TypeScript strict and ten-domain single-process gateway E2E
+      - name: Create M11 event transport inside disposable PostgreSQL 16
+        env:
+          PGPASSWORD: integration_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U integration_lab \
+            -d tala_integration_v2_test \
+            -f modules/integration/migrations/001_durable_event_fanout.sql
+      - name: TypeScript, ten-domain assembly and M10-to-M11 durable delivery E2E
         working-directory: modules/integration
         run: npm run check
+      - name: Confirm event migration refuses a non-M11 database
+        env:
+          PGPASSWORD: integration_ci_only
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U integration_lab \
+            -d postgres -c 'CREATE DATABASE unrelated_m11_test'
+          if psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U integration_lab \
+            -d unrelated_m11_test \
+            -f modules/integration/migrations/001_durable_event_fanout.sql; then
+            echo 'M11 migration applied to unrelated DB'
+            exit 1
+          fi
+          test "$(psql -At -h 127.0.0.1 -U integration_lab \
+            -d unrelated_m11_test \
+            -c "SELECT to_regnamespace('tala_integration_v2') IS NULL")" = "t"
       - name: Prove M1 ancestor of M2 and exact immutable source revisions
         working-directory: modules/integration
         run: |
