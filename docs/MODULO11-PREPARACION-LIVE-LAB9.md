@@ -6,7 +6,7 @@
 ## Cambio material LAB9
 
 - M1 `quoteOrder` sigue siendo autoridad de cotización y versión `pilot-2026-11-v2-17pct`.
-- Nuevo contrato M11 `verifyApprovedM11PricingSnapshot`: antes de asentar dinero retenido en M3, reconstruye la cotización desde **las líneas auténticas de M1**, comprueba todos los importes en centavos, política, divisa, fulfillment y total del pedido.
+- Nuevo contrato M11 `adapters/pricing-policy-lab.ts`: `verifyApprovedM11PricingSnapshot`: antes de asentar dinero retenido en M3, reconstruye la cotización desde **las líneas auténticas de M1**, comprueba todos los importes en centavos, política, divisa, fulfillment y total del pedido.
 - Rechaza diferenciales de comisión, tarifa, cap, total, moneda, líneas, entrega, propina o payout; no crea una nueva comisión en M11 ni altera M1–M10.
 - El resultado `policyApproved=true` se refiere exclusivamente a la **política de precios verificada** para el asiento HELD del pedido de retiro en efectivo. `commercialReady=false`, `withdrawable=false` y `externalTransfersEnabled=false` continúan obligatorios.
 - CI repite tests reales M1–M11 y nuevas pruebas de regresión 17 % / 7 % / tope / alteración de precios.
