@@ -23,6 +23,18 @@ test('M11 read-only shell reports source assembly without exposing writes',async
   assert.equal(body.tenRealPortsConnected,false);
   assert.equal(body.commercialReady,false);
   assert.equal(health.headers.get('cache-control'),'private, no-store');
+  const readiness=await fetch(base+'/v1/integration/ready');
+  assert.equal(readiness.status,503);
+  assert.equal(readiness.headers.get('cache-control'),'private, no-store');
+  const gate=await readiness.json() as {ready:boolean,
+   commercialReady:boolean,reason:string,blockers:string[]};
+  assert.equal(gate.ready,false);
+  assert.equal(gate.commercialReady,false);
+  assert.equal(gate.reason,'M11_COMMERCIAL_CONTRACTS_NOT_VALIDATED');
+  assert.ok(gate.blockers.includes('real_stripe_test_webhooks'));
+  assert.ok(gate.blockers.includes('financial_reconciliation'));
+  assert.equal((await fetch(base+'/v1/integration/ready',{
+   method:'POST'})).status,404);
   const list=await fetch(base+'/v1/integration/modules');
   const data=await list.json() as {modules:Array<{sourceCopied:boolean}>};
   assert.equal(data.modules.length,10);
