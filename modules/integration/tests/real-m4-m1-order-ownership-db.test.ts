@@ -4,6 +4,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import pg from 'pg';
 import {IntegrationError} from '../src/events.js';
 import {createIdentitySecurityLabGate} from '../adapters/identity-security-lab.js';
+import {cancelLinkedM4CashOrderLab} from '../adapters/customer-cancel-lab.js';
 import {linkControlledCustomerAccounts,createVerifiedM1OwnershipResolver,
  revokeLinkedCustomerAccount,type IdentityLinkConfig}
  from '../adapters/order-ownership-lab.js';
@@ -254,5 +255,63 @@ test('M11 LAB4: M1 disabled or revoked link denies even with active M4 session',
   await assert.rejects(lab.config.integrationPool.query(
    'DELETE FROM tala_integration_v2.customer_link_revocations '+
    'WHERE m4_user_id=$1::uuid',[m4.id]),/M11_EVENT_IMMUTABLE/);
+ }finally{await lab.close();}
+});
+
+test('M11 RC3: real M4/M9-authorized M1 CASH cancel is idempotent and restocks',
+ {skip:!enabled,timeout:120000},async()=>{
+ const lab=pools();
+ try{
+  const email='cancel.'+uid()+'@example.com';
+  const m4=await makeM4Account(lab.config.usersPool,email,
+   lab.pepper,lab.emailSecret);
+  const m1=await makeM1Customer(lab.config.ordersPool,email);
+  const orderId=await makeM1Order(lab.config.ordersPool,m1.id);
+  await linkControlledCustomerAccounts(lab.config,{
+   m4SessionToken:m4.session,m1SessionToken:m1.session
+  });
+  const old=await lab.config.ordersPool.query<{version:string}>(
+   'SELECT version::text FROM tala_core_v2.orders WHERE id=$1::uuid',[orderId]);
+  const version=BigInt(old.rows[0]!.version);
+  const key='m11-rc3-cancel-'+uid();
+  const input={m4SessionToken:m4.session,orderId,expectedVersion:version,
+   commandKey:key};
+  const config={...lab.config,security:lab.security,grantKeyId:'gate01'};
+  const first=await cancelLinkedM4CashOrderLab(config,input);
+  assert.equal(first.status,'cancelled');
+  assert.equal(first.replayed,false);
+  assert.equal(first.authorizedBy,'M4_M9_M1_LAB');
+  assert.equal(first.commercialReady,false);
+  assert.equal(first.paymentRefundPerformed,false);
+  // Both stock compensation and order event/outbox happen once in M1 tx.
+  const products=await lab.config.ordersPool.query<{stock:number}>(
+   'SELECT c.stock FROM tala_core_v2.order_lines l '+
+   'JOIN tala_core_v2.catalog_products c ON c.id=l.product_id '+
+   'WHERE l.order_id=$1::uuid',[orderId]);
+  assert.equal(products.rows[0]?.stock,20);
+  const events=await lab.config.ordersPool.query<{count:number}>(
+   'SELECT count(*)::int AS count FROM tala_core_v2.order_events '+
+   "WHERE order_id=$1::uuid AND new_status='cancelled'",[orderId]);
+  assert.equal(events.rows[0]?.count,1);
+  const replay=await cancelLinkedM4CashOrderLab(config,input);
+  assert.equal(replay.status,'cancelled');
+  assert.equal(replay.replayed,true);
+  const after=await lab.config.ordersPool.query<{stock:number}>(
+   'SELECT c.stock FROM tala_core_v2.order_lines l '+
+   'JOIN tala_core_v2.catalog_products c ON c.id=l.product_id '+
+   'WHERE l.order_id=$1::uuid',[orderId]);
+  assert.equal(after.rows[0]?.stock,20);
+  // A different authenticated M4 user cannot inherit the buyer's rights.
+  const stranger=await makeM4Account(lab.config.usersPool,
+   'stranger.'+uid()+'@example.com',lab.pepper,lab.emailSecret);
+  await assert.rejects(cancelLinkedM4CashOrderLab(config,{
+   ...input,m4SessionToken:stranger.session
+  }),e=>errorCode(e,'M11_OWNERSHIP_NOT_VERIFIED'));
+  const revoked=await revokeLinkedCustomerAccount(lab.config,{
+   authenticated:true,canRevokeIdentityLinks:true
+  },m4.id,'owner_request');
+  assert.equal(revoked.revoked,true);
+  await assert.rejects(cancelLinkedM4CashOrderLab(config,input),
+   e=>errorCode(e,'M11_OWNERSHIP_NOT_VERIFIED'));
  }finally{await lab.close();}
 });
