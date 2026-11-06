@@ -530,7 +530,7 @@ test('LAB7 M4+M6+M1 pickup -> M11 real outbox -> M5 inbox + M10 completion + M3 
 
   const pin=await issueLabPickupPin(f.config,{
    m4SessionToken:buyer.sessionToken,orderId:order.orderId});
-  assert.match(pin.pin,/^\\d{8}$/);
+  assert.match(pin.pin,/^\d{8}$/);
   const ackBuyer=await attestLabPickupBuyerCash(f.config,{
    m4SessionToken:buyer.sessionToken,orderId:order.orderId});
   assert.equal(ackBuyer.role,'customer');
