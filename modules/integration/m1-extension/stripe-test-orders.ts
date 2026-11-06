@@ -168,3 +168,75 @@ export async function createLabM1StripeAwaitingPayment(pool:Pool,buyerId:string,
  }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;
  }finally{c.release();}
 }
+
+/** INTERNAL ONLY: caller must first verify M8 stripe_test_facts against a
+ * signed TEST webhook; this function is deliberately NOT an HTTP handler.
+ * Future M1 implementation must accept an authenticated internal port.
+ */
+export async function commitVerifiedLabStripePayment(pool:Pool,proof:{
+ orderId:string,paymentId:string,amountCents:number,
+ source:'stripe_test_verified_in_m8_lab'
+}){
+ guard();
+ const orderId=validUuid(proof.orderId),paymentId=validUuid(proof.paymentId);
+ if(proof.source!=='stripe_test_verified_in_m8_lab'||
+    !Number.isSafeInteger(proof.amountCents)||
+    proof.amountCents<1||proof.amountCents>100_000_000)
+  throw new IntegrationError('M11_UNTRUSTED_PAYMENT_PROOF');
+ const eventKey=createHash('sha256')
+  .update('m11-stripe-test-paid|'+orderId+'|'+paymentId).digest('hex');
+ const c=await pool.connect();
+ try{
+  await c.query('BEGIN');
+  await c.query("SET LOCAL lock_timeout='3000ms'");
+  await c.query("SET LOCAL statement_timeout='12000ms'");
+  await gated(c);
+  const r=await c.query<{id:string,status:string,payment_status:string,
+   payment_method:string,total_minor:string,version:string}>(
+   'SELECT id,status,payment_status,payment_method,total_minor::text,version::text '+
+   'FROM tala_core_v2.orders WHERE id=$1::uuid FOR UPDATE',[orderId]);
+  const order=r.rows[0];
+  if(!order||order.payment_method!=='stripe'||
+     order.total_minor!==String(proof.amountCents))
+   throw new IntegrationError('M11_STRIPE_PAYMENT_ORDER_MISMATCH');
+  const original=await c.query<{event_key:string}>(
+   'SELECT event_key FROM tala_core_v2.order_events '+
+   'WHERE order_id=$1::uuid AND event_key=$2',[orderId,eventKey]);
+  if(original.rowCount){
+   if(order.status!=='received'&&order.status!=='confirmed'&&
+      order.status!=='preparing'&&order.status!=='ready'&&
+      order.status!=='delivered')
+    throw new IntegrationError('M11_PAYMENT_REPLAY_STATE_INVALID');
+   if(order.payment_status!=='paid')
+    throw new IntegrationError('M11_PAYMENT_REPLAY_STATE_INVALID');
+   await c.query('COMMIT');
+   return Object.freeze({orderId,paymentId,verified:true as const,
+    replayed:true as const,paymentStatus:'paid' as const});
+  }
+  if(order.status!=='awaiting_payment'||order.payment_status!=='pending')
+   throw new IntegrationError('M11_STRIPE_PAYMENT_STATE_CONFLICT');
+  const change=await c.query<{version:string}>(
+   'UPDATE tala_core_v2.orders SET '+
+   "status='received',payment_status='paid',version=version+1,"+
+   'updated_at=now() WHERE id=$1::uuid AND version=$2::bigint '+
+   'RETURNING version',[orderId,order.version]);
+  if(!change.rows[0])
+   throw new IntegrationError('M11_STRIPE_PAYMENT_STATE_CONFLICT');
+  await c.query(
+   'INSERT INTO tala_core_v2.order_events '+
+   '(order_id,event_key,previous_status,new_status,actor_role,data) '+
+   "VALUES($1::uuid,$2,'awaiting_payment','received','system',$3::jsonb)",
+   [orderId,eventKey,JSON.stringify({paymentId,provider:'stripe_test',
+    verifiedIn:'m8_lab',amountCents:proof.amountCents,
+    resultVersion:change.rows[0].version})]);
+  await c.query(
+   'INSERT INTO tala_core_v2.outbox(aggregate_id,event_key,event_type,payload) '+
+   "VALUES($1::uuid,$2,'order.payment.verified.test',$3::jsonb)",
+   [orderId,eventKey,JSON.stringify({orderId,paymentId,
+    provider:'stripe_test',status:'received',testOnly:true})]);
+  await c.query('COMMIT');
+  return Object.freeze({orderId,paymentId,verified:true as const,
+   replayed:false as const,paymentStatus:'paid' as const});
+ }catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;
+ }finally{c.release();}
+}
