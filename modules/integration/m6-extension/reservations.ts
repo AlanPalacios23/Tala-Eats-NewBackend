@@ -95,7 +95,10 @@ async function readHoldLines(c:PoolClient,id:string):Promise<HoldLine[]>{
 export async function reserveM6BranchStock(pool:Pool,input:ReserveInput){
  const data=normalize(input);
  return transaction(pool,async c=>{
-  // Exact idempotency under hold lock. No stock changes on retry.
+  // First claim on an absent hold must serialize too. Row locking alone
+  // would allow two concurrent inserts of the same hold_id to collide.
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,7002))',
+   [data.holdId]);
   const old=await currentHold(c,data.holdId);
   if(old){
    if(old.fingerprint!==data.fingerprint)
