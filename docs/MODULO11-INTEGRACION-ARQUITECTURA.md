@@ -3,7 +3,7 @@
 **Fecha:** 5 de noviembre de 2026.
 **Rama:** `feat/core-v2-integracion-monolito-m11` (parent commit de `main`).
 **PR:** integración aislada como nueva capa, no merge de PRs de módulos.
-**Estado:** **LAB5 VALIDADO en CI**: fuente de catálogo M6 y cotización/checkout M1 conectadas solo en laboratorio, junto a M4/M9, M5 y M10. 273 ejecuciones PASS, 0 FAIL; sin fusión ni despliegue comercial.
+**Estado:** **LAB6 VALIDADO en CI**: M6 reserva stock físico por sucursal y M11 coordina confirmación/compensación con M1 mediante intención durable, además de puentes M4/M9/M5/M10. 281 pruebas PASS, cero fallos. Sin fusión ni despliegue comercial.
 **Protección:** NO-GO LIVE, NO-GO despliegue Kali, NO-GO sustituir backend anterior.
 
 ## 1. Ensamblaje físico comprobable
@@ -199,3 +199,36 @@ wallets ni movimientos reales.
 y compensación M1, políticas financieras unificadas, M8 Stripe TEST
 de proveedor real y reconciliación de M3. Ninguna fase modifica
 el backend Kali existente por defecto.
+
+
+## LAB6 — reserva M6 y saga de confirmación sin transacción distribuida
+
+M11 introdujo un port temporal de reserva en
+`modules/integration/m6-extension`, físicamente instalado en la
+**base de pruebas de M6**, y su propia tabla de intenciones
+`inventory_checkout_intents` en la DB de M11. Las fuentes originales
+de los diez módulos siguen inmutables.
+
+`reserveM6BranchStock` decrementa `tala_restaurants_v2.branch_stock`
+dentro de una sola transacción PostgreSQL, bloqueando filas de
+variante y sucursal física. Guarda líneas inmutables y un evento
+`inventory.reserved`. `confirmM6BranchStock` no decrementa de nuevo;
+`releaseM6BranchStock` restaura el saldo solo en una transición de
+reserva pendiente, con evento `inventory.released`.
+
+El coordinador M11 persiste la intención antes del hold M6 y consulta
+por comprador/clave idempotente para recuperar una caída **después del
+commit de M6** o **después del commit de M1**. Antes de liberar por TTL,
+debe verificar la **ausencia de pedido M1** bajo el mismo lock M11.
+La respuesta siempre conserva `paymentConfirmed=false` y
+`commercialReady=false`.
+
+**Brecha pendiente:** M1 todavía mantiene stock espejo y ningún
+bloqueo de M11 serializa transacciones directas M1/M6; la ventana entre
+preflight de precio y commit M1 no está cerrada transaccionalmente.
+El port M6 de LAB debe ser movido al módulo M6, con seguridad
+de servicio, ACL SQL, reserva/confirmación/salida de outbox y
+conciliación operativa antes de declarar inventario único.
+
+[Detalle LAB6](MODULO11-INTEGRACION-LAB6.md) ·
+[CI #42162058259 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42162058259).

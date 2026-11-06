@@ -2,7 +2,7 @@
 
 **Fecha:** 5 de noviembre de 2026 (México).
 **Rama:** `feat/core-v2-integracion-monolito-m11`. [PR #13](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/13) **Draft**.
-**Estado:** pruebas CI globales de LAB6 en validación sobre último HEAD.
+**Estado:** **LAB6 APROBADO en CI global funcional** — [#42162058259 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42162058259), **281 pruebas PASS, 0 FAIL**. Queda ratificar CI del último commit documental.
 **Decisión comercial:** **NO-GO** para LIVE, merge, exposición pública, Stripe, tiendas, reparto, wallets o Kali.
 
 ## Problema que resuelve
@@ -154,3 +154,18 @@ de carreras con las APIs existentes. Después, integrar pago
 real en **Stripe TEST mediante M8**, confirmación de fondos y
 contabilización M3; la tarifa de comisión debe aprobarse antes de
 esos pasos.
+
+
+## Evidencia del cierre de LAB6
+
+La [CI integrada #42162058259](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42162058259)
+aprobó **281 ejecuciones, 0 fallos** sobre el árbol con las
+ocho pruebas nuevas LAB6. Las pruebas incluyen autenticación original
+M4/M1, checkout original M1, M6 branch stock, doble commit con
+simulación de caídas, vencimiento con orden registrada que no debe
+liberar, rollback de una operación multivariante y el rechazo de
+migraciones M11/M6 en bases distintas.
+
+La última edición de documentación exige una **nueva validación sobre
+HEAD** antes de certificar el commit definitivo. Esta evidencia no
+autoriza cobros, transferencias ni despliegue.

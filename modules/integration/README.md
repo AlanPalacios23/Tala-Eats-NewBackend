@@ -1,7 +1,7 @@
 # Tala Eats Core v2 — M11 Integración del monolito (LAB1 aislado)
 
 **Rama:** `feat/core-v2-integracion-monolito-m11`, creada desde `main`.
-**Estado:** **LAB5 VALIDADO en CI**, integración M6→M1 para catálogo y pedido de prueba, más M4↔M1/M9, M11→M5/M10. **NO-GO LIVE, merge o Kali.**
+**Estado:** **LAB6 VALIDADO en CI**, reservas reales en el stock físico M6 y pedido M1 coordinados con recuperación y compensaciones. Las fuentes M1–M10 siguen fijadas. **NO-GO LIVE, merge o Kali.**
 **El conjunto de fuentes aún NO equivale a un backend comercialmente integrado.**
 
 ## Qué hay realmente dentro de esta rama
@@ -157,6 +157,37 @@ CI LAB5 [#42125648088 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-N
 cubren el flujo M6→M1, versiones, nombres, stock, cierres y carreras.
 
 [Acta técnica LAB5](../../docs/MODULO11-INTEGRACION-LAB5.md).
+
+## LAB6 — reserva de sucursal M6 + pedido M1 recuperable (solo LAB)
+
+**Nuevo port transitorio:** `m6-extension/reservations.ts` y
+`m6-extension/008_order_stock_holds.sql`, instalado únicamente en
+la DB física **de M6 LAB**, sin editar su árbol original. Guarda
+`hold_id`, líneas con precio/versión/unidades, eventos inmutables
+de reserva, confirmación y liberación. M6 valida horario, tienda,
+sucursal, stock físico y bloqueo de filas en su propia transacción.
+
+**Coordinador `adapters/inventory-checkout-lab.ts`:** crea una
+intención durable M11 para cliente M4 ↔ comprador M1 ya verificado,
+reserva stock M6, llama al `createCashOrder` real de M1 y confirma
+la reserva. Si M1 rechaza y **se demuestra que no se creó pedido**,
+libera stock de M6. Si el resultado es incierto, conserva el hold
+para revisión; reintentos después de un commit usan el pedido M1
+idempotente para confirmar sin cobrar/descontar dos veces.
+
+**TTL 5 min no implica liberación automática:** la reconciliación
+comprueba primero que M1 no contiene el pedido. Las pruebas
+adversariales demuestran caída entre commits, ausencia de overselling
+de 1 unidad, 8-way retry, reembolso físico solo sin pedido,
+hold vencido con pedido preservado y rollback íntegro de dos variantes.
+
+El espejo de inventario M1 sigue activo; **M11 no tiene garantía de
+atomicidad de bases cruzadas**, y el port M6 deberá migrarse al módulo
+M6 verdadero con control de identidades de servicio. La comisión
+M1 17 % todavía no concuerda con el 15 % comercial.
+
+[Informe y pendientes LAB6](../../docs/MODULO11-INTEGRACION-LAB6.md).
+[CI LAB6 — 281 PASS, 0 FAIL](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42162058259).
 
 ## Prueba de diez fronteras
 
