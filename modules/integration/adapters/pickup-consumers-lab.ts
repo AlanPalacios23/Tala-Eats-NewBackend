@@ -12,6 +12,7 @@ import type {NotificationRecipientResolver}
  from './notifications-lab.js';
 import {IntegrationError,type IntegrationEvent,validUuid}
  from '../src/events.js';
+import {requireApprovedV3Snapshot} from '../src/policy-v3.js';
 import {proveLabPickupCashDelivery,verifiedM1PickupEvents,
  type PickupLabConfig} from './pickup-lifecycle-lab.js';
 // M3 is a JavaScript-only native ESM module with its own runtime contract.
@@ -113,23 +114,10 @@ export async function recordRealM1PickupHeldFinance(config:{
  const real=await verifiedM1PickupEvents(config.pickup,order.id);
  if(!real.some(x=>x.kind==='orders.pickup_completed'))
   throw new IntegrationError('M11_CASH_HANDOFF_NOT_PROVEN');
- const keys=['itemsMinor','merchantCommissionMinor','merchantPayableMinor',
-  'serviceFeeMinor','deliveryFeeMinor','driverPayableMinor','tipMinor',
-  'totalMinor','platformGrossMinor'] as const;
  const original=order.price_snapshot;
- if(!original||original.policyVersion!=='pilot-2026-11-v2-17pct'||
-    original.totalMinor!==order.total_minor||order.fulfillment!=='pickup')
+ if(!original||order.fulfillment!=='pickup')
   throw new IntegrationError('M11_FINANCE_SNAPSHOT_INVALID');
- const snapshot:Record<string,unknown>={
-  currency:'MXN',policyVersion:original.policyVersion,
-  fulfillment:order.fulfillment
- };
- for(const name of keys){
-  if(typeof original[name]!=='string'||!/^(0|[1-9][0-9]*)$/.test(
-      original[name] as string))
-   throw new IntegrationError('M11_FINANCE_SNAPSHOT_INVALID');
-  snapshot[name]=original[name];
- }
+ const snapshot=requireApprovedV3Snapshot(original,'pickup',order.total_minor);
  const ledger=await recordLabHeldAllocation(config.financePool,{
   orderId:order.id,restaurantId:order.restaurant_id,
   snapshot,commandKey:'m11-pickup-held-'+order.id

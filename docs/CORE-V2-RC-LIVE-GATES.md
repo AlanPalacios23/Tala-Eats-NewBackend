@@ -10,12 +10,16 @@ Fecha: 2026-11-06. Rama de trabajo: `feat/core-v2-integracion-monolito-m11`. Est
 - La política anterior del 15 % queda sustituida **para Core v2** por aprobación expresa del usuario el 6-nov-2026. Los documentos LAB5–LAB8 que marcan 17 % como discrepancia quedan históricos, no son el criterio vigente.
 - Ningún módulo debe usar 15 % por defecto. Una aprobación de porcentajes **no** habilita pagos, wallets ni transferencias LIVE.
 
+## RC1 integrado — cambio probado en rama de release
+
+La rama `feat/core-v2-m11-rc1-pricing-and-gates` (PR de revisión) actualiza la política M1 a `pilot-2026-11-v3-17pct-7pct-uncapped`. El 17 % del comercio y 7 % de servicio cliente no tienen topes ocultos; propinas sin comisión. M11 exige cotización exacta y versionada antes de M3 HELD y la finalización Stripe TEST. Cambios de M1 reflejados mediante un nuevo pin de árbol en `modules/integration/source-lock.json`; los precios y asientos viejos no se reescriben. **Esto es cierre de un subconjunto de G2; no implica aprobación de G3–G9.**
+
 ## Criterios de aceptación antes de publicar
 
 | Gate | Evidencia requerida | Estado |
 | --- | --- | --- |
-| G1 — Árbol único | Consolidar PR #13 (código M1–M11, E2E LAB8) con capacidades de proceso/HTTP/bus del PR #14, sin perder tests ni crear dos M11 distintos | PENDIENTE |
-| G2 — Contratos de dinero | Pruebas cruzadas M1/M8/M3/M10 para 17 % comercio, 7 % cliente, 0 % propinas, descuentos, cancelación, impuestos y redondeos; recibos y wallets coincidentes | PENDIENTE |
+| G1 — Árbol único | LAB9 montó las factories de los 10 módulos desde una rama de M11; falta integrar el gateway real y resolver duplicación de PR #13/#14 | PARCIAL (NO-GO) |
+| G2 — Contratos de dinero | Política v3 17/7 sin tope + prueba cruzada M1/M11/M3 y guardia M8 TEST; aún faltan impuestos, descuentos, cancelación, reembolsos, conciliación y wallets completos | PARCIAL (NO-GO) |
 | G3 — Autorización | Unificar M4/M9 y reemplazar vínculo dual-sesión transitorio; pruebas de acceso cruzado y permisos en cada mutación | PENDIENTE |
 | G4 — Checkout definitivo | Migrar extensiones LAB de M1/M6 a módulos propietarios; reservas/compensaciones, expiración y recuperación tras crash | PENDIENTE |
 | G5 — Stripe TEST real | Cuenta de prueba y webhooks remotos firmados; pagos tardíos, reembolsos, idempotencia, conciliación M8→M3 | PENDIENTE |

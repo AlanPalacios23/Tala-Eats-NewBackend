@@ -1,4 +1,4 @@
-# Tala Eats Core v2 — M11 Integración del monolito (LAB9 aislado)
+# Tala Eats Core v2 — M11 Integración del monolito (LAB9 + RC1 aislado)
 
 **Rama:** `feat/core-v2-integracion-monolito-m11`, creada desde `main`.
 **Estado:** **LAB8 VALIDADO en CI:** pickup en efectivo LAB7 + pedido Stripe TEST LAB8 sobre M1/M6/M8, sin dinero LIVE; M3 HELD, M5/M10 comprobados en LAB7. **NO-GO LIVE, merge o Kali.**
@@ -11,9 +11,9 @@
 - `/v2/health` informa de ensamblaje, **no readiness**. `/v2/ready` devuelve **503** siempre. Mutaciones comerciales, Stripe, sesiones, wallets, datos privados y endpoints con query devuelven **503**. No hay conexión a Stripe ni DB productiva; el pool usado es inerte.
 - El proceso admite solo loopback, `CORE_V2_INTEGRATION_RUNTIME=isolated-lab`, diez URL locales nombradas y `NODE_ENV!==production`. Se conserva un servidor LAB1 de diagnóstico, distinto al nuevo ensamblador.
 - `tests/assembly-lab9.test.ts` valida factories reales, rutas de salud y bloqueo de tráfico comercial.
-- `tests/pricing-finance-lab9.test.ts` compara **M1 pricing real** contra **M3 ledger HELD** para tarifas 17 % comercio, 7 % de servicio (cestas dentro del límite), envío $39, repartidor $32 y propina sin comisión.
+- `tests/pricing-finance-lab9.test.ts` compara **M1 pricing real** contra **M3 ledger HELD** para tarifas 17 % comercio, 7 % de servicio sin tope, envío $39, repartidor $32 y propina sin comisión.
 
-**Excepción de pricing por cerrar antes de LIVE:** el código M1 v2 aplica actualmente un **tope de $25 MXN** a la tarifa de servicio; para una cesta de $500 MXN cobra $25, no $35. Aunque las tasas nominales 17 % y 7 % quedaron aprobadas el 06-nov-2026, ese tope requiere decisión comercial explícita y una política coherente entre apps, recibos y M3. LAB9 lo detecta sin alterar código propietario.
+**RC1 pricing corregido (solo rama de integración):** M1 eliminó el tope anterior de **$25 MXN**; una compra de $500 MXN cobra ahora **$35 MXN** de servicio (7 %) y **$85 MXN** de comisión al comercio (17 %). La nueva política se identifica como `pilot-2026-11-v3-17pct-7pct-uncapped`; pedidos anteriores conservan su `policyVersion` y snapshot original. `src/policy-v3.ts` obliga a validar porcentajes, redondeos y reparto antes de registrar un asiento M3 HELD o aceptar la finalización M8 Stripe TEST en M11. Las pruebas incluyen manipulación de campos, tickets grandes, redondeo en centavos y propinas sin comisión. Esta aprobación **no** equivale a habilitar pagos ni contabilidad LIVE.
 
 **No es una Release Candidate desplegable todavía.** El acceso público, autenticación M4/M9, flujo de Stripe TEST real, holds durables de M6 y checkout M1, entrega M2/M7, conciliación M3/M8, monitoreo y staging permanecen como gates P0 en `docs/CORE-V2-RC-LIVE-GATES.md`. Sin merge, sin Kali y sin operaciones LIVE.
 

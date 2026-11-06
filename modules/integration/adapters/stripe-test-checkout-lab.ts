@@ -18,6 +18,7 @@ import {reserveM6BranchStock,inspectM6StockHold,
 import {normalizedCart,resolveLinkedBuyer,previewLinkedM6M1Pickup,
  type CatalogLabConfig,type LinkedPickupCart} from './catalog-checkout-lab.js';
 import {IntegrationError,validUuid} from '../src/events.js';
+import {requireApprovedV3Snapshot} from '../src/policy-v3.js';
 
 export type StripeTestLabConfig=CatalogLabConfig&{paymentsPool:Pool};
 type Intent={intent_id:string,m4_customer_id:string,m1_buyer_id:string,
@@ -261,6 +262,8 @@ export async function reconcileStripeTestLabPickup(config:StripeTestLabConfig,
       p.orderRef!==row.id||p.customerRef!==i.m4_customer_id||
       p.currency!=='MXN'||String(p.amountCents)!==row.total_minor)
     throw new IntegrationError('M11_STRIPE_PAYMENT_ORDER_MISMATCH');
+   // M1's 17/7 immutable snapshot must agree with the verified M8 amount.
+   requireApprovedV3Snapshot(row.price_snapshot,'pickup',row.total_minor);
    const proof=p.stripeTestFacts.some(x=>
     x.type==='FundsConfirmed.v1'&&x.source==='stripe_test'&&
     x.refundId===null&&x.amountCents===p.amountCents);

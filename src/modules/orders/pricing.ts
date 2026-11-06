@@ -1,9 +1,11 @@
 /**
  * Price snapshot: amounts are BIGINT CENTAVOS, never floating point.
- * Contract candidate, NOT configured for LIVE or wired to checkout.
- * Commission is 17% per owner's stated target, subject to contract review.
+ * Quoted at checkout as integer MXN centavos. This file does not
+ * independently enable LIVE payments, settlements, or writes.
+ * Commercial contract approved 2026-11-06: 17% merchant, 7% customer,
+ * zero tip commission. No fixed $25 service-fee cap.
  */
-export const PRICING_POLICY_VERSION = 'pilot-2026-11-v2-17pct';
+export const PRICING_POLICY_VERSION = 'pilot-2026-11-v3-17pct-7pct-uncapped';
 
 type Line = { unitMinor: bigint; quantity: number };
 export type QuoteInput = {
@@ -49,7 +51,7 @@ export function quoteOrder(input: QuoteInput): Quote {
     throw Error('DELIVERY_LOGISTICS_INVALID');
   }
   const commission = bps(items, 1_700n);
-  const service = bps(items, 700n) > 2_500n ? 2_500n : bps(items, 700n);
+  const service = bps(items, 700n);
   const merchant = items - commission;
   const driver = input.fulfillment === 'delivery'
     ? input.driverBaseMinor + input.tipMinor : 0n;

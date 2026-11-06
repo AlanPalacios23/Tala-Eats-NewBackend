@@ -1,16 +1,16 @@
 {
-  "version": 1,
-  "purpose": "Ten-module immutable tree snapshots for isolated M11 CI; no PR merges",
+  "version": 2,
+  "purpose": "Ten-module isolated M11 CI snapshot pins; M1 pricing 17/7 version v3 deliberately upgraded in RC1 without merging upstream PRs",
   "rootSource": "feat/core-v2-logistica-lab1",
   "rootTree": "43774c0f6cada4582fe4dce2d88952bcdae2afec",
   "origins": [
     {
       "id": "M1",
       "domain": "orders",
-      "source": "feat/core-v2-pedidos-foundation",
+      "source": "feat/core-v2-m11-rc1-pricing-and-gates",
       "path": "src/modules/orders",
-      "tree": "97e82f8dd37e47197a1f6f6602f47e9bb4ddc359",
-      "note": "M2 snapshot descends from current M1 head c964e9105b0875170c08300fba6f0a9a605ab91e"
+      "tree": "bf748011e6288f1d8c7b16afb0932fd8fb72dc9d",
+      "note": "M1 core pricing changed intentionally in RC1 to 17% merchant, uncapped 7% service; pin tree verified in CI. M2 logistics tree remains unchanged."
     },
     {
       "id": "M2",
