@@ -84,6 +84,10 @@ jobs:
               psql -v ON_ERROR_STOP=1 "postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/$db" -f "$file"
             done
           done
+          echo "APPLY_M11_M6_LAB6_ADDITIVE_HOLDS_IN_M6_TEST_DATABASE"
+          psql -v ON_ERROR_STOP=1 \
+            'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_restaurants_v2_test' \
+            -f modules/integration/m6-extension/008_order_stock_holds.sql
           for file in migrations/*.sql; do
             echo "APPLY_ISOLATED_MIGRATION M1_M2 $(basename "$file")"
             psql -v ON_ERROR_STOP=1 "$PG_CI_URL" -f "$file"
@@ -138,6 +142,18 @@ jobs:
           fi
           if psql -v ON_ERROR_STOP=1 'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' -f modules/integration/migrations/004_branch_catalog_links.sql; then
             echo 'CATALOG_MAPPING_MUST_BE_LAB_ONLY'
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 \
+            'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' \
+            -f modules/integration/migrations/005_inventory_checkout_intents.sql; then
+            echo 'M11_INVENTORY_CHECKOUT_ESCAPED_LAB_GUARD'
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 \
+            'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' \
+            -f modules/integration/m6-extension/008_order_stock_holds.sql; then
+            echo 'M6_STOCK_HOLD_ESCAPED_LAB_GUARD'
             exit 1
           fi
           test "$(psql -At             'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test'             -c "SELECT to_regnamespace('tala_integration_v2') IS NULL")" = "t"
