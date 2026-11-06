@@ -13,6 +13,7 @@ const FIELDS=['itemsMinor','merchantCommissionMinor','merchantPayableMinor',
 type MoneyKey=typeof FIELDS[number];
 const valid=/^(0|[1-9][0-9]{0,15})$/;
 const max=1_000_000_000_000n;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pct=(x:bigint,bps:bigint)=>(x*bps+5_000n)/10_000n;
 const reject=():never=>{throw new IntegrationError('M11_PRICING_POLICY_MISMATCH');};
 
@@ -27,7 +28,11 @@ export function requireApprovedV3Snapshot(
   reject();
  const value=raw as Record<string,unknown>;
  if(value.policyVersion!==APPROVED_POLICY_V3||
-    !['pickup','delivery'].includes(fulfillment))reject();
+    !['pickup','delivery'].includes(fulfillment)||
+    // Historical M1 CASH snapshots omit these two fields; if present,
+    // they must agree with the trusted order row. Stripe LAB includes both.
+    (value.currency!==undefined&&value.currency!=='MXN')||
+    (value.fulfillment!==undefined&&value.fulfillment!==fulfillment))reject();
  const m={} as Record<MoneyKey,bigint>;
  for(const key of FIELDS){
   const rawMinor=value[key];
@@ -35,7 +40,31 @@ export function requireApprovedV3Snapshot(
   m[key]=BigInt(rawMinor as string);
   if(m[key]>max)reject();
  }
+ // Both M1 CASH and M1 Stripe TEST persist frozen line items. An otherwise
+ // internally balanced snapshot is NOT enough if its product totals were
+ // changed without changing the actual frozen line prices/quantities.
+ const lines=value.lines;
+ if(!Array.isArray(lines)||lines.length<1||lines.length>100)reject();
+ let lineTotal=0n;
+ const seen=new Set<string>();
+ for(const entry of lines){
+  if(!entry||typeof entry!=='object'||Array.isArray(entry))reject();
+  const line=entry as Record<string,unknown>;
+  const productId=line.productId,unitMinor=line.unitMinor;
+  const quantity=line.quantity;
+  if(typeof productId!=='string'||!uuid.test(productId)||
+     seen.has(productId.toLowerCase())||
+     typeof unitMinor!=='string'||!valid.test(unitMinor)||
+     typeof quantity!=='number'||!Number.isSafeInteger(quantity)||
+     quantity<1||quantity>100)reject();
+  seen.add(productId.toLowerCase());
+  const unit=BigInt(unitMinor);
+  if(unit>max)reject();
+  lineTotal+=unit*BigInt(quantity);
+  if(lineTotal>max)reject();
+ }
  const items=m.itemsMinor,fee=m.serviceFeeMinor,commission=m.merchantCommissionMinor;
+ if(items!==lineTotal)reject();
  if(items===0n||commission!==pct(items,1_700n)||
     fee!==pct(items,700n)||m.merchantPayableMinor!==items-commission||
     m.totalMinor!==items+fee+m.deliveryFeeMinor+m.tipMinor||
