@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "repo": "AlanPalacios23/Tala-Eats-NewBackend",
+  "integrationMode": "single-process-lab",
+  "sources": [
+    {
+      "id": "orders-logistics",
+      "sha": "43774c0f6cada4582fe4dce2d88952bcdae2afec",
+      "branch": "feat/core-v2-logistica-lab1",
+      "includes": [
+        "M1",
+        "M2"
+      ],
+      "ancestorSha": "c964e9105b0875170c08300fba6f0a9a605ab91e"
+    },
+    {
+      "id": "finance",
+      "sha": "41114de89fb2a0cc2b1ce47affbb0ce94310175e",
+      "branch": "feat/core-v2-finanzas-foundation",
+      "includes": [
+        "M3"
+      ]
+    },
+    {
+      "id": "users",
+      "sha": "867c5d8d88c052c6cca9b6f83de3032908fb34e9",
+      "branch": "feat/core-v2-usuarios-foundation",
+      "includes": [
+        "M4"
+      ]
+    },
+    {
+      "id": "notifications",
+      "sha": "7cce5fb3f3ffe9baf077c77f78e409ae052961d0",
+      "branch": "feat/core-v2-notificaciones-foundation",
+      "includes": [
+        "M5"
+      ]
+    },
+    {
+      "id": "restaurants",
+      "sha": "0258af67162f2b3dded81dfa57d7af0baaf382ed",
+      "branch": "feat/core-v2-restaurantes-foundation",
+      "includes": [
+        "M6"
+      ]
+    },
+    {
+      "id": "locations",
+      "sha": "7d51f6c288b26dc63ac8a3e66394dd72fafa1d8b",
+      "branch": "feat/core-v2-ubicaciones-foundation",
+      "includes": [
+        "M7"
+      ]
+    },
+    {
+      "id": "payments",
+      "sha": "711d7dabeec70b03e45d227cbdb02a770939c59a",
+      "branch": "feat/core-v2-pagos-foundation",
+      "includes": [
+        "M8"
+      ]
+    },
+    {
+      "id": "security",
+      "sha": "4b119305a188bcf924fb8ea190870dcf141268e8",
+      "branch": "feat/core-v2-seguridad-foundation",
+      "includes": [
+        "M9"
+      ]
+    },
+    {
+      "id": "analytics",
+      "sha": "4b3cd87c3bac12dc4a1677dbb88a4e2fb2379b5d",
+      "branch": "feat/core-v2-analitica-foundation",
+      "includes": [
+        "M10"
+      ]
+    }
+  ]
+}
