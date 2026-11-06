@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "release": "core-v2-rc3-canonical-preprod",
+  "environment": "preproduction-lab",
+  "candidateSource": "feat/core-v2-m11-rc2-snapshot-line-integrity",
+  "target": "Tala Eats Core v2",
+  "commercialPolicy": {
+    "merchantCommissionBps": 1700,
+    "customerServiceBps": 700,
+    "serviceFeeCapMinor": null,
+    "tipCommissionBps": 0,
+    "policyVersion": "pilot-2026-11-v3-17pct-7pct-uncapped"
+  },
+  "commercialActivation": false,
+  "releaseApproval": {
+    "approved": false,
+    "approvedCommit": null
+  },
+  "gateEvidence": [
+    {
+      "id": "G1",
+      "status": "partial",
+      "blocker": "Se usa un árbol canónico RC2; PR #14 es implementación alternativa, no fusionada por incompatibilidad de bus de eventos.",
+      "evidenceLinks": []
+    },
+    {
+      "id": "G2",
+      "status": "partial",
+      "blocker": "17/7 sin cap y 0% propina verificados; descuentos, impuestos, cancelaciones, refunds, wallets y recibos no demostrados E2E.",
+      "evidenceLinks": []
+    },
+    {
+      "id": "G3",
+      "status": "blocked",
+      "blocker": "Gateway comercial M4/M9 todavía aislado; doble sesión M1/M4 y autorizaciones reales de todas las mutaciones sin reemplazar.",
+      "evidenceLinks": []
+    },
+    {
+      "id": "G4",
+      "status": "blocked",
+      "blocker": "Checkout Stripe/stock en extensiones LAB M11, sin contratos definitivos de M1/M6 ni compensación crash.",
+      "evidenceLinks": []
+    },
+    {
+      "id": "G5",
+      "status": "blocked",
+      "blocker": "Stripe TEST remoto real, firma de webhook y conciliación de reembolsos no probados.",
+      "evidenceLinks": []
+    },
+    {
+      "id": "G6",
+      "status": "blocked",
+      "blocker": "Entrega con apps reales, GPS, PIN, pagos y custodia de efectivo sin E2E comercial.",
+      "evidenceLinks": []
+    },
+    {
+      "id": "G7",
+      "status": "blocked",
+      "blocker": "Faltan producers outbox reales, worker durables y replay/reconciliación en topología comercial.",
+      "evidenceLinks": []
+    },
+    {
+      "id": "G8",
+      "status": "blocked",
+      "blocker": "Staging dedicado, backup/restore, rollback, seguridad, carga y E2E de cuatro apps no probados.",
+      "evidenceLinks": []
+    },
+    {
+      "id": "G9",
+      "status": "blocked",
+      "blocker": "Sin artefacto autorizado, auditoría release completa, canary, soporte operativa ni aprobación manual.",
+      "evidenceLinks": []
+    }
+  ]
+}
