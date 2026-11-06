@@ -390,3 +390,36 @@ test('LAB6 expired reservation with existing committed M1 order must not restore
    isError('M11_HOLD_ALREADY_CONFIRMED'));
  }finally{await f.close();}
 });
+
+test('LAB6 atomic multi-variant hold: failure on second line rolls back first stock debit',
+ {skip:!enabled,timeout:120000},async()=>{
+ const f=fixture();
+ try{
+  const sample=await setup(f.config,2);
+  const p=await createProduct(f.config.restaurantsPool,sample.actor,{
+   storeId:sample.storeId,operationId:id(),name:'Cebolla blanca',
+   category:'Verduras'});
+  const v=await createVariant(f.config.restaurantsPool,sample.actor,{
+   storeId:sample.storeId,productId:p.id,operationId:id(),
+   label:'1 kg',weightGrams:1000,priceCents:3000,
+   stockQuantity:0,trackStock:true});
+  await enableBranchInventory(f.config.restaurantsPool,sample.actor,{
+   storeId:sample.storeId,variantId:v.id,expectedVersion:1});
+  const holdId=id();
+  await assert.rejects(reserveM6BranchStock(f.config.restaurantsPool,{
+   holdId,storeId:sample.storeId,branchId:sample.branchId,
+   lines:[
+    {variantId:sample.variantId,quantity:1,expectedVersion:2,
+     expectedPriceMinor:'3500',expectedName:'Jitomate saladet — 500 g'},
+    {variantId:v.id,quantity:1,expectedVersion:2,
+     expectedPriceMinor:'3000',expectedName:'Cebolla blanca — 1 kg'}
+   ]
+  }),isError('M11_M6_BRANCH_OFFER_UNAVAILABLE'));
+  assert.deepEqual(await physical(f.config,sample),{m6:2,m1:2});
+  assert.equal(await inspectM6StockHold(f.config.restaurantsPool,holdId),null);
+  const rows=await f.config.restaurantsPool.query<{n:number}>(
+   'SELECT count(*)::int AS n FROM tala_restaurants_v2.order_stock_hold_events '+
+   'WHERE hold_id=$1::uuid',[holdId]);
+  assert.equal(rows.rows[0]?.n,0);
+ }finally{await f.close();}
+});
