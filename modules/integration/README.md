@@ -1,7 +1,7 @@
 # Tala Eats Core v2 — M11 Integración del monolito (LAB1 aislado)
 
 **Rama:** `feat/core-v2-integracion-monolito-m11`, creada desde `main`.
-**Estado:** **LAB6 VALIDADO en CI**, reservas reales en el stock físico M6 y pedido M1 coordinados con recuperación y compensaciones. Las fuentes M1–M10 siguen fijadas. **NO-GO LIVE, merge o Kali.**
+**Estado:** **LAB8 VALIDADO en CI:** pickup en efectivo LAB7 + pedido Stripe TEST LAB8 sobre M1/M6/M8, sin dinero LIVE; M3 HELD, M5/M10 comprobados en LAB7. **NO-GO LIVE, merge o Kali.**
 **El conjunto de fuentes aún NO equivale a un backend comercialmente integrado.**
 
 ## Qué hay realmente dentro de esta rama
@@ -188,6 +188,41 @@ M1 17 % todavía no concuerda con el 15 % comercial.
 
 [Informe y pendientes LAB6](../../docs/MODULO11-INTEGRACION-LAB6.md).
 [CI LAB6 — 281 PASS, 0 FAIL](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42162058259).
+
+## LAB7 + LAB8 — pedidos reales de laboratorio, efectivo y Stripe TEST
+
+**LAB7 efectivo/pickup:** el adaptador
+`adapters/pickup-lifecycle-lab.ts` usa los métodos genuinos M1 de
+aceptación, preparación, PIN, doble acuse y entrega de efectivo.
+`pickup-consumers-lab.ts` verifica eventos comprometidos del outbox M1
+antes de enviarlos a **M5** (bandeja del comprador), **M10**
+(`order.completed` sin inventar pago PSP) y **M3** (asiento
+`HELD`, `withdrawable=false`, efectivo sin conciliación).
+
+**LAB8 Stripe TEST:** `m1-extension/stripe-test-orders.ts` construye
+un pedido `awaiting_payment` en la base de **M1 LAB** con precio y
+stock bajo bloqueo. `adapters/stripe-test-checkout-lab.ts` reserva
+M6 y crea un PaymentIntent del **M8 original** usando un bridge tipado
+`adapters/m8-test-boundary.ts`; el entorno CI inyecta un transporte
+**offline**. M1 solo pasa a `received / paid` después de que M8
+almacene `FundsConfirmed.v1` proveniente de un webhook Stripe TEST
+firmado, con cliente, orderRef, moneda y monto vinculados.
+
+El esquema `007_stripe_test_checkout_intents.sql` mantiene el estado
+durable de la intención y se rechaza fuera de DB LAB. Con webhook
+pendiente M1 permanece `awaiting_payment` y M6 mantiene el hold.
+Reintentos no duplican orden, pago ni evento de M1. Se rechazan firma
+incorrecta, monto incorrecto y `livemode=true`.
+
+**Advertencia:** ninguna credencial REAL de Stripe ni tarjeta se usó
+en CI. Las extensiones provisionales M1/M6 siguen bajo M11 y no
+están listas para un gateway público; falta expiración/cancelación de
+pago incierto, reembolsos, inventario sin espejo y conexión de la
+ruta Stripe TEST con M5/M3/entrega completa.
+
+[LAB7: retiro en efectivo](../../docs/MODULO11-INTEGRACION-LAB7.md) ·
+[LAB8: Stripe TEST](../../docs/MODULO11-INTEGRACION-LAB8.md) ·
+[CI LAB8 285 PASS / 0 FAIL](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42169799206).
 
 ## Prueba de diez fronteras
 

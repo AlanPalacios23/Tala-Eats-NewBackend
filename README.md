@@ -20,12 +20,21 @@ Este árbol de integración contiene el **código real de M1–M10** en una
 - **Inventario M1 aún duplicado:** no hay transacción distribuida ni
   liberación automática por TTL; el port de reservas M6 está
   provisionalmente en `modules/integration/m6-extension/`.
-- **Siguiente etapa:** trasladar la API de reservas al dominio M6,
-  retirar/reconciliar el espejo de M1, confirmar la política 15 %/17 %,
-  y solo entonces conectar pagos M8 Stripe TEST y contabilidad M3.
+- **LAB7:** retiro en efectivo completado en PostgreSQL de laboratorio;
+  M1 acepta/prepara/entrega con PIN y doble acuse, con eventos reales que
+  alimentan M5 y M10 y asiento **HELD** en M3, no retirable.
+- **LAB8:** checkout `awaiting_payment` de Stripe TEST en M1, stock
+  reservado por M6, PaymentIntent TEST y webhook firmado realmente
+  validado en M8 antes de pasar la orden a `received`. La CI usa
+  proveedor offline y **no demuestra cobros Stripe remotos**.
+- **Pendiente comercial:** port Stripe de M1 definitivo, reservas propias
+  de M6, espejo de inventario M1, política 15 %/17 %, pagos/reembolsos,
+  liquidación de efectivo, gateway y apps E2E; sin despliegue Kali.
 
 [README del ensamblador M11](modules/integration/README.md) ·
 [Arquitectura de integración](docs/MODULO11-INTEGRACION-ARQUITECTURA.md) ·
+[Acta LAB8](docs/MODULO11-INTEGRACION-LAB8.md) ·
+[Acta LAB7](docs/MODULO11-INTEGRACION-LAB7.md) ·
 [Acta LAB6](docs/MODULO11-INTEGRACION-LAB6.md) ·
 [Acta LAB5](docs/MODULO11-INTEGRACION-LAB5.md) ·
 [Gates LAB1](docs/MODULO11-INTEGRACION-LAB1.md).

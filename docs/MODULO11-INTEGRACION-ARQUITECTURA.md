@@ -3,7 +3,7 @@
 **Fecha:** 5 de noviembre de 2026.
 **Rama:** `feat/core-v2-integracion-monolito-m11` (parent commit de `main`).
 **PR:** integración aislada como nueva capa, no merge de PRs de módulos.
-**Estado:** **LAB6 VALIDADO en CI**: M6 reserva stock físico por sucursal y M11 coordina confirmación/compensación con M1 mediante intención durable, además de puentes M4/M9/M5/M10. 281 pruebas PASS, cero fallos. Sin fusión ni despliegue comercial.
+**Estado:** **LAB8 VALIDADO en CI**: pickup completo de efectivo en LAB7 y PaymentIntent Stripe TEST firmado en LAB8, además de reservas M6, identidad M4/M9, notificaciones M5 y métricas M10. **285 ejecuciones PASS, 0 FAIL**; sin fusión ni despliegue comercial.
 **Protección:** NO-GO LIVE, NO-GO despliegue Kali, NO-GO sustituir backend anterior.
 
 ## 1. Ensamblaje físico comprobable
@@ -232,3 +232,37 @@ conciliación operativa antes de declarar inventario único.
 
 [Detalle LAB6](MODULO11-INTEGRACION-LAB6.md) ·
 [CI #42162058259 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42162058259).
+
+
+## LAB7 y LAB8 — flujo verificado y frontera de confianza de pagos
+
+**LAB7:** M11 lee el `outbox` de M1 y el evento de estado en la
+misma DB y verifica el estado de la reserva M6 antes de emitir
+`orders.pickup_ready` y `orders.pickup_completed`. El centro de
+notificaciones de M5 obtiene el destinatario desde la vinculación
+M4↔M1 vigente, M10 recibe un hecho `order.completed` firmado y
+M3 abre **solo** un asiento pendiente tras PIN y doble acuse de
+efectivo; no hay pagos externos ni saldos disponibles.
+
+**LAB8:** M1 crea una orden `stripe / awaiting_payment` únicamente
+en LAB a partir de ofertas y stock bloqueados. M8 original abre un
+PaymentIntent en modo TEST inyectado y valida bytes firmados
+`Stripe-Signature`, `livemode=false`, monto y `m8_payment_id`.
+El reconciliador M11 lee un hecho `FundsConfirmed.v1` con
+`source='stripe_test'` en la DB M8, valida la orden y solo entonces
+permite que M1 cambie a `received / paid`, con outbox de prueba.
+Sin firma válida, el pedido permanece `awaiting_payment`.
+
+La CI prueba escenarios positivos y negativos con proveedor Stripe
+**offline**. No se ha validado conexión real a Stripe TEST,
+reembolsos, payout, liquidación ni entrega de pedidos con tarjeta.
+
+**NO-GO:** falta convertir los ports provisionales de M11 en ports
+propios M1/M6 con auth de servicio, evitar T.O.C.T.O.U. entre
+bases, cerrar expiración de PaymentIntents ambiguos, conciliar la
+política 15 % versus 17 %, desplegar worker/gateway autenticado y
+probar las aplicaciones con APIs reales.
+
+[Acta LAB7](MODULO11-INTEGRACION-LAB7.md) ·
+[Acta LAB8](MODULO11-INTEGRACION-LAB8.md) ·
+[CI #42169799206 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42169799206).

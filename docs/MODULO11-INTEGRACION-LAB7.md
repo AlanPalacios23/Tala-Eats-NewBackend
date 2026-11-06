@@ -3,7 +3,7 @@
 **Fecha:** 5–6 de noviembre de 2026 (México).
 **Rama:** `feat/core-v2-integracion-monolito-m11`.
 **PR:** [#13](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/pull/13), Draft.
-**Estado:** nueva batería de integración M1/M4/M5/M6/M10/M3 en validación CI.
+**Estado:** **LAB7 APROBADO**. [CI #42168092857 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42168092857), 283 pruebas PASS, 0 FAIL.
 **Política de seguridad:** NO-GO LIVE, NO-GO merge, NO-GO Kali, NO-GO Stripe LIVE, transferencias o retiros automáticos.
 
 ## Qué queda conectado en código real
@@ -68,4 +68,4 @@ Efectos idempotentes comprobados: un único pedido, una reserva confirmada, dos 
 6. **Workers y gateway:** falta un runtime Express único con sesiones definitivas M4, roles SQL mínimos, consumo automático del outbox M1, backpressure, redrive, DLQ, alarmas, E2E apps, backups y rollback. Los eventos del relay requieren ejecución explícita en este LAB.
 7. **LIVE:** no hay despliegue autorizado ni aprobación para merge a `main`. Las aplicaciones existentes del servidor Kali continúan fuera de este ensamblaje.
 
-**Decisión:** se puede considerar funcional el **circuito LAB de retiro en efectivo** solo si la CI final de este commit pasa. No se puede llamar al conjunto «backend comercialmente funcional al 100 %» hasta resolver estas condiciones.
+**Decisión:** se considera validado por CI el **circuito LAB de retiro en efectivo**. No se puede llamar al conjunto «backend comercialmente funcional al 100 %» hasta resolver estas condiciones.

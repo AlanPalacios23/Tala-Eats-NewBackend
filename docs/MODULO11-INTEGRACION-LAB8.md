@@ -3,7 +3,7 @@
 **Fecha de trabajo:** 5 de noviembre de 2026, hora de México.
 **Rama:** `feat/core-v2-integracion-monolito-m11`; PR #13 permanece en Draft.
 **Alcance:** flujo TEST en PostgreSQL descartable con transporte Stripe inyectado, sin salir a Stripe, sin operaciones LIVE y sin merges o despliegue a Kali.
-**Estado de aprobación:** pendiente de CI global sobre el último HEAD.
+**Estado de aprobación:** **LAB8 aprobado en CI funcional** [#42169799206 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42169799206), 285 ejecuciones de prueba PASS y 0 FAIL; la edición documental final requiere una CI adicional.
 
 ## Problema original
 
@@ -42,4 +42,12 @@ LAB8 crea **exclusivamente dentro de M11** un port transitorio `m1-extension/str
 5. **M2 entrega a domicilio/M7 zonas:** todavía sin cableado comercial de punta a punta; solo el retiro en efectivo de LAB7 dispone de prueba E2E completa.
 6. **Infraestructura:** workers para relé de outbox, DLQ/redrive, autorización fuerte, roles SQL mínimos, auditoría y monitoreo, migraciones en staging, backup/rollback, estrés y pruebas reales de las apps.
 
-**Conclusión:** LAB8 debe certificarse solo si GitHub Actions pasa en el último commit. Aun con CI en verde, **no se declara el backend comercial 100 % funcional**.
+**Conclusión:** LAB8 pasó el gate de código en GitHub Actions #42169799206; falta ratificar el último HEAD documental. Aun con CI en verde, **no se declara el backend comercial 100 % funcional**.
+
+## Evidencia del LAB8 validado
+
+- CI global M11: [#42169799206](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42169799206), **285 ejecuciones PASS, 0 FAIL**.
+- Casos LAB8 reales: M6 hold → M1 awaiting_payment → M8 real (Stripe TEST vía transporte offline) → webhook con HMAC verificado → M1 received/paid y reserva confirmada; sin webhook firmado permanece pendiente.
+- M8 original no se modificó. Un bridge de carga tipada usa los módulos M8 existentes, manteniendo la compilación estricta de M4/M11.
+- La factura y movimientos bancarios NO fueron creados; la CI no usa tarjetas ni dinero real.
+- El commit que actualiza esta evidencia documental será validado por una nueva ejecución antes de declarar cerrado el HEAD.
