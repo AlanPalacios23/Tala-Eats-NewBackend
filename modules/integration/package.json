@@ -1,0 +1,16 @@
+{
+  "name":"@tala-eats/core-v2-integration",
+  "version":"0.1.0-lab.1",
+  "private":true,
+  "type":"module",
+  "engines":{"node":">=24 <25"},
+  "scripts":{
+    "typecheck":"tsc --noEmit",
+    "test":"tsx --test --test-concurrency=1 tests/*.test.ts",
+    "check":"npm run typecheck && npm test",
+    "verify:snapshots":"node scripts/verify-snapshots.mjs",
+    "probe:imports":"tsx scripts/probe-imports.ts"
+  },
+  "dependencies":{"pg":"^8.16.3"},
+  "devDependencies":{"@types/node":"^24.0.0","@types/pg":"^8.15.5","tsx":"^4.20.3","typescript":"^5.9.2"}
+}

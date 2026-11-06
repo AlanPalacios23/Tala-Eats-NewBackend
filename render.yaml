@@ -1,0 +1,33 @@
+# TALA EATS CORE v2 — existing Free web service and existing Free PostgreSQL.
+# Adopt ONLY the existing tala-eats-core-staging web service.
+# Reference existing database by name; DO NOT create or modify PostgreSQL.
+# IMPORTANT: applying this Blueprint connects the DB privately but does not
+# enable Orders routes, execute SQL migrations or permit commercial writes.
+services:
+  - type: web
+    name: tala-eats-core-staging
+    runtime: node
+    plan: free
+    region: oregon
+    repo: https://github.com/AlanPalacios23/Tala-Eats-NewBackend
+    branch: feat/core-v2-pedidos-foundation
+    autoDeployTrigger: off
+    buildCommand: npm install --include=dev --ignore-scripts --no-audit --no-fund && npm run build
+    # Bootstrap is idempotent and refuses any non-staging database.
+    startCommand: node scripts/render-staging-init.mjs && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORE_V2_RUNTIME
+        value: render-staging
+      - key: CORE_V2_WRITES_ENABLED
+        value: "false"
+      - key: CORE_V2_HOST
+        value: 0.0.0.0
+      - key: CORE_V2_STAGING_MIGRATIONS
+        value: initial-001-007-only
+      - key: CORE_V2_DATABASE_URL
+        fromDatabase:
+          name: tala-eats-core-staging-db
+          property: connectionString

@@ -1,0 +1,27 @@
+{
+  "name": "tala-eats-core-v2",
+  "version": "0.2.0-lab.6",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "dev": "node --env-file=.env --experimental-strip-types src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "check": "npm run test && npm run build"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "pg": "^8.16.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.9.1",
+    "@types/pg": "^8.15.5",
+    "typescript": "^5.9.3"
+  }
+}
