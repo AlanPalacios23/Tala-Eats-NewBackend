@@ -13,6 +13,7 @@ import type {NotificationRecipientResolver}
 import {IntegrationError,type IntegrationEvent,validUuid}
  from '../src/events.js';
 import {requireApprovedV3Snapshot} from '../src/policy-v3.js';
+import {assertStoredM1OrderLines} from '../src/stored-order-lines.js';
 import {proveLabPickupCashDelivery,verifiedM1PickupEvents,
  type PickupLabConfig} from './pickup-lifecycle-lab.js';
 // M3 is a JavaScript-only native ESM module with its own runtime contract.
@@ -118,6 +119,7 @@ export async function recordRealM1PickupHeldFinance(config:{
  if(!original||order.fulfillment!=='pickup')
   throw new IntegrationError('M11_FINANCE_SNAPSHOT_INVALID');
  const snapshot=requireApprovedV3Snapshot(original,'pickup',order.total_minor);
+ await assertStoredM1OrderLines(config.pickup.ordersPool,order.id,original);
  const ledger=await recordLabHeldAllocation(config.financePool,{
   orderId:order.id,restaurantId:order.restaurant_id,
   snapshot,commandKey:'m11-pickup-held-'+order.id

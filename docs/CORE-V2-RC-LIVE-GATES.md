@@ -14,6 +14,12 @@ Fecha: 2026-11-06. Rama de trabajo: `feat/core-v2-integracion-monolito-m11`. Est
 
 La rama `feat/core-v2-m11-rc1-pricing-and-gates` (PR de revisión) actualiza la política M1 a `pilot-2026-11-v3-17pct-7pct-uncapped`. El 17 % del comercio y 7 % de servicio cliente no tienen topes ocultos; propinas sin comisión. M11 exige cotización exacta y versionada antes de M3 HELD y la finalización Stripe TEST. Cambios de M1 reflejados mediante un nuevo pin de árbol en `modules/integration/source-lock.json`; los precios y asientos viejos no se reescriben. **Esto es cierre de un subconjunto de G2; no implica aprobación de G3–G9.**
 
+## RC2 — integridad de carrito congelado (rama de revisión, NO-GO LIVE)
+
+Antes de acreditar HELD en M3 o aceptar la conciliación de Stripe TEST en M8, M11 comprueba ahora **cada línea congelada de M1**: UUID de producto único, precio en centavos no negativo, cantidad entera válida y suma exacta contra `itemsMinor`. El control previo del RC1 verificaba solamente la consistencia algebraica de los totales; un snapshot con sumas internamente consistentes, pero diferente de sus líneas, podía llegar al límite financiero. También rechaza `currency` o `fulfillment` contradictorios cuando están presentes. Los snapshots CASH existentes de M1 omiten estas dos propiedades y conservan compatibilidad; los snapshots Stripe TEST ya las incluyen.
+
+La nueva regresión prueba manipulación de precio, cantidad, identidad, carrito ausente, moneda, entrega y multi-línea. **No demuestra** que los precios originales del catálogo no hayan cambiado, ni autenticación de pasarela, ni compensaciones, ni E2E remoto. Este incremento conserva los bloqueos de G1–G9 y no cambia contratos ni datos históricos. Nunca fusionar ni desplegar automáticamente por la sola existencia de CI verde.
+
 ## Criterios de aceptación antes de publicar
 
 | Gate | Evidencia requerida | Estado |
