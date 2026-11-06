@@ -116,7 +116,7 @@ export async function advanceLabPickupMerchant(config:PickupLabConfig,input:{
  });
  return Object.freeze({...result,version:result.version.toString(),
   source:'m1_verified_merchant_lab' as const,
-  outboxPending:input.target==='ready' as boolean,
+  outboxPending:(input.target==='ready'),
   commercialReady:false as const});
 }
 export async function issueLabPickupPin(config:PickupLabConfig,input:{
