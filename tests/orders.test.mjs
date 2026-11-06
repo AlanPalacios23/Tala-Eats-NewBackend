@@ -106,12 +106,14 @@ test('17% / 7% + delivery quote uses integer centavos', () => {
   assert.equal(q.platformGrossMinor,5500n);
   assert.equal(q.policyVersion,PRICING_POLICY_VERSION);
 });
-test('service fee has a 2500-centavo cap', () => {
+test('service fee remains 7% on high-value orders without hidden cap', () => {
   const q = quoteOrder({
     lines:[{unitMinor:50000n,quantity:1}],
     fulfillment:'pickup',deliveryFeeMinor:0n,driverBaseMinor:0n,tipMinor:0n
   });
-  assert.equal(q.serviceFeeMinor,2500n);
+  assert.equal(q.serviceFeeMinor,3500n);
+  assert.equal(q.totalMinor,53500n);
+  assert.equal(q.platformGrossMinor,12000n);
   assert.equal(q.merchantCommissionMinor,8500n);
 });
 test('tips do not inflate platform gross revenue', () => {
