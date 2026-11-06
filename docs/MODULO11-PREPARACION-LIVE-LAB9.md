@@ -10,6 +10,7 @@
 - Rechaza diferenciales de comisión, tarifa, cap, total, moneda, líneas, entrega, propina o payout; no crea una nueva comisión en M11 ni altera M1–M10.
 - El resultado `policyApproved=true` se refiere exclusivamente a la **política de precios verificada** para el asiento HELD del pedido de retiro en efectivo. `commercialReady=false`, `withdrawable=false` y `externalTransfersEnabled=false` continúan obligatorios.
 - CI repite tests reales M1–M11 y nuevas pruebas de regresión 17 % / 7 % / tope / alteración de precios.
+- Nuevo endpoint de diagnóstico **solo en loopback LAB**: `GET /v1/integration/ready` responde **503**, con bloqueos comerciales explícitos. El health puede contestar 200 sin mentir sobre readiness; nunca se deben usar sus respuestas para activar cobros o desplegar en Kali.
 
 ## Criterios obligatorios ANTES del primer despliegue comercial
 
