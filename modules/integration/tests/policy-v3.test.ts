@@ -63,14 +63,15 @@ test('tip is credited in full to courier without increasing platform margin',()=
 test('tampered commission, 7% service, merchant, driver, or platform fails closed',()=>{
  const {q,source}=priced(50000n,'delivery',500n);
  const total=q.totalMinor.toString();
- for(const [key,next] of [
+ const tampered:Array<readonly [string,string]>=[
   ['merchantCommissionMinor','0'],['merchantCommissionMinor','7500'],
   ['serviceFeeMinor','2500'],['serviceFeeMinor','0'],
   ['merchantPayableMinor','50000'],['driverPayableMinor','500'],
   ['tipMinor','0'],['totalMinor','0'],['platformGrossMinor','1'],
   ['deliveryFeeMinor','0'],['itemsMinor','-1'],
   ['itemsMinor','NaN'],['itemsMinor','01']
- ]){
+ ];
+ for(const [key,next] of tampered){
   deny({...source,[key]:next},'delivery',total);
  }
  deny(source,'pickup',total);
