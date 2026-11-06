@@ -7,6 +7,8 @@ export class IntegrationError extends Error{
 }
 export const ROUTES={
  'orders.order_created':{source:'orders',consumers:[]},
+ 'orders.pickup_ready':{source:'orders',consumers:['notifications']},
+ 'orders.pickup_completed':{source:'orders',consumers:['notifications','analytics']},
  'restaurants.order_ready':{source:'restaurants',consumers:['logistics','notifications']},
  'logistics.delivery_completed':{source:'logistics',consumers:['notifications','analytics']}
 } as const;
