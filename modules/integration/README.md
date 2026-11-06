@@ -2,7 +2,7 @@
 
 M11 es un **módulo independiente** que ensambla los diez dominios M1–M10 en un único proceso de **laboratorio** y verifica que los puntos de entrada reales existan. No edita ninguna de las ramas originales y no fusiona `main`.
 
-**Branch:** `feat/core-v2-monolito-integracion`, desde `main`. Estado: desarrollo LAB1 con CI de ensamblaje, sin despliegue.
+**Branch:** `feat/core-v2-monolito-integracion`, desde `main`. Estado: **LAB2 de ensamblaje y transporte aprobado en CI**, sin integración de operaciones reales ni despliegue.
 
 ## Propiedad de M11
 
@@ -24,6 +24,39 @@ npm run check
 Sin los nueve checkouts fijados, solo se ejecutan las pruebas estáticas y de cierre seguro. En GitHub Actions el gate `M11_REQUIRE_SOURCES=1` obliga a **importar y ejecutar el código real** de los diez módulos; no se permite pasar CI omitiendo el ensamblaje. No existe un comando de producción.
 
 `src/assembly.ts` exporta `assembleLabMonolith(manifest, sourceRoot)`, `listenLocalOnly(assembly)` y `assembly.close()`. Para que funcionen se requiere `M11_RUNTIME=isolated-lab` y un `NODE_ENV` distinto de `production`.
+
+## M11 LAB2 — transporte interno de eventos verificados
+
+Además del ensamblaje de diez módulos, se añadió:
+
+- `migrations/001_durable_event_fanout.sql`: base PostgreSQL 16
+  **descartable** `tala_integration_v2_test` o `tala_integration_v2_lab`,
+  schema `tala_integration_v2`, inbox de eventos inmutables y trabajos
+  independientes por consumidor (`finance`, `notifications`, `analytics`).
+- `src/fanout.ts` — `acceptVerifiedEvent`: recepción idempotente de
+  hechos **previamente verificados** con el HMAC real de M10. Deniega
+  UUID de evento adulterado, segunda venta/pago/entrega, atribución cruzada
+  entre comercios y cancelación incompatible con entrega.
+- `claimJobs`: lease atómico con `FOR UPDATE SKIP LOCKED`,
+  token aleatorio de intento y límite de 5 intentos; cada consumidor
+  reclama solo su propio trabajo.
+- `settleJob`: confirma `applied`, reprograma `retry` con backoff
+  o marca `dead` para revisión, sin ejecutar pagos reales ni enviar
+  mensajes.
+- `readDeliveryStats`: conteos de estado por consumidor solo con
+  capacidad de monitoreo confiable.
+
+La semántica de entrega es **al menos una vez**, no exactamente una vez.
+El consumidor futuro debe guardar su propia idempotencia antes de
+confirmar cada job. El puente actual **no contiene adaptadores
+operativos reales M1/M2/M3/M5/M8/M10 ni un worker de pagos**.
+Las pruebas integradas usan eventos ficticios, firmado/validación
+**real del contrato del commit M10** y PostgreSQL aislado.
+
+**Pruebas confirmadas:** [CI #42173302893 — SUCCESS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42173302893);
+**9 de 9 PASS** con ensamblaje real, firmas M10, 20 eventos
+concurrentes, reintentos, DLQ, rechazo de PII y bloqueo de migraciones
+fuera de la base M11.
 
 ## Rutas habilitadas
 
