@@ -37,6 +37,11 @@ import {readInbox} from '../../notifications/src/store.js';
 import {setRecipientPreference} from '../../notifications/src/recipients.js';
 import {merchantAnalytics} from '../../analytics/src/analytics.js';
 import type {IssuerKeys} from '../../analytics/src/contract.js';
+import {StripeTestClient} from '../../payments/src/stripe-test-client.js';
+import {ingestStripeTestWebhook}
+ from '../../payments/src/stripe-test-webhook.js';
+import {startStripeTestLabPickup,reconcileStripeTestLabPickup}
+ from '../adapters/stripe-test-checkout-lab.js';
 import {hashPassword,issueSession}
  from '../../../src/modules/orders/lab-auth.ts';
 import {OrderServiceError} from '../../../src/modules/orders/checkout.ts';
@@ -648,4 +653,163 @@ test('LAB7 customer/merchant cross-tenant authorization and uncommitted pickup o
    expectedVersion:'1',commandKey:'lab7-revoked-'+id()
   }),isError('M11_MERCHANT_NOT_AUTHORIZED'));
  }finally{await f.close();}
+});
+
+function offlineStripeTest(){
+ const pi='pi_'+randomBytes(14).toString('hex');
+ let creates=0,gets=0,owner='',value=0;
+ const client=new StripeTestClient({
+  apiKey:'sk_test_M11_OFFLINE_FIXTURE_2026_NO_LIVE',
+  transport:async(endpoint,init)=>{
+   const path=String(endpoint),method=String(init?.method);
+   if(path.endsWith('/v1/payment_intents')&&method==='POST'){
+    creates++;
+    const args=new URLSearchParams(String(init?.body??''));
+    owner=String(args.get('metadata[m8_payment_id]'));
+    value=Number(args.get('amount'));
+   }else if(path.includes('/v1/payment_intents/')&&method==='GET'){
+    gets++;
+   }else{return new Response('{}',{status:404});}
+   return new Response(JSON.stringify({
+    id:pi,object:'payment_intent',livemode:false,
+    amount:value,currency:'mxn',
+    metadata:{m8_payment_id:owner},
+    status:gets>0?'succeeded':'requires_payment_method',
+    client_secret:pi+'_secret_TEST_ONLY'
+   }),{status:200});
+  }
+ });
+ return {client,pi,stats:()=>({creates,gets}),amount:()=>value};
+}
+function signedTestStripeWebhook(paymentId:string,pi:string,money:number,
+ opts:{livemode?:boolean,amountOverride?:number}={}){
+ const secret='whsec_M11_OFFLINE_TEST_WEBHOOK_2026_NOT_LIVE';
+ const event={id:'evt_'+randomBytes(13).toString('hex'),
+  type:'payment_intent.succeeded',livemode:opts.livemode??false,
+  data:{object:{id:pi,object:'payment_intent',
+   livemode:opts.livemode??false,amount:opts.amountOverride??money,
+   amount_received:opts.amountOverride??money,currency:'mxn',
+   status:'succeeded',metadata:{m8_payment_id:paymentId}}}};
+ const raw=Buffer.from(JSON.stringify(event)),
+  ts=String(Math.floor(Date.now()/1000));
+ const signature='t='+ts+',v1='+createHmac('sha256',secret)
+  .update(ts).update('.').update(raw).digest('hex');
+ return {raw,signature,secret};
+}
+test('LAB8 M6 hold -> real M1 awaiting_payment -> M8 Stripe TEST intent -> signed webhook -> M1 received',
+ {skip:!enabled,timeout:150000},async()=>{
+ const f=fixture();
+ const paymentsPool=new pg.Pool({
+  connectionString:process.env.PAYMENTS_CI_URL??'',max:12});
+ try{
+  const s=await setup(f.config,3),buyer=await customer(f.config),
+   gateway=offlineStripeTest();
+  const config={...f.config,paymentsPool},key='lab8-stripe-'+id();
+  const first=await startStripeTestLabPickup(config,gateway.client,{
+   m4SessionToken:buyer.sessionToken,cart:s.cart,idempotencyKey:key});
+  assert.equal(first.orderStatus,'awaiting_payment');
+  assert.equal(first.provider,'stripe_test');
+  assert.equal(first.testOnly,true);
+  assert.equal(first.commercialReady,false);
+  assert.equal(first.m6HoldConfirmed,false);
+  assert.equal(first.clientSecret,gateway.pi+'_secret_TEST_ONLY');
+  assert.equal(gateway.stats().creates,1);
+  assert.deepEqual(await physical(f.config,s),{m6:2,m1:2});
+  const awaiting=await f.config.ordersPool.query<{
+   status:string,payment_status:string,payment_method:string}>(
+   'SELECT status,payment_status,payment_method FROM tala_core_v2.orders '+
+   'WHERE id=$1::uuid',[first.orderId]);
+  assert.deepEqual(awaiting.rows[0],{
+   status:'awaiting_payment',payment_status:'pending',payment_method:'stripe'});
+  const absent=await reconcileStripeTestLabPickup(config,{
+   authenticated:true,canReconcileStripeTest:true},first.intentId);
+  assert.equal(absent.status,'awaiting_verified_test_webhook');
+  await assert.rejects(reconcileStripeTestLabPickup(config,{
+   authenticated:false,canReconcileStripeTest:true},first.intentId),
+   isError('M11_STRIPE_RECONCILIATION_FORBIDDEN'));
+  const invalid=signedTestStripeWebhook(first.paymentId,gateway.pi,
+   gateway.amount(),{amountOverride:gateway.amount()+1});
+  await assert.rejects(ingestStripeTestWebhook(paymentsPool,invalid.secret,
+   invalid.raw,invalid.signature),e=>
+    (e as {code?:string}).code==='M8_STRIPE_AMOUNT_MISMATCH');
+  const live=signedTestStripeWebhook(first.paymentId,gateway.pi,
+   gateway.amount(),{livemode:true});
+  await assert.rejects(ingestStripeTestWebhook(paymentsPool,live.secret,
+   live.raw,live.signature),e=>
+    (e as {code?:string}).code==='M8_STRIPE_LIVEMODE_FORBIDDEN');
+  const signed=signedTestStripeWebhook(first.paymentId,gateway.pi,
+   gateway.amount());
+  await assert.rejects(ingestStripeTestWebhook(paymentsPool,signed.secret,
+   signed.raw,signed.signature.replace(/.$/,'0')),e=>
+    (e as {code?:string}).code==='M8_STRIPE_SIGNATURE_INVALID');
+  assert.equal((await ingestStripeTestWebhook(paymentsPool,signed.secret,
+   signed.raw,signed.signature)).applied,true);
+  assert.equal((await ingestStripeTestWebhook(paymentsPool,signed.secret,
+   signed.raw,signed.signature)).replayed,true);
+  const result=await reconcileStripeTestLabPickup(config,{
+   authenticated:true,canReconcileStripeTest:true},first.intentId);
+  assert.equal(result.status,'received');
+  assert.equal(result.verified,true);
+  assert.equal(result.commercialReady,false);
+  assert.deepEqual(await physical(f.config,s),{m6:2,m1:2});
+  assert.equal((await inspectM6StockHold(f.config.restaurantsPool,
+   first.intentId))?.state,'confirmed');
+  const again=await reconcileStripeTestLabPickup(config,{
+   authenticated:true,canReconcileStripeTest:true},first.intentId);
+  assert.equal(again.replayed,true);
+  const row=await f.config.ordersPool.query<{status:string,payment_status:string,
+   total_minor:string,version:string}>(
+   'SELECT status,payment_status,total_minor::text,version::text '+
+   'FROM tala_core_v2.orders WHERE id=$1::uuid',[first.orderId]);
+  assert.equal(row.rows[0]?.status,'received');
+  assert.equal(row.rows[0]?.payment_status,'paid');
+  assert.equal(row.rows[0]?.total_minor,first.paymentStatus==='pending'?
+   String(gateway.amount()):'NOT_EXPECTED');
+  assert.equal(row.rows[0]?.version,'2');
+  const audit=await f.config.ordersPool.query<{n:number}>(
+   'SELECT count(*)::int AS n FROM tala_core_v2.outbox '+
+   "WHERE aggregate_id=$1::uuid AND event_type='order.payment.verified.test'",
+   [first.orderId]);
+  assert.equal(audit.rows[0]?.n,1);
+  const paymentFacts=await paymentsPool.query<{n:number}>(
+   'SELECT count(*)::int AS n FROM tala_payments_v2.stripe_test_facts '+
+   'WHERE payment_id=$1::uuid',[first.paymentId]);
+  assert.equal(paymentFacts.rows[0]?.n,1);
+  const retried=await startStripeTestLabPickup(config,gateway.client,{
+   m4SessionToken:buyer.sessionToken,cart:s.cart,idempotencyKey:key});
+  assert.equal(retried.orderId,first.orderId);
+  assert.equal(retried.paymentId,first.paymentId);
+  assert.equal(gateway.stats().creates,1);
+  const count=await f.config.ordersPool.query<{n:number}>(
+   'SELECT count(*)::int AS n FROM tala_core_v2.orders '+
+   'WHERE buyer_id=$1::uuid',[buyer.buyerId]);
+  assert.equal(count.rows[0]?.n,1);
+ }finally{await Promise.all([f.close(),paymentsPool.end()]);}
+});
+test('LAB8 M8 remains unverified without a signed webhook and keeps M6 physical hold',
+ {skip:!enabled,timeout:120000},async()=>{
+ const f=fixture();
+ const paymentsPool=new pg.Pool({
+  connectionString:process.env.PAYMENTS_CI_URL??'',max:10});
+ try{
+  const s=await setup(f.config,1),u=await customer(f.config),
+   provider=offlineStripeTest(),config={...f.config,paymentsPool},
+   key='lab8-pending-'+id();
+  const pending=await startStripeTestLabPickup(config,provider.client,{
+   m4SessionToken:u.sessionToken,cart:s.cart,idempotencyKey:key});
+  const r=await reconcileStripeTestLabPickup(config,{
+   authenticated:true,canReconcileStripeTest:true},pending.intentId);
+  assert.equal(r.paymentConfirmed,false);
+  assert.equal(r.status,'awaiting_verified_test_webhook');
+  assert.deepEqual(await physical(f.config,s),{m6:0,m1:0});
+  const hold=await inspectM6StockHold(f.config.restaurantsPool,pending.intentId);
+  assert.equal(hold?.state,'reserved');
+  assert.equal((await f.config.ordersPool.query<{status:string}>(
+   'SELECT status FROM tala_core_v2.orders WHERE id=$1::uuid',
+   [pending.orderId])).rows[0]?.status,'awaiting_payment');
+  await assert.rejects(startStripeTestLabPickup(config,provider.client,{
+   m4SessionToken:u.sessionToken,
+   cart:{...s.cart,lines:[{...s.cart.lines[0]!,quantity:2}]},
+   idempotencyKey:key}),isError('M11_STRIPE_IDEMPOTENCY_CONFLICT'));
+ }finally{await Promise.all([f.close(),paymentsPool.end()]);}
 });
