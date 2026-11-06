@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
 import pg from 'pg';
 import {IntegrationError} from '../src/events.js';
+import {createM11AuthenticatedLabGateway,listenM11AuthenticatedLabGateway}
+ from '../src/authenticated-gateway-lab.js';
 import {createIdentitySecurityLabGate} from '../adapters/identity-security-lab.js';
 import {linkControlledCustomerAccounts,createVerifiedM1OwnershipResolver,
  revokeLinkedCustomerAccount,type IdentityLinkConfig}
@@ -131,6 +133,31 @@ test('M11 LAB4: dual active M4/M1 sessions link customers; REAL M1 order scope +
   assert.equal(authorized.authorized,true);
   assert.equal(authorized.orderMutationPerformed,false);
   assert.equal(authorized.resourceId,orderA);
+  // RC2 real HTTP: the exact same M4 session, linked M1 order ownership
+  // and M9 scoped grant must pass. HTTP never executes cancellation.
+  const http=createM11AuthenticatedLabGateway({
+   env:{NODE_ENV:'test',CORE_V2_INTEGRATION_RUNTIME:'isolated-lab',
+    CORE_V2_INTEGRATION_WRITES_ENABLED:'false'},cancel:gate
+  });
+  const httpPort=await listenM11AuthenticatedLabGateway(http);
+  try{
+   const base='http://127.0.0.1:'+httpPort+'/v2/lab/orders/';
+   const headers={authorization:'Bearer '+m4a.session};
+   const mine=await fetch(base+orderA+'/can-cancel',{headers});
+   assert.equal(mine.status,200);
+   const proof=await mine.json() as Record<string,unknown>;
+   assert.equal(proof.authorized,true);
+   assert.equal(proof.orderMutationPerformed,false);
+   assert.equal(proof.resourceId,orderA);
+   assert.equal(mine.headers.get('access-control-allow-origin'),null);
+   assert.equal((await fetch(base+orderB+'/can-cancel',{headers})).status,403);
+   assert.equal((await fetch(base+orderA+'/can-cancel')).status,401);
+   assert.equal((await fetch('http://127.0.0.1:'+httpPort+'/v2/ready')).status,503);
+   assert.equal((await fetch('http://127.0.0.1:'+httpPort+'/v2/orders',{
+    method:'POST',headers:{'content-type':'application/json'},body:'{}'
+   })).status,503);
+  }finally{await new Promise<void>((resolve,reject)=>
+   http.close(error=>error?reject(error):resolve()));}
   await assert.rejects(gate.authorizeLabOrderCancel({
    sessionToken:m4a.session,orderId:orderB
   }),e=>errorCode(e,'M11_OWNERSHIP_NOT_VERIFIED'));
