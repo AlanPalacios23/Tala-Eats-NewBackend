@@ -605,7 +605,8 @@ test('LAB7 M4+M6+M1 pickup -> M11 real outbox -> M5 inbox + M10 completion + M3 
   assert.equal(posted.availableMinor,'0');
   assert.equal(posted.withdrawable,false);
   assert.equal(posted.cashCustodySettled,false);
-  assert.equal(posted.policyApproved,false);
+  assert.equal(posted.policyApproved,true);
+  assert.equal(posted.commercialReady,false);
   const postedAgain=await recordRealM1PickupHeldFinance({
    pickup:f.config,financePool
   },{authenticated:true,canRecordHeldFinance:true},order.orderId);
