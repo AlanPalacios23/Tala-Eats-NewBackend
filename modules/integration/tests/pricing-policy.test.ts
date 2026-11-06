@@ -39,6 +39,8 @@ test('owner approved 17% merchant and 7% client service pricing remains intact',
  assert.equal(small.raw.serviceFeeMinor,'315');
  assert.equal(small.raw.totalMinor,'4815');
  assert.equal(verifyApprovedM11PricingSnapshot(small).totalMinor,'4815');
+ const {currency:_currency,fulfillment:_fulfillment,...m1Legacy}=small.raw;
+ assert.equal(verifyApprovedM11PricingSnapshot({...small,raw:m1Legacy}).totalMinor,'4815');
  const large=orderFixture(49900n);
  assert.equal(large.raw.merchantCommissionMinor,'8483');
  assert.equal(large.raw.merchantPayableMinor,'41417');
