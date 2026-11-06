@@ -124,6 +124,7 @@ jobs:
           SECURITY_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_security_v2_test
           CORE_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_core_v2_test
           FINANCE_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_finance_v2_test
+          PAYMENTS_CI_URL: postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/tala_payments_v2_test
         run: npm --prefix modules/integration run check
       - name: Guard M11 DB migration from accidental use on another database
         run: |
@@ -161,6 +162,12 @@ jobs:
             'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' \
             -f modules/integration/migrations/006_m1_pickup_outbox_events.sql; then
             echo 'M11_PICKUP_MIGRATION_ESCAPED_LAB_GUARD'
+            exit 1
+          fi
+          if psql -v ON_ERROR_STOP=1 \
+            'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' \
+            -f modules/integration/migrations/007_stripe_test_checkout_intents.sql; then
+            echo 'M11_STRIPE_TEST_MIGRATION_ESCAPED_LAB_GUARD'
             exit 1
           fi
           test "$(psql -At             'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test'             -c "SELECT to_regnamespace('tala_integration_v2') IS NULL")" = "t"
