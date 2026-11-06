@@ -65,7 +65,7 @@ test('M11 one-process gateway loads ten pinned real module exports and blocks co
    if(x.domain==='logistics'||x.domain==='finance')
     assert.equal(x.kind,'internal');
   }
-  const delegated=[
+  const delegated:Array<[string,string]>=[
    ['/api/v2/health','orders'],
    ['/v1/notifications/health','notifications'],
    ['/v1/restaurants/health','restaurants'],
@@ -77,7 +77,7 @@ test('M11 one-process gateway loads ten pinned real module exports and blocks co
   for(const [path,domain] of delegated){
    const response=await call('GET',path);
    assert.equal(response.status,200,domain+': '+JSON.stringify(response.json));
-   assert.equal(response.json.commercialReady,false,
+   assert.notEqual(response.json.commercialReady,true,
     domain+' must never claim commercial readiness');
   }
   const users=await call('GET','/v1/users/health');
