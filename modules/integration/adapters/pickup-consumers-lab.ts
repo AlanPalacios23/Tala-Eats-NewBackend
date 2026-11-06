@@ -13,7 +13,7 @@ import type {NotificationRecipientResolver}
 import {IntegrationError,type IntegrationEvent,validUuid}
  from '../src/events.js';
 import {verifyApprovedM11PricingSnapshot}
- from '../src/pricing-policy.js';
+ from './pricing-policy-lab.js';
 import {proveLabPickupCashDelivery,verifiedM1PickupEvents,
  type PickupLabConfig} from './pickup-lifecycle-lab.js';
 // M3 is a JavaScript-only native ESM module with its own runtime contract.
