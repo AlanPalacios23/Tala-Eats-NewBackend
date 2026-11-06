@@ -53,13 +53,15 @@ test('M1 delivery 17/7 + delivery $39 + driver $32 + tip $5, M3 HELD',()=>{
  assert.ok(!held.lines.some((x:{accountCode:string})=>
   x.accountCode.includes('withdrawable')));
 });
-test('Release policy review detects existing $25 service-fee cap above $357.14',()=>{
+test('Release pricing enforces uncapped 7% above $357.14',()=>{
  const q=quoteOrder({lines:[{unitMinor:50000n,quantity:1}],
   fulfillment:'pickup',deliveryFeeMinor:0n,driverBaseMinor:0n,tipMinor:0n});
- // This exposes an EXISTING rate exception, without changing the owner-approved
- // 17% and 7% values or misrepresenting it as a flat 7% on larger baskets.
  assert.equal(q.merchantCommissionMinor,8500n);
- assert.equal(q.serviceFeeMinor,2500n);
- assert.notEqual(q.serviceFeeMinor,3500n);
- assert.equal(q.policyVersion,PRICING_POLICY_VERSION);
+ assert.equal(q.serviceFeeMinor,3500n);
+ assert.equal(q.merchantPayableMinor,41500n);
+ assert.equal(q.totalMinor,53500n);
+ assert.equal(q.platformGrossMinor,12000n);
+ const proposed=proposeHeldAllocation({orderId:id,restaurantId:merchant,
+  snapshot:snapshot(q,'pickup'),commandKey:'m11-rc1-large-basket-ledger'});
+ assert.equal(proposed.snapshot.serviceFeeMinor,'3500');
 });
