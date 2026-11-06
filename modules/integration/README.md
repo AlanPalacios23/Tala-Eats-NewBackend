@@ -4,6 +4,18 @@
 **Estado:** **LAB8 VALIDADO en CI:** pickup en efectivo LAB7 + pedido Stripe TEST LAB8 sobre M1/M6/M8, sin dinero LIVE; M3 HELD, M5/M10 comprobados en LAB7. **NO-GO LIVE, merge o Kali.**
 **El conjunto de fuentes aún NO equivale a un backend comercialmente integrado.**
 
+## RC2 — ingreso HTTP autenticado, aislado y sin mutaciones comerciales
+
+Se añadió `src/authenticated-gateway-lab.ts`, gateway independiente dentro de M11: `GET /v2/lab/orders/:id/can-cancel` usa un **puerto de host confiable** implementado mediante el adaptador M4→vínculo M1→M9 existente. Debe validar sesión M4 vigente, rol cliente, propiedad REAL del pedido en M1, vínculo no revocado y concesión M9 firmada y acotada. **No cancela pedidos ni permite checkout**; la decisión es solo de autorización y puede registrar auditoría de seguridad LAB.
+
+- Vinculación actual M4/M1 aún exige dos sesiones activas; no es la identidad unificada definitiva para producción.
+- Solo interfaz loopback, modo `isolated-lab`, tokens en encabezado Bearer; no se aceptan cookies ni consultas con tokens.
+- Falta de sesión: 401, otro propietario: 403; cualquier error inesperado: 503 sin filtrar datos internos. Sin CORS, con `no-store` y sin tokens ni PII en respuestas.
+- Todo endpoint mutador devuelve 503. `/v2/ready` **503 incluso con autorización correcta**.
+- Las pruebas incluyen negative paths y el montaje REAL de M4, M1 y M9 sobre PostgreSQL 16 aislado.
+
+**Esto avanza una parte de G3, pero todavía NO autoriza abrir acceso de clientes, LIVE ni unificar identidades.**
+
 ## LAB9 — ensamblaje real de los diez módulos en un único proceso (PR #16)
 
 - `src/assembly-lab9.ts` carga los **entrypoints reales** de M1–M10 desde los árboles fijados mediante `source-lock.json`, sin copiar lógica comercial a M11.
