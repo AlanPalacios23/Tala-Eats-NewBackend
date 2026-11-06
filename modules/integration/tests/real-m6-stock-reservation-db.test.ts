@@ -739,7 +739,7 @@ test('LAB8 M6 hold -> real M1 awaiting_payment -> M8 Stripe TEST intent -> signe
   const signed=signedTestStripeWebhook(first.paymentId,gateway.pi,
    gateway.amount());
   await assert.rejects(ingestM8StripeTestWebhook(paymentsPool,signed.secret,
-   signed.raw,signed.signature.replace(/.$/,'0')),e=>
+   signed.raw,signed.signature.replace(/.$/,x=>x==='0'?'1':'0')),e=>
     (e as {code?:string}).code==='M8_STRIPE_SIGNATURE_INVALID');
   assert.equal((await ingestM8StripeTestWebhook(paymentsPool,signed.secret,
    signed.raw,signed.signature)).applied,true);
