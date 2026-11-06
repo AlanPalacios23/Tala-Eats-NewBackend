@@ -7,11 +7,8 @@
 import {createHash} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 import {readAuthenticatedProfile} from '../../users/src/auth.js';
-import {createPayment,readPayment} from '../../payments/src/payments.js';
-import {createStripeTestIntent} from
- '../../payments/src/stripe-test-operations.js';
-import type {StripeTestClient} from
- '../../payments/src/stripe-test-client.js';
+import {createM8TestPayment,readM8TestPayment,issueM8TestIntent,
+ type M8TestClient} from './m8-test-boundary.js';
 import {createLabM1StripeAwaitingPayment,
  commitVerifiedLabStripePayment,type FrozenOfferLine}
  from '../m1-extension/stripe-test-orders.js';
@@ -158,7 +155,7 @@ async function m1ByKey(pool:Pool,buyerId:string,key:string){
  * do not release M6 inventory or create a second provider payment.
  */
 export async function startStripeTestLabPickup(config:StripeTestLabConfig,
- client:StripeTestClient,input:{m4SessionToken:string,
+ client:M8TestClient,input:{m4SessionToken:string,
  cart:LinkedPickupCart,idempotencyKey:string}){
  assertLab();
  if(!validKey(input.idempotencyKey))
@@ -207,14 +204,14 @@ export async function startStripeTestLabPickup(config:StripeTestLabConfig,
     throw new IntegrationError('M11_STRIPE_M1_ORDER_CONFLICT');
    await update(c,i.intent_id,'order_created',order.orderId);
    const money=Number(order.totalMinor);
-   const payment=await createPayment(config.paymentsPool,{
+   const payment=await createM8TestPayment(config.paymentsPool,{
     actorId:m4Id,canCreatePayments:true},{
     operationId:i.intent_id,orderRef:order.orderId,
     customerRef:m4Id,amountCents:money,currency:'MXN'});
    if(i.m8_payment_id!==null&&i.m8_payment_id!==payment.id)
     throw new IntegrationError('M11_STRIPE_M8_PAYMENT_CONFLICT');
    await update(c,i.intent_id,'payment_created',order.orderId,payment.id);
-   const provider=await createStripeTestIntent(config.paymentsPool,client,{
+   const provider=await issueM8TestIntent(config.paymentsPool,client,{
     actorId:m4Id,canCreatePayments:true},payment.id);
    if(provider.livemode!==false||provider.provider!=='stripe_test')
     throw new IntegrationError('M11_LIVE_PAYMENT_FORBIDDEN');
@@ -249,7 +246,7 @@ export async function reconcileStripeTestLabPickup(config:StripeTestLabConfig,
   await c.query('SELECT pg_advisory_lock(hashtextextended($1,8810))',
    ['stripe-v1|'+lock]);
   try{
-   const p=await readPayment(config.paymentsPool,{
+   const p=await readM8TestPayment(config.paymentsPool,{
     actorId:i.m4_customer_id,
     canReadPayments:true,canReadAllPayments:true},i.m8_payment_id);
    const order=await config.ordersPool.query<{id:string,

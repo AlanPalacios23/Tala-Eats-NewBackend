@@ -37,9 +37,8 @@ import {readInbox} from '../../notifications/src/store.js';
 import {setRecipientPreference} from '../../notifications/src/recipients.js';
 import {merchantAnalytics} from '../../analytics/src/analytics.js';
 import type {IssuerKeys} from '../../analytics/src/contract.js';
-import {StripeTestClient} from '../../payments/src/stripe-test-client.js';
-import {ingestStripeTestWebhook}
- from '../../payments/src/stripe-test-webhook.js';
+import {createM8StripeTestClient,ingestM8StripeTestWebhook}
+ from '../adapters/m8-test-boundary.js';
 import {startStripeTestLabPickup,reconcileStripeTestLabPickup}
  from '../adapters/stripe-test-checkout-lab.js';
 import {hashPassword,issueSession}
@@ -655,10 +654,10 @@ test('LAB7 customer/merchant cross-tenant authorization and uncommitted pickup o
  }finally{await f.close();}
 });
 
-function offlineStripeTest(){
+async function offlineStripeTest(){
  const pi='pi_'+randomBytes(14).toString('hex');
  let creates=0,gets=0,owner='',value=0;
- const client=new StripeTestClient({
+ const client=await createM8StripeTestClient({
   apiKey:'sk_test_M11_OFFLINE_FIXTURE_2026_NO_LIVE',
   transport:async(endpoint,init)=>{
    const path=String(endpoint),method=String(init?.method);
@@ -703,7 +702,7 @@ test('LAB8 M6 hold -> real M1 awaiting_payment -> M8 Stripe TEST intent -> signe
   connectionString:process.env.PAYMENTS_CI_URL??'',max:12});
  try{
   const s=await setup(f.config,3),buyer=await customer(f.config),
-   gateway=offlineStripeTest();
+   gateway=await offlineStripeTest();
   const config={...f.config,paymentsPool},key='lab8-stripe-'+id();
   const first=await startStripeTestLabPickup(config,gateway.client,{
    m4SessionToken:buyer.sessionToken,cart:s.cart,idempotencyKey:key});
@@ -729,22 +728,22 @@ test('LAB8 M6 hold -> real M1 awaiting_payment -> M8 Stripe TEST intent -> signe
    isError('M11_STRIPE_RECONCILIATION_FORBIDDEN'));
   const invalid=signedTestStripeWebhook(first.paymentId,gateway.pi,
    gateway.amount(),{amountOverride:gateway.amount()+1});
-  await assert.rejects(ingestStripeTestWebhook(paymentsPool,invalid.secret,
+  await assert.rejects(ingestM8StripeTestWebhook(paymentsPool,invalid.secret,
    invalid.raw,invalid.signature),e=>
     (e as {code?:string}).code==='M8_STRIPE_AMOUNT_MISMATCH');
   const live=signedTestStripeWebhook(first.paymentId,gateway.pi,
    gateway.amount(),{livemode:true});
-  await assert.rejects(ingestStripeTestWebhook(paymentsPool,live.secret,
+  await assert.rejects(ingestM8StripeTestWebhook(paymentsPool,live.secret,
    live.raw,live.signature),e=>
     (e as {code?:string}).code==='M8_STRIPE_LIVEMODE_FORBIDDEN');
   const signed=signedTestStripeWebhook(first.paymentId,gateway.pi,
    gateway.amount());
-  await assert.rejects(ingestStripeTestWebhook(paymentsPool,signed.secret,
+  await assert.rejects(ingestM8StripeTestWebhook(paymentsPool,signed.secret,
    signed.raw,signed.signature.replace(/.$/,'0')),e=>
     (e as {code?:string}).code==='M8_STRIPE_SIGNATURE_INVALID');
-  assert.equal((await ingestStripeTestWebhook(paymentsPool,signed.secret,
+  assert.equal((await ingestM8StripeTestWebhook(paymentsPool,signed.secret,
    signed.raw,signed.signature)).applied,true);
-  assert.equal('replayed' in (await ingestStripeTestWebhook(paymentsPool,signed.secret,
+  assert.equal('replayed' in (await ingestM8StripeTestWebhook(paymentsPool,signed.secret,
    signed.raw,signed.signature)),true);
   const result=await reconcileStripeTestLabPickup(config,{
    authenticated:true,canReconcileStripeTest:true},first.intentId);
@@ -756,7 +755,7 @@ test('LAB8 M6 hold -> real M1 awaiting_payment -> M8 Stripe TEST intent -> signe
    first.intentId))?.state,'confirmed');
   const again=await reconcileStripeTestLabPickup(config,{
    authenticated:true,canReconcileStripeTest:true},first.intentId);
-  assert.equal(again.replayed,true);
+  assert.equal('replayed' in again&&again.replayed,true);
   const row=await f.config.ordersPool.query<{status:string,payment_status:string,
    total_minor:string,version:string}>(
    'SELECT status,payment_status,total_minor::text,version::text '+
@@ -792,7 +791,7 @@ test('LAB8 M8 remains unverified without a signed webhook and keeps M6 physical 
   connectionString:process.env.PAYMENTS_CI_URL??'',max:10});
  try{
   const s=await setup(f.config,1),u=await customer(f.config),
-   provider=offlineStripeTest(),config={...f.config,paymentsPool},
+   provider=await offlineStripeTest(),config={...f.config,paymentsPool},
    key='lab8-pending-'+id();
   const pending=await startStripeTestLabPickup(config,provider.client,{
    m4SessionToken:u.sessionToken,cart:s.cart,idempotencyKey:key});
