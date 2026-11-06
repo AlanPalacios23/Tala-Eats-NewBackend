@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {quoteOrder,PRICING_POLICY_VERSION}
  from '../../../src/modules/orders/pricing.ts';
 import {verifyApprovedM11PricingSnapshot}
- from '../src/pricing-policy.js';
+ from '../adapters/pricing-policy-lab.js';
 import {IntegrationError} from '../src/events.js';
 
 const money=(value:bigint)=>value.toString();
