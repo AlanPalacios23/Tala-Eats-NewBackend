@@ -15,8 +15,8 @@ import {IntegrationError,type IntegrationEvent,validUuid}
 import {proveLabPickupCashDelivery,verifiedM1PickupEvents,
  type PickupLabConfig} from './pickup-lifecycle-lab.js';
 // M3 is a JavaScript-only native ESM module with its own runtime contract.
-// @ts-expect-error M3 intentionally ships .mjs without a TypeScript declaration
 import {recordLabHeldAllocation,readMerchantFinancialBalance}
+ // @ts-expect-error M3 intentionally ships .mjs without TS declarations
  from '../../finance/src/store.mjs';
 
 const check=()=>{
