@@ -136,7 +136,7 @@ async function customer(c:CatalogLabConfig){
   integrationPool:c.integrationPool,usersPool:c.usersPool,
   ordersPool:c.ordersPool,usersPasswordPepper:c.usersPasswordPepper
  },{m4SessionToken:login.sessionToken,m1SessionToken:m1Session});
- return {sessionToken:login.sessionToken,buyerId:m1.rows[0]!.id};
+ return {m4Id:reg.user.id,sessionToken:login.sessionToken,buyerId:m1.rows[0]!.id};
 }
 async function physical(c:CatalogLabConfig,s:Setup){
  const [m6,m1]=await Promise.all([
