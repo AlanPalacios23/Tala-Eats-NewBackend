@@ -31,6 +31,16 @@ export function createIntegrationLabHttpServer(input:{
     tenSourcesAssembled:true,commercialReady:false,
     tenRealPortsConnected:false,stagingSingleProcessReady:false});return;
   }
+  // Deployment readiness is deliberately distinct from process liveness.
+  // LAB tests may be green while production routes, money and recovery
+  // are still blocked. This endpoint must never report a false GO.
+  if(req.method==='GET'&&req.url==='/v1/integration/ready'){
+   response(503,{ready:false,commercialReady:false,
+    reason:'M11_COMMERCIAL_CONTRACTS_NOT_VALIDATED',
+    blockers:['single_authenticated_gateway','real_stripe_test_webhooks',
+     'delivery_e2e','financial_reconciliation',
+     'four_apps_e2e','staging_backup_restore_rollback']});return;
+  }
   if(req.method==='GET'&&req.url==='/v1/integration/modules'){
    response(200,{...allowed,
     modules:MODULES.map((name,i)=>({id:'M'+(i+1),name,
