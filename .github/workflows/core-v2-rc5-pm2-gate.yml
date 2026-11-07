@@ -1,0 +1,73 @@
+name: RC5 Kali PM2 single-checkout smoke (no Docker, no LIVE)
+on:
+  push:
+    branches:
+      - release/core-v2-rc5-pm2-single-stage
+  pull_request:
+    paths:
+      - 'deploy/kali-core-v2-pm2-stage.sh'
+      - 'scripts/pm2-core-v2-stage.ts'
+      - 'docs/CORE-V2-RC5-KALI-PM2.md'
+      - '.github/workflows/core-v2-rc5-pm2-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  one-pm2-app-loopback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/core-v2-rc5-pm2-single-stage
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify single-checkout native QA script, no Docker
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n deploy/kali-core-v2-pm2-stage.sh
+          if grep -Eiq 'docker[[:space:]]+(run|build|compose|stop|rm|start)|podman[[:space:]]' \
+            deploy/kali-core-v2-pm2-stage.sh; then
+            echo 'RC5_DOCKER_FORBIDDEN'
+            exit 1
+          fi
+          grep -Fq 'STAGE_PM2_HOME=' deploy/kali-core-v2-pm2-stage.sh
+          grep -Fq "PG_BIN=" deploy/kali-core-v2-pm2-stage.sh
+          grep -Fq 'initdb' deploy/kali-core-v2-pm2-stage.sh
+          grep -Fq '127.0.0.1' scripts/pm2-core-v2-stage.ts
+          grep -Fq 'CORE_V2_INTEGRATION_RUNTIME' scripts/pm2-core-v2-stage.ts
+          bash deploy/kali-core-v2-pm2-stage.sh --plan
+          node modules/integration/scripts/verify-snapshots.mjs
+          node --test tests/release-gates.test.mjs
+          node scripts/verify-core-v2-preprod.mjs
+      - name: Install isolated PM2 smoke dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm install -g pm2
+          npm install --ignore-scripts --no-audit --no-fund
+          for module in finance users notifications restaurants locations payments security analytics integration; do
+            npm --prefix "modules/$module" install --ignore-scripts --no-audit --no-fund
+          done
+      - name: PM2 stage must respond 200 health, 503 ready and 503 checkout
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash deploy/kali-core-v2-pm2-stage.sh --start \
+            "$(git rev-parse HEAD)" I_APPROVE_CORE_V2_PM2_ISOLATED_STAGE_ONLY
+          test "$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:18286/v2/health)" = 200
+          test "$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:18286/v2/ready)" = 503
+          test "$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' \
+            -X POST http://127.0.0.1:18286/api/v2/orders)" = 503
+          bash deploy/kali-core-v2-pm2-stage.sh --status
+      - name: Stop only stage PM2 app
+        if: always()
+        shell: bash
+        run: |
+          bash deploy/kali-core-v2-pm2-stage.sh --stop \
+            I_APPROVE_CORE_V2_PM2_ISOLATED_STAGE_ONLY || true
+          echo 'RC5_NO_COMMERCIAL_DEPLOYMENT'
