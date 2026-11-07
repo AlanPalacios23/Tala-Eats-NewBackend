@@ -71,9 +71,12 @@ cleanup_lab(){
   local status=$?
   trap - EXIT
   if [[ "$LAB_RUNNING" == 1 && -n "$LAB_DIR" ]]; then
-    "$PG_BIN/pg_ctl" -D "$LAB_DIR/data" -m fast -w stop >/dev/null 2>&1 ||
-      echo 'RC5_WARNING=TEMP_POSTGRES_STOP_FAILED' >&2
-    LAB_RUNNING=0
+    if "$PG_BIN/pg_ctl" -D "$LAB_DIR/data" -m fast -w stop >/dev/null 2>&1; then
+      LAB_RUNNING=0
+    else
+      echo 'RC5_WARNING=TEMP_POSTGRES_STOP_FAILED_CLUSTER_PRESERVED' >&2
+      LAB_DIR=""
+    fi
   fi
   if [[ -n "$LAB_DIR" && -f "$LAB_DIR/RC5_TEMP_CLUSTER_ONLY" &&
         "$LAB_DIR" == "$HOME/.cache/tala-corev2-pg18."* &&
