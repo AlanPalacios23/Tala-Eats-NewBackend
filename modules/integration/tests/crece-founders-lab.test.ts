@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import pg from 'pg';
 import {recordCreceInterestLab} from '../adapters/crece-founders-lab.js';
-import {createStore} from '../../restaurants/src/stores.js';
+import {createStore,setStaffRole} from '../../restaurants/src/stores.js';
 import {IntegrationError} from '../src/events.js';
 
 const integrationUrl=process.env.INTEGRATION_CI_URL??'';
@@ -34,6 +34,22 @@ test('Crece founder interest: real M6 owner, durable M11 record, replay and no a
   const repeated=await recordCreceInterestLab(config,{storeId,staffActorId,operationId});
   assert.equal(repeated.replayed,true);
   assert.equal(repeated.applicationId,first.applicationId);
+  // Multiple concurrent retries must all resolve to the same receipt,
+  // without leaking a unique-constraint error or duplicating events.
+  const concurrent=await Promise.all(Array.from({length:12},()=>
+   recordCreceInterestLab(config,{storeId,staffActorId,operationId})));
+  assert.ok(concurrent.every(x=>x.replayed&&x.applicationId===first.applicationId));
+  const editor=randomUUID();
+  await setStaffRole(restaurantsPool,{actorId:staffActorId},{
+   storeId,memberId:editor,role:'editor'
+  });
+  await assert.rejects(
+   recordCreceInterestLab(config,{
+    storeId,staffActorId:editor,operationId:randomUUID()
+   }),
+   (e:unknown)=>e instanceof IntegrationError&&
+    e.code==='M11_CRECE_OWNER_REQUIRED'
+  );
   const r=await integrationPool.query<{
    n:string;slots:string;events:string
   }>("SELECT (SELECT count(*)::text FROM tala_integration_v2.crece_founder_interest "+
@@ -43,6 +59,11 @@ test('Crece founder interest: real M6 owner, durable M11 record, replay and no a
     "(SELECT count(*)::text FROM tala_integration_v2.crece_founder_interest_events "+
     "WHERE application_id=$2::uuid) AS events",[storeId,first.applicationId]);
   assert.deepEqual(r.rows[0],{n:'1',slots:'0',events:'1'});
+  await assert.rejects(integrationPool.query(
+   'UPDATE tala_integration_v2.crece_founder_interest_events '+
+   'SET event_type=event_type WHERE application_id=$1::uuid',
+   [first.applicationId]
+  ));
   await assert.rejects(
    recordCreceInterestLab(config,{storeId,staffActorId,operationId:randomUUID()}),
    (e:unknown)=>e instanceof IntegrationError&&e.code==='M11_CRECE_ALREADY_REQUESTED');
