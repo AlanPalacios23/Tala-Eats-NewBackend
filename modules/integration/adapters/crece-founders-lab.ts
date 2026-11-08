@@ -40,15 +40,23 @@ export async function recordCreceInterestLab(config:Config,raw:{
  if(await getDatabase(config.integrationPool)!=='tala_integration_v2_test'||
    await getDatabase(config.restaurantsPool)!=='tala_restaurants_v2_test')
   throw new IntegrationError('M11_CRECE_LAB_ONLY');
- // M6 checks actual staff membership, not ownership inferred from email.
+ // Only the genuine M6 owner can express interest in commercial terms.
+ // An editor or manager must not be able to bind a business to this program.
  const store=await readStore(config.restaurantsPool,{actorId},storeId);
  if(!store?.store||store.store.id!==storeId)
   throw new IntegrationError('M11_CRECE_STORE_UNVERIFIED');
+ if(store.store.owner_id!==actorId)
+  throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
  const client=await config.integrationPool.connect();
  try{
   await client.query('BEGIN');
   await client.query("SET LOCAL statement_timeout='12000ms'");
   await client.query("SET LOCAL lock_timeout='3000ms'");
+  // A row lock cannot protect a missing row. Serialize concurrent first
+  // submissions for one store BEFORE SELECT to preserve idempotent replay.
+  await client.query(
+   'SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))',
+   ['crece-founder-interest:'+storeId]);
   const current=await client.query<InterestRow>(
    'SELECT application_id,m6_store_id,m6_staff_actor_id,operation_id,state,'+
    'selected_for_founders FROM tala_integration_v2.crece_founder_interest '+
