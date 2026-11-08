@@ -1,0 +1,85 @@
+/** Tala Eats Crece — M11 internal LAB interest queue.
+ * No public HTTP routes, no owner onboarding shortcut, no automatic
+ * discounts/commissions/founder places/marketing entitlements.
+ * M4/M9 commercial gateway is NOT ready; this adapter must never be
+ * reachable from customer-facing apps until issuer & resource gates pass.
+ */
+import type {Pool} from 'pg';
+import {readStore} from '../../restaurants/src/stores.js';
+import {IntegrationError,validUuid} from '../src/events.js';
+
+type Config={integrationPool:Pool;restaurantsPool:Pool};
+type InterestRow={
+ application_id:string;m6_store_id:string;m6_staff_actor_id:string;
+ operation_id:string;state:'interested';selected_for_founders:false;
+};
+export type CreceInterest={applicationId:string;state:'interested';
+ selectedForFounders:false;replayed:boolean};
+const getDatabase=async(pool:Pool)=>(
+ await pool.query<{name:string}>('SELECT current_database() AS name')
+).rows[0]?.name;
+function requireLab(){
+ if(process.env.NODE_ENV==='production' ||
+   process.env.CORE_V2_INTEGRATION_RUNTIME!=='isolated-lab' ||
+   process.env.CORE_V2_INTEGRATION_PUBLIC_HTTP_ENABLED==='true')
+  throw new IntegrationError('M11_CRECE_COMMERCIAL_DISABLED');
+}
+/** Internal host only. Actor must come from a separately authenticated host
+ * in future; real M6 SQL staff access is checked here. No client-supplied
+ * actor is ever acceptable for an HTTP adapter.
+ */
+export async function recordCreceInterestLab(config:Config,raw:{
+ storeId:string;staffActorId:string;operationId:string;
+}):Promise<CreceInterest>{
+ requireLab();
+ if(!config?.integrationPool||!config?.restaurantsPool)
+  throw new IntegrationError('M11_CRECE_CONFIG_INVALID');
+ const storeId=validUuid(raw?.storeId),
+  actorId=validUuid(raw?.staffActorId),
+  operationId=validUuid(raw?.operationId);
+ if(await getDatabase(config.integrationPool)!=='tala_integration_v2_test'||
+   await getDatabase(config.restaurantsPool)!=='tala_restaurants_v2_test')
+  throw new IntegrationError('M11_CRECE_LAB_ONLY');
+ // M6 checks actual staff membership, not ownership inferred from email.
+ const store=await readStore(config.restaurantsPool,{actorId},storeId);
+ if(!store?.store||store.store.id!==storeId)
+  throw new IntegrationError('M11_CRECE_STORE_UNVERIFIED');
+ const client=await config.integrationPool.connect();
+ try{
+  await client.query('BEGIN');
+  await client.query("SET LOCAL statement_timeout='12000ms'");
+  await client.query("SET LOCAL lock_timeout='3000ms'");
+  const current=await client.query<InterestRow>(
+   'SELECT application_id,m6_store_id,m6_staff_actor_id,operation_id,state,'+
+   'selected_for_founders FROM tala_integration_v2.crece_founder_interest '+
+   'WHERE m6_store_id=$1::uuid FOR UPDATE',[storeId]);
+  const prev=current.rows[0];
+  if(prev){
+   if(prev.operation_id!==operationId||prev.m6_staff_actor_id!==actorId)
+    throw new IntegrationError('M11_CRECE_ALREADY_REQUESTED');
+   await client.query('COMMIT');
+   return {applicationId:prev.application_id,state:'interested',
+    selectedForFounders:false,replayed:true};
+  }
+  const created=await client.query<InterestRow>(
+   'INSERT INTO tala_integration_v2.crece_founder_interest '+
+   '(m6_store_id,m6_staff_actor_id,operation_id) '+
+   'VALUES($1::uuid,$2::uuid,$3::uuid) '+
+   'RETURNING application_id,m6_store_id,m6_staff_actor_id,operation_id,state,'+
+   'selected_for_founders',[storeId,actorId,operationId]);
+  const row=created.rows[0];
+  if(!row||row.selected_for_founders)
+   throw new IntegrationError('M11_CRECE_INSERT_INVALID');
+  await client.query(
+   'INSERT INTO tala_integration_v2.crece_founder_interest_events '+
+   '(application_id) VALUES($1::uuid)',[row.application_id]);
+  await client.query('COMMIT');
+  return {applicationId:row.application_id,state:'interested',
+   selectedForFounders:false,replayed:false};
+ }catch(error){
+  await client.query('ROLLBACK').catch(()=>{});
+  if(error&&typeof error==='object'&&'code' in error&&error.code==='23505')
+   throw new IntegrationError('M11_CRECE_ALREADY_REQUESTED');
+  throw error;
+ }finally{client.release();}
+}
