@@ -96,3 +96,11 @@ No afirmar **«ventas garantizadas», «retiros automáticos», «publicidad ili
 ### Repositorio PWA
 
 La interfaz está en [tala-eats-version-web / rama Crece](https://github.com/AlanPalacios23/tala-eats-version-web/tree/feat/restaurantes-crece-fundadores-20261108), basada en la última rama del restaurante RC169, con vista pública y sección privada para comercios. Requiere revisión, CI, prueba del enlace público y despliegue estático aislado cuando se apruebe. **No está en Kali LIVE por este cambio.**
+
+## Endurecimiento del piloto: propietario y reintentos concurrentes (8/nov/2026)
+
+El adaptador LAB de interés exige ahora `owner_id` M6 idéntico al actor confirmado por M6, además de la sesión/contexto de confianza del host. Un **manager** o **editor** puede administrar determinadas funciones internas, pero no puede suscribir comercialmente al negocio ni registrar interés en Fundadores.
+
+La transacción M11 toma un **advisory transaction lock por identificador de tienda** antes de consultar si existe el registro. Doce solicitudes de LAB concurrentes con la misma clave deben recuperar el mismo `applicationId` (una creación + once replays), sin errores de unicidad ni eventos duplicados. Cambiar la clave o el actor es rechazado. Los eventos son append-only y el campo `selected_for_founders` permanece permanentemente `false` en esta migración LAB: **nadie puede asignar plazas desde este código**.
+
+[Línea M11 — CI PostgreSQL integrado](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42511523068). No equivale a habilitar un alta por HTTP ni disponer de M4/M9 comercial. Hasta crear las autorizaciones de ADMIN y registrar aceptación contractual, los prospectos deben continuar con el flujo de contacto y revisión manual.
