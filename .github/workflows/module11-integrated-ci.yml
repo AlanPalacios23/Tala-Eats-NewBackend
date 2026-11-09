@@ -170,6 +170,15 @@ jobs:
             echo 'M11_STRIPE_TEST_MIGRATION_ESCAPED_LAB_GUARD'
             exit 1
           fi
+          for file in modules/integration/migrations/008_crece_founders_lab.sql \
+            modules/integration/migrations/009_crece_founder_review_lab.sql; do
+            if psql -v ON_ERROR_STOP=1 \
+              'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' \
+              -f "$file"; then
+              echo "CRECE_MIGRATION_ESCAPED_LAB_GUARD=$file"
+              exit 1
+            fi
+          done
           test "$(psql -At             'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test'             -c "SELECT to_regnamespace('tala_integration_v2') IS NULL")" = "t"
       - name: Assert integrated code never enables commercial writes
         run: |
