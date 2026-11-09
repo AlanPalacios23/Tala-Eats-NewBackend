@@ -149,40 +149,44 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
    sessionToken:one.session,storeId:storeIds[0]!
   })).status,'declined');
 
-  // Approve ten independent merchants safely. All counted by SQL trigger.
-  const approvals:string[]=[];
-  for(let i=1;i<=10;i++){
-   const op=uid();
-   const result=await gate.review({
-    sessionToken:admin.session,applicationId:applications[i]!,
-    operationId:op,decision:'approved'
-   });
-   assert.equal(result.founderSeatGranted,true);
-   assert.equal(result.replayed,false);
-   approvals.push(op);
-  }
+  // Eleven simultaneously arrive for only TEN available seats.
+  // The PostgreSQL quota row is the arbiter, never the frontend count.
+  const candidates=applications.slice(1).map((app,index)=>({
+   applicationId:app,operationId:uid(),storeIndex:index+1
+  }));
+  const attempted=await Promise.allSettled(candidates.map(c=>
+   gate.review({sessionToken:admin.session,
+    applicationId:c.applicationId,operationId:c.operationId,
+    decision:'approved'})));
+  const winners=attempted.flatMap((result,index)=>
+   result.status==='fulfilled'?[{...candidates[index]!,
+    response:result.value}]:[]);
+  const losers=attempted.filter(r=>r.status==='rejected');
+  assert.equal(winners.length,10);
+  assert.equal(losers.length,1);
+  assert.ok(losers.every(r=>r.status==='rejected'&&
+   isErr('M11_CRECE_CAPACITY_FULL')(r.reason)));
+  assert.ok(winners.every(w=>w.response.founderSeatGranted&&
+   !w.response.replayed));
   const quota=await gate.listForAdmin({sessionToken:admin.session});
   assert.equal(quota.capacity,10);
   assert.equal(quota.seatsApproved,10);
   assert.equal(quota.seatsRemaining,0);
+  const firstWin=winners[0]!;
+  const ownerOfWin=[one,two,three][Math.floor(firstWin.storeIndex/4)]!;
   const verified=await gate.readMyStatus({
-   sessionToken:three.session,storeId:storeIds[10]!
+   sessionToken:ownerOfWin.session,storeId:storeIds[firstWin.storeIndex]!
   });
   assert.equal(verified.status,'approved');
   assert.equal(verified.founderSeatGranted,true);
 
-  // Same review operation replays without consuming an eleventh place.
+  // Exact same review operation replays without consuming an eleventh seat.
   const replay=await gate.review({
-   sessionToken:admin.session,applicationId:applications[10]!,
-   operationId:approvals[9]!,decision:'approved'
+   sessionToken:admin.session,applicationId:firstWin.applicationId,
+   operationId:firstWin.operationId,decision:'approved'
   });
   assert.equal(replay.replayed,true);
   assert.equal(replay.founderSeatGranted,true);
-
-  await assert.rejects(gate.review({
-   sessionToken:admin.session,applicationId:applications[11]!,
-   operationId:uid(),decision:'approved'
-  }),isErr('M11_CRECE_CAPACITY_FULL'));
   const count=await integrationPool.query<{approved_count:number}>(
    'SELECT approved_count FROM tala_integration_v2.crece_founder_quota');
   assert.equal(count.rows[0]!.approved_count,10);
