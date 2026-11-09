@@ -53,7 +53,8 @@ function listPage(input:{limit?:number;status?:AdminStatus;cursor?:AdminCursor})
    !Number.isFinite(Date.parse(cursor.createdAt))||
    new Date(cursor.createdAt).toISOString()!==cursor.createdAt)
    throw new IntegrationError('M11_CRECE_CURSOR_INVALID');
-  validUuid(cursor.applicationId);
+  try{validUuid(cursor.applicationId);}
+  catch{throw new IntegrationError('M11_CRECE_CURSOR_INVALID');}
  }
  return {limit,status:input.status??null,cursor:cursor??null};
 }
