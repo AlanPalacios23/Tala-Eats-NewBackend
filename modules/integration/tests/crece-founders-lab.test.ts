@@ -8,6 +8,7 @@ import {IntegrationError} from '../src/events.js';
 
 const integrationUrl=process.env.INTEGRATION_CI_URL??'';
 const restaurantsUrl=process.env.RESTAURANTS_CI_URL??'';
+const terms={termsAccepted:true as const,termsVersion:'crece-founder-pilot-2026-11-v1',marketingOptIn:false};
 const enabled=integrationUrl.includes('/tala_integration_v2_test')&&
  restaurantsUrl.includes('/tala_restaurants_v2_test');
 
@@ -27,17 +28,24 @@ test('Crece founder interest: real M6 owner, durable M11 record, replay and no a
   });
   const storeId=newStore.id,operationId=randomUUID();
   const config={integrationPool,restaurantsPool};
-  const first=await recordCreceInterestLab(config,{storeId,staffActorId,operationId});
+  const first=await recordCreceInterestLab(config,{storeId,staffActorId,operationId,...terms});
   assert.equal(first.state,'interested');
   assert.equal(first.selectedForFounders,false);
   assert.equal(first.replayed,false);
-  const repeated=await recordCreceInterestLab(config,{storeId,staffActorId,operationId});
+  const consent=await integrationPool.query<{agreement_version:string,marketing_opt_in:boolean}>(
+   'SELECT agreement_version,marketing_opt_in FROM tala_integration_v2.crece_founder_consents WHERE application_id=$1::uuid',
+   [first.applicationId]);
+  assert.deepEqual(consent.rows[0],{
+   agreement_version:'crece-founder-pilot-2026-11-v1',
+   marketing_opt_in:false
+  });
+  const repeated=await recordCreceInterestLab(config,{storeId,staffActorId,operationId,...terms});
   assert.equal(repeated.replayed,true);
   assert.equal(repeated.applicationId,first.applicationId);
   // Multiple concurrent retries must all resolve to the same receipt,
   // without leaking a unique-constraint error or duplicating events.
   const concurrent=await Promise.all(Array.from({length:12},()=>
-   recordCreceInterestLab(config,{storeId,staffActorId,operationId})));
+   recordCreceInterestLab(config,{storeId,staffActorId,operationId,...terms})));
   assert.ok(concurrent.every(x=>x.replayed&&x.applicationId===first.applicationId));
   const editor=randomUUID();
   await setStaffRole(restaurantsPool,{actorId:staffActorId},{
@@ -45,7 +53,7 @@ test('Crece founder interest: real M6 owner, durable M11 record, replay and no a
   });
   await assert.rejects(
    recordCreceInterestLab(config,{
-    storeId,staffActorId:editor,operationId:randomUUID()
+    storeId,staffActorId:editor,operationId:randomUUID(),...terms
    }),
    (e:unknown)=>e instanceof IntegrationError&&
     e.code==='M11_CRECE_OWNER_REQUIRED'
@@ -65,14 +73,14 @@ test('Crece founder interest: real M6 owner, durable M11 record, replay and no a
    [first.applicationId]
   ));
   await assert.rejects(
-   recordCreceInterestLab(config,{storeId,staffActorId,operationId:randomUUID()}),
+   recordCreceInterestLab(config,{storeId,staffActorId,operationId:randomUUID(),...terms}),
    (e:unknown)=>e instanceof IntegrationError&&e.code==='M11_CRECE_ALREADY_REQUESTED');
   await assert.rejects(
-   recordCreceInterestLab(config,{storeId,staffActorId:randomUUID(),operationId:randomUUID()})
+   recordCreceInterestLab(config,{storeId,staffActorId:randomUUID(),operationId:randomUUID(),...terms})
   );
   process.env.NODE_ENV='production';
   await assert.rejects(
-   recordCreceInterestLab(config,{storeId,staffActorId,operationId}),
+   recordCreceInterestLab(config,{storeId,staffActorId,operationId,...terms}),
    (e:unknown)=>e instanceof IntegrationError&&e.code==='M11_CRECE_COMMERCIAL_DISABLED');
  }finally{
   if(originalRuntime===undefined)delete process.env.CORE_V2_INTEGRATION_RUNTIME;
