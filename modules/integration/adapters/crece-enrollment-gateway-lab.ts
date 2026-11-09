@@ -37,6 +37,26 @@ type ReviewRow={
  application_id:string;operation_id:string;reviewer_id:string;
  decision:Decision;reason_code:Reason|null
 };
+type AdminStatus='interested'|Decision;
+type AdminCursor={createdAt:string;applicationId:string};
+function listPage(input:{limit?:number;status?:AdminStatus;cursor?:AdminCursor}){
+ const limit=input.limit??25;
+ if(!Number.isSafeInteger(limit)||limit<1||limit>100)
+  throw new IntegrationError('M11_CRECE_PAGE_LIMIT_INVALID');
+ if(input.status!==undefined&&
+    !['interested','approved','declined'].includes(input.status))
+  throw new IntegrationError('M11_CRECE_STATUS_FILTER_INVALID');
+ const cursor=input.cursor;
+ if(cursor!==undefined){
+  if(!cursor||typeof cursor.createdAt!=='string'||
+   !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(cursor.createdAt)||
+   !Number.isFinite(Date.parse(cursor.createdAt))||
+   new Date(cursor.createdAt).toISOString()!==cursor.createdAt)
+   throw new IntegrationError('M11_CRECE_CURSOR_INVALID');
+  validUuid(cursor.applicationId);
+ }
+ return {limit,status:input.status??null,cursor:cursor??null};
+}
 
 function labOnly(){
  if(process.env.NODE_ENV==='production'||
@@ -141,36 +161,52 @@ export function createCreceEnrollmentLab(config:Config){
     consentRecorded:true as const,
     founderSeatGranted:false as const});
   },
-  /** Admin query deliberately omits personal data and email; 100 max.
-   * Access is M4 staff/owner + M9 one-use scoped program grant.
+  /** Paged admin query contains only safe IDs and status (no PII).
+   * Cursor is keyset-based and never skips over 100+ applicants.
+   * Access remains M4 MFA staff/owner + M9 scoped one-use grant.
    */
-  listForAdmin:async(input:{sessionToken:string})=>{
+  listForAdmin:async(input:{
+   sessionToken:string;limit?:number;status?:AdminStatus;
+   cursor?:AdminCursor
+  })=>{
    configCheck(config);
+   const {limit,status,cursor}=listPage(input);
    const actorId=await authenticated(config,input.sessionToken,['staff','owner']);
    await grant(config,actorId,'crece.founder.list',LIST_RESOURCE);
    return tx(config.integrationPool,async c=>{
     const rows=await c.query<{
      application_id:string;m6_store_id:string;
-     created_at:string;decision:Decision|null;
+     created_at:Date;decision:Decision|null;
     }>(
      'SELECT i.application_id,i.m6_store_id,i.created_at,'+
      'r.decision FROM tala_integration_v2.crece_founder_interest i '+
      'LEFT JOIN tala_integration_v2.crece_founder_reviews r '+
      'ON r.application_id=i.application_id '+
-     'JOIN tala_integration_v2.crece_founder_consents c '+
-     'ON c.application_id=i.application_id '+
-     'ORDER BY i.created_at ASC,i.application_id ASC LIMIT 100');
+     'JOIN tala_integration_v2.crece_founder_consents consent '+
+     'ON consent.application_id=i.application_id '+
+     'WHERE ($1::timestamptz IS NULL OR (i.created_at,i.application_id)>'+
+     '($1::timestamptz,$2::uuid)) '+
+     'AND ($3::text IS NULL OR COALESCE(r.decision,\'interested\')=$3) '+
+     'ORDER BY i.created_at ASC,i.application_id ASC LIMIT $4',
+     [cursor?.createdAt??null,cursor?.applicationId??null,status,limit+1]);
     const quota=await c.query<{capacity:number;approved_count:number}>(
      'SELECT capacity,approved_count FROM tala_integration_v2.crece_founder_quota '+
      'WHERE program_id=$1',[PILOT]);
     const cap=quota.rows[0];
     if(!cap)throw new IntegrationError('M11_CRECE_QUOTA_UNAVAILABLE');
+    const visible=rows.rows.slice(0,limit);
+    const last=visible.at(-1);
+    const nextCursor=rows.rows.length>limit&&last?
+     Object.freeze({createdAt:new Date(last.created_at).toISOString(),
+      applicationId:last.application_id}):null;
     return Object.freeze({capacity:cap.capacity,
      seatsApproved:cap.approved_count,
      seatsRemaining:cap.capacity-cap.approved_count,
-     applicants:rows.rows.map(r=>Object.freeze({
+     nextCursor,
+     applicants:visible.map(r=>Object.freeze({
       applicationId:r.application_id,storeId:r.m6_store_id,
-      createdAt:r.created_at,status:r.decision??'interested'
+      createdAt:new Date(r.created_at).toISOString(),
+      status:r.decision??'interested'
      }))});
    },true);
   },
@@ -195,8 +231,11 @@ export function createCreceEnrollmentLab(config:Config){
     ['staff','owner']);
    await grant(config,actorId,'crece.founder.review',applicationId);
    return tx(config.integrationPool,async c=>{
-    const interest=await c.query<{application_id:string}>(
-     'SELECT application_id FROM tala_integration_v2.crece_founder_interest '+
+    const interest=await c.query<{
+     application_id:string;m6_store_id:string;m6_staff_actor_id:string
+    }>(
+     'SELECT application_id,m6_store_id,m6_staff_actor_id '+
+     'FROM tala_integration_v2.crece_founder_interest '+
      'WHERE application_id=$1::uuid FOR UPDATE',[applicationId]);
     if(!interest.rows[0])
      throw new IntegrationError('M11_CRECE_APPLICATION_NOT_FOUND');
@@ -213,6 +252,30 @@ export function createCreceEnrollmentLab(config:Config){
       throw new IntegrationError('M11_CRECE_ALREADY_REVIEWED');
      return Object.freeze({applicationId,decision:existing.decision,
       replayed:true,founderSeatGranted:existing.decision==='approved'});
+    }
+    if(input.decision==='approved'){
+     // Review may happen days after application. Recheck the applicant's
+     // CURRENT M4 account role and active status, plus CURRENT M6 owner.
+     // This denies revoked/changed business owners, even when original
+     // consent was valid. Never trust the stale interest row as authority.
+     const applicant=interest.rows[0]!;
+     const state=await config.usersPool.query<{
+      role:string;status:string;verified:boolean
+     }>(
+      'SELECT roles.role,a.status,'+
+      '(a.email_verified_at IS NOT NULL) AS verified '+
+      'FROM tala_users_v2.accounts a '+
+      'JOIN tala_users_v2.account_roles roles ON roles.account_id=a.id '+
+      'WHERE a.id=$1::uuid',[applicant.m6_staff_actor_id]);
+     if(state.rows[0]?.role!=='merchant'||
+        state.rows[0]?.status!=='active'||
+        state.rows[0]?.verified!==true)
+      throw new IntegrationError('M11_CRECE_APPLICANT_NO_LONGER_ELIGIBLE');
+     const owned=await readStore(config.restaurantsPool,
+      {actorId:applicant.m6_staff_actor_id},applicant.m6_store_id)
+      .catch(()=>null);
+     if(owned?.store?.owner_id!==applicant.m6_staff_actor_id)
+      throw new IntegrationError('M11_CRECE_APPLICANT_NO_LONGER_ELIGIBLE');
     }
     try{
      await c.query(
