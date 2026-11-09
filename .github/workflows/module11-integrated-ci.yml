@@ -171,7 +171,8 @@ jobs:
             exit 1
           fi
           for file in modules/integration/migrations/008_crece_founders_lab.sql \
-            modules/integration/migrations/009_crece_founder_review_lab.sql; do
+            modules/integration/migrations/009_crece_founder_review_lab.sql \
+            modules/integration/migrations/010_crece_founder_ledger_integrity_lab.sql; do
             if psql -v ON_ERROR_STOP=1 \
               'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' \
               -f "$file"; then
