@@ -126,9 +126,61 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
    assert.equal(res.founderSeatGranted,false);
    storeIds.push(storeId);applications.push(res.applicationId);
   }
+  const initial=await gate.readMyStatus({
+   sessionToken:one.session,storeId:storeIds[0]!
+  });
+  assert.equal(initial.status,'interested');
+  assert.equal(initial.marketingOptIn,false);
+  // Optional marketing can be given and later withdrawn by the original
+  // verified M6 owner. Signed founder terms are never rewritten.
+  const marketingOperation=uid();
+  const changes=await Promise.all(Array.from({length:4},()=>
+   gate.updateMarketingPreference({
+    sessionToken:one.session,storeId:storeIds[0]!,
+    operationId:marketingOperation,marketingOptIn:true
+   })));
+  assert.equal(changes.filter(x=>!x.replayed).length,1);
+  assert.equal(changes.filter(x=>x.replayed).length,3);
   assert.equal((await gate.readMyStatus({
    sessionToken:one.session,storeId:storeIds[0]!
-  })).status,'interested');
+  })).marketingOptIn,true);
+  await assert.rejects(gate.updateMarketingPreference({
+   sessionToken:two.session,storeId:storeIds[0]!,
+   operationId:uid(),marketingOptIn:false
+  }),isErr('M11_CRECE_OWNER_REQUIRED'));
+  await assert.rejects(gate.updateMarketingPreference({
+   sessionToken:one.session,storeId:storeIds[0]!,
+   operationId:marketingOperation,marketingOptIn:false
+  }),isErr('M11_CRECE_OPERATION_CONFLICT'));
+  const optOut=await gate.updateMarketingPreference({
+   sessionToken:one.session,storeId:storeIds[0]!,
+   operationId:uid(),marketingOptIn:false
+  });
+  assert.equal(optOut.replayed,false);
+  assert.equal((await gate.readMyStatus({
+   sessionToken:one.session,storeId:storeIds[0]!
+  })).marketingOptIn,false);
+  const auditMarketing=await integrationPool.query<{
+   total:number;optIns:number;optOuts:number
+  }>(
+   'SELECT count(*)::int AS total,'+
+   'count(*) FILTER (WHERE opted_in)::int AS "optIns",'+
+   'count(*) FILTER (WHERE NOT opted_in)::int AS "optOuts" '+
+   'FROM tala_integration_v2.crece_founder_marketing_events '+
+   'WHERE application_id=$1::uuid',[applications[0]]);
+  assert.deepEqual(auditMarketing.rows[0],{
+   total:2,optIns:1,optOuts:1
+  });
+  await assert.rejects(integrationPool.query(
+   'DELETE FROM tala_integration_v2.crece_founder_marketing_events '+
+   'WHERE application_id=$1::uuid',[applications[0]]
+  ));
+  const signedConsent=await integrationPool.query<{
+   marketing_opt_in:boolean
+  }>(
+   'SELECT marketing_opt_in FROM tala_integration_v2.crece_founder_consents '+
+   'WHERE application_id=$1::uuid',[applications[0]]);
+  assert.equal(signedConsent.rows[0]?.marketing_opt_in,false);
   await assert.rejects(gate.readMyStatus({
    sessionToken:two.session,storeId:storeIds[0]!
   }),isErr('M11_CRECE_OWNER_REQUIRED'));
