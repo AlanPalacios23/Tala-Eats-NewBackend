@@ -393,7 +393,8 @@ export function createCreceEnrollmentLab(config:Config){
     const row=data.rows[0];
     if(!row)return Object.freeze({
      status:'not_requested' as const,
-     founderSeatGranted:false as const});
+     founderSeatGranted:false as const,
+     marketingOptIn:false as const});
     return Object.freeze({status:row.decision??'interested',
      founderSeatGranted:row.decision==='approved',
      agreementVersion:row.agreement_version,
