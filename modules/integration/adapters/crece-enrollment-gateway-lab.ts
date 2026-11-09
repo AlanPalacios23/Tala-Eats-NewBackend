@@ -184,10 +184,12 @@ export function createCreceEnrollmentLab(config:Config){
      'ON r.application_id=i.application_id '+
      'JOIN tala_integration_v2.crece_founder_consents consent '+
      'ON consent.application_id=i.application_id '+
-     'WHERE ($1::timestamptz IS NULL OR (i.created_at,i.application_id)>'+
+     'WHERE ($1::timestamptz IS NULL OR '+
+     '(date_trunc(\'milliseconds\',i.created_at),i.application_id)>'+
      '($1::timestamptz,$2::uuid)) '+
      'AND ($3::text IS NULL OR COALESCE(r.decision,\'interested\')=$3) '+
-     'ORDER BY i.created_at ASC,i.application_id ASC LIMIT $4',
+     'ORDER BY date_trunc(\'milliseconds\',i.created_at) ASC,'+
+     'i.application_id ASC LIMIT $4',
      [cursor?.createdAt??null,cursor?.applicationId??null,status,limit+1]);
     const quota=await c.query<{capacity:number;approved_count:number}>(
      'SELECT capacity,approved_count FROM tala_integration_v2.crece_founder_quota '+
