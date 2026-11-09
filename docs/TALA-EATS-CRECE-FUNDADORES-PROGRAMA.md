@@ -135,3 +135,16 @@ Para que el programa no sea únicamente una presentación, se añadió el flujo 
 - **Pruebas integradas reales.** Incluyen tres páginas de solicitudes sin duplicados, resultados filtrados, cursor malformado, cambio del rol M4 del interesado tras solicitar, 11 aprobaciones concurrentes para 10 plazas y bloqueo fuera del entorno de laboratorio.
 
 **Pendiente para producción:** validación del contexto LIVE de identidad y el convenio legal, endpoints autenticados, administración real en la app, campañas de publicidad, y finalización G3–G9 del backend. Estas funciones continúan en **LAB / NO-GO**, no se han desplegado al servidor Kali.
+
+## RC8 — inmutabilidad, conciliación y control de privacidad (9/nov/2026)
+
+**M11 LAB** agrega dos migraciones avanzadas de integridad:
+
+- `010_crece_founder_ledger_integrity_lab.sql`: las solicitudes, las condiciones aceptadas y la titularidad registrada se vuelven **inmutables**. Dos triggers transaccionales diferidos verifican que `approved_count` sea exactamente igual al número de decisiones `approved`, incluso si alguien intenta modificar directamente el contador SQL. Una aprobación sigue exigiendo M4 activo/verificado, propiedad M6 actual y M9 por recurso.
+- `011_crece_revocable_marketing_lab.sql`: la autorización para recibir mensajes promocionales puede **retirarse** sin revocar la solicitud ni sobrescribir la aceptación contractual. Cada cambio tiene `operation_id` único y queda como evento append-only en `crece_founder_marketing_events`. El valor vigente se obtiene del evento más reciente o, si no hay cambios, del consentimiento original.
+
+**Interfaz interna, NO endpoint público:** `updateMarketingPreference({sessionToken,storeId,operationId,marketingOptIn})` exige sesión M4 de comerciante, propietario M6 y el permiso `crece.marketing.preference` de M9. Bloquea modificaciones de otros comercios, respuestas sin booleano, reutilizaciones incompatibles de operación y accesos fuera de LAB. `readMyStatus` consulta el estado publicitario vigente además del estatus Fundadores. La auditoría original sigue intacta.
+
+**Pruebas PostgreSQL:** reintentos concurrentes de una misma operación, cambio de sí→no, lectura del valor efectivo, rechazo de otro propietario, unicidad de eventos y rechazo de modificaciones directas del contador de plazas. La CI también rechaza 010 y 011 cuando se ejecutan contra bases de datos con nombres ajenos al laboratorio.
+
+**Pendientes antes de usarlo con comercios reales:** aviso de privacidad aprobado, mecanismo de consentimiento/retirada accesible en el frontend a través de un gateway comercial seguro, política de retención/supresión compatible con obligaciones fiscales, y conexión de las sesiones/IDs reales del sistema LIVE. No enviar campañas por este nuevo código; las migraciones de laboratorio **no** se aplican a LIVE y no se ha desplegado nada en Kali.
