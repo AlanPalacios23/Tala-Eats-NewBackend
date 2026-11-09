@@ -161,6 +161,10 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
    sessionToken:admin.session,cursor:{createdAt:'bad',applicationId:uid()}
   }),isErr('M11_CRECE_CURSOR_INVALID'));
   await assert.rejects(gate.listForAdmin({
+   sessionToken:admin.session,
+   cursor:{createdAt:new Date().toISOString(),applicationId:'invalid'}
+  }),isErr('M11_CRECE_CURSOR_INVALID'));
+  await assert.rejects(gate.listForAdmin({
    sessionToken:admin.session,status:'unknown' as 'approved'
   }),isErr('M11_CRECE_STATUS_FILTER_INVALID'));
   assert.ok(!JSON.stringify(before).includes(one.email));
