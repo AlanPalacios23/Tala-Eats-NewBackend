@@ -17,7 +17,8 @@ export const ACTIONS={
  'profile.export':{limit:3,stepUp:true},
  'crece.interest.submit':{limit:6,stepUp:false},
  'crece.founder.review':{limit:15,stepUp:false},
- 'crece.founder.list':{limit:40,stepUp:false}
+ 'crece.founder.list':{limit:40,stepUp:false},
+ 'crece.marketing.preference':{limit:60,stepUp:false}
 } as const;
 export type SecurityAction=keyof typeof ACTIONS;
 export type Assurance='session'|'step_up';
