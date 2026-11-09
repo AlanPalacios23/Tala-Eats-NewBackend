@@ -240,6 +240,32 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
    "SELECT count(*)::int AS n FROM tala_integration_v2.crece_founder_review_events "+
    'WHERE application_id=ANY($1::uuid[])',[applications]);
   assert.equal(audit.rows[0]?.n,11); // 10 approved, 1 declined
+  // SQL ledger integrity: an internal operator must not silently forge
+  // eligibility, erase signed consent or edit the ten-seat counter.
+  await assert.rejects(integrationPool.query(
+   'UPDATE tala_integration_v2.crece_founder_interest '+
+   'SET marketing_opt_in=true WHERE application_id=$1::uuid',
+   [applications[0]]
+  ));
+  await assert.rejects(integrationPool.query(
+   'DELETE FROM tala_integration_v2.crece_founder_interest '+
+   'WHERE application_id=$1::uuid',[applications[0]]
+  ));
+  await assert.rejects(integrationPool.query(
+   'UPDATE tala_integration_v2.crece_founder_quota '+
+   'SET approved_count=9 WHERE program_id=$1',
+   ['crece-founder-pilot-2026-11-v1']
+  ),(error:unknown)=>error instanceof Error&&
+   error.message.includes('CRECE_FOUNDER_QUOTA_LEDGER_MISMATCH'));
+  const reconciled=await integrationPool.query<{
+   counter:number;approved:number
+  }>(
+   'SELECT (SELECT approved_count FROM tala_integration_v2.crece_founder_quota '+
+   'WHERE program_id=$1) AS counter,'+
+   '(SELECT count(*)::int FROM tala_integration_v2.crece_founder_reviews '+
+   "WHERE decision='approved') AS approved",['crece-founder-pilot-2026-11-v1']);
+  assert.equal(reconciled.rows[0]?.counter,10);
+  assert.equal(reconciled.rows[0]?.approved,10);
   await assert.rejects(integrationPool.query(
    'DELETE FROM tala_integration_v2.crece_founder_reviews WHERE application_id=$1::uuid',
    [applications[1]]));
