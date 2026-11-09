@@ -123,3 +123,15 @@ Para que el programa no sea únicamente una presentación, se añadió el flujo 
 - `approval=true` del programa Fundadores **no equivale a restaurante activado**, saldo pagado, campaña publicada, usuario verificado contractualmente ni GO del backend; siguen pendientes contrato legal real, fraude, soporte, publicidad, identidad cruzada entre el LIVE actual y M4/M6, G3–G9 y reconciliación financiera.
 - Este conjunto de pruebas se ejecuta exclusivamente en **GitHub-hosted Linux con PostgreSQL temporal**. Que la CI use contenedores desechables en GitHub no significa introducir Docker a Kali: el servidor de usuario permanece con PM2 y PostgreSQL 18.
 - El plan de desplegar Core v2 en Kali reutiliza la única carpeta staging ya prevista. No hay instrucciones para reiniciar/reemplazar LIVE.
+
+## RC7 — endurecimiento de revisión y crecimiento de la bandeja ADMIN (9/nov/2026)
+
+**Mejoras implementadas en el mismo monolito modular:**
+
+- **Elegibilidad revalidada en la aprobación.** Antes de asignar una plaza, el proceso consulta de nuevo M4 (cuenta activa, email verificado y rol comerciante vigente) y M6 (propietario actual de la tienda). Si el interesado perdió su rol, cambió de propietario o su cuenta dejó de estar activa, rechaza `M11_CRECE_APPLICANT_NO_LONGER_ELIGIBLE`. Un consentimiento antiguo no da derecho perpetuo a recibir una plaza.
+- **Bandeja paginada por cursor.** ADMIN puede consultar hasta 100 solicitudes por página, con filtros `interested`, `approved` o `declined`. El orden combina fecha e identificador UUID. Para evitar registros duplicados al pasar de página, el cursor usa la misma precisión de milisegundos que los objetos Date serializados por Node, aunque PostgreSQL registre microsegundos.
+- **Errores de cursor estables.** Límites fuera de rango, marcas de tiempo o UUID inválidos se rechazan con errores tipados de M11; no se expone SQL o datos sensibles al cliente.
+- **No hay relajación de cuota.** Permanecen la aprobación atómica de 10 plazas, consentimiento obligatorio, control MFA de ADMIN, grants M9 por acción y recurso, idempotencia y auditoría inmutable.
+- **Pruebas integradas reales.** Incluyen tres páginas de solicitudes sin duplicados, resultados filtrados, cursor malformado, cambio del rol M4 del interesado tras solicitar, 11 aprobaciones concurrentes para 10 plazas y bloqueo fuera del entorno de laboratorio.
+
+**Pendiente para producción:** validación del contexto LIVE de identidad y el convenio legal, endpoints autenticados, administración real en la app, campañas de publicidad, y finalización G3–G9 del backend. Estas funciones continúan en **LAB / NO-GO**, no se han desplegado al servidor Kali.
