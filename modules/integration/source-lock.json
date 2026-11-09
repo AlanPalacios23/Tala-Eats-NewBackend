@@ -66,8 +66,8 @@
       "domain": "security",
       "source": "feat/core-v2-crece-fundadores-lab-20261108",
       "path": "modules/security",
-      "tree": "0cf5a5fe9e716c73677e9a210a0caacb9d3aeb6a",
-      "note": "M9 deliberately extended with short-lived resource-scoped Crece interest/review/list actions for isolated LAB; original source tree c5332c7243d4f0c4e4d18ee5e6c9f31e101b9c36. No LIVE security promotion, full M9 provenance recorded in PR #24."
+      "tree": "4c9ec6ce6ecd2c6c8333e5607c1995e702d5c318",
+      "note": "M9 deliberately extended with short-lived resource-scoped Crece interest/review/list actions for isolated LAB; original source tree c5332c7243d4f0c4e4d18ee5e6c9f31e101b9c36. No LIVE security promotion, full M9 provenance recorded in PR #24. LAB grants tests updated to preserve all nine known actions."
     },
     {
       "id": "M10",
