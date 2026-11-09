@@ -43,7 +43,8 @@ test('M9 LAB rejects hostile schema, expiry, unknown scope and improperly issued
  err(()=>signHostGrant({...g,audience:'other' as HostGrant['audience']},
    'rot01',keyring),'M9_GRANT_INVALID');
  err(()=>signHostGrant(g,'rot01',{rot01:randomBytes(8)}),'M9_KEY_INVALID');
- assert.equal(Object.keys(ACTIONS).length,9);
+ assert.equal(Object.keys(ACTIONS).length,10);
+ assert.deepEqual(ACTIONS['crece.marketing.preference'],{limit:60,stepUp:false});
  assert.deepEqual(ACTIONS['crece.interest.submit'],{limit:6,stepUp:false});
  assert.deepEqual(ACTIONS['crece.founder.review'],{limit:15,stepUp:false});
  assert.deepEqual(ACTIONS['crece.founder.list'],{limit:40,stepUp:false});
