@@ -304,6 +304,66 @@ export function createCreceEnrollmentLab(config:Config){
      replayed:false,founderSeatGranted:input.decision==='approved'});
    });
   },
+  /** Optional advertising contact is revocable without rewriting the
+   * original signed terms. Owner M4/M6 + one-use M9 grants are mandatory.
+   * A change writes one immutable M11 audit event with a unique operation.
+   */
+  updateMarketingPreference:async(input:{
+   sessionToken:string;storeId:string;operationId:string;
+   marketingOptIn:boolean
+  })=>{
+   configCheck(config);
+   const storeId=validUuid(input.storeId);
+   const operationId=validUuid(input.operationId);
+   if(typeof input.marketingOptIn!=='boolean')
+    throw new IntegrationError('M11_CRECE_MARKETING_VALUE_INVALID');
+   const actorId=await authenticated(config,input.sessionToken,['merchant']);
+   const store=await readStore(config.restaurantsPool,{actorId},storeId)
+    .catch(()=>null);
+   if(store?.store?.owner_id!==actorId)
+    throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
+   await grant(config,actorId,'crece.marketing.preference',storeId);
+   return tx(config.integrationPool,async c=>{
+    const row=await c.query<{
+     application_id:string;m6_staff_actor_id:string
+    }>(
+     'SELECT application_id,m6_staff_actor_id '+
+     'FROM tala_integration_v2.crece_founder_interest '+
+     'WHERE m6_store_id=$1::uuid FOR UPDATE',[storeId]);
+    const application=row.rows[0];
+    if(!application)throw new IntegrationError('M11_CRECE_APPLICATION_NOT_FOUND');
+    if(application.m6_staff_actor_id!==actorId)
+     throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
+    const previous=await c.query<{
+     application_id:string;actor_id:string;opted_in:boolean
+    }>(
+     'SELECT application_id,actor_id,opted_in '+
+     'FROM tala_integration_v2.crece_founder_marketing_events '+
+     'WHERE operation_id=$1::uuid',[operationId]);
+    if(previous.rows[0]){
+     const prior=previous.rows[0];
+     if(prior.application_id!==application.application_id||
+        prior.actor_id!==actorId||prior.opted_in!==input.marketingOptIn)
+      throw new IntegrationError('M11_CRECE_OPERATION_CONFLICT');
+     return Object.freeze({marketingOptIn:prior.opted_in,replayed:true});
+    }
+    try{
+     await c.query(
+      'INSERT INTO tala_integration_v2.crece_founder_marketing_events '+
+      '(application_id,operation_id,actor_id,opted_in) '+
+      'VALUES($1::uuid,$2::uuid,$3::uuid,$4)',
+      [application.application_id,operationId,actorId,input.marketingOptIn]);
+    }catch(error){
+     if(error&&typeof error==='object'&&'code' in error&&
+        error.code==='23505')
+      throw new IntegrationError('M11_CRECE_OPERATION_CONFLICT');
+     throw error;
+    }
+    return Object.freeze({
+     marketingOptIn:input.marketingOptIn,replayed:false
+    });
+   });
+  },
   /** Owner sees its own real decision, never another store's application. */
   readMyStatus:async(input:{sessionToken:string;storeId:string})=>{
    configCheck(config);
@@ -315,12 +375,20 @@ export function createCreceEnrollmentLab(config:Config){
     throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
    return tx(config.integrationPool,async c=>{
     const data=await c.query<{
-     application_id:string;decision:Decision|null;agreement_version:string|null
+     application_id:string;decision:Decision|null;
+     agreement_version:string|null;marketing_opt_in:boolean
     }>(
-     'SELECT i.application_id,r.decision,i.agreement_version '+
+     'SELECT i.application_id,r.decision,i.agreement_version,'+
+     'COALESCE((SELECT e.opted_in '+
+     'FROM tala_integration_v2.crece_founder_marketing_events e '+
+     'WHERE e.application_id=i.application_id '+
+     'ORDER BY e.id DESC LIMIT 1),c.marketing_opt_in,false) '+
+     'AS marketing_opt_in '+
      'FROM tala_integration_v2.crece_founder_interest i '+
      'LEFT JOIN tala_integration_v2.crece_founder_reviews r '+
      'ON r.application_id=i.application_id '+
+     'LEFT JOIN tala_integration_v2.crece_founder_consents c '+
+     'ON c.application_id=i.application_id '+
      'WHERE i.m6_store_id=$1::uuid',[storeId]);
     const row=data.rows[0];
     if(!row)return Object.freeze({
@@ -328,7 +396,8 @@ export function createCreceEnrollmentLab(config:Config){
      founderSeatGranted:false as const});
     return Object.freeze({status:row.decision??'interested',
      founderSeatGranted:row.decision==='approved',
-     agreementVersion:row.agreement_version});
+     agreementVersion:row.agreement_version,
+     marketingOptIn:row.marketing_opt_in});
    },true);
   }
  });
