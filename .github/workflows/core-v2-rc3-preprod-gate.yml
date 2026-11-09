@@ -31,7 +31,10 @@ jobs:
       - name: Verify source pins (M1-M10 provenance)
         run: node modules/integration/scripts/verify-snapshots.mjs
       - name: Validate RC3 release guard regression
-        run: node --test tests/release-gates.test.mjs
+        run: |
+          node --test tests/release-gates.test.mjs
+          node --test tests/kali-pm2-crece-runner.test.mjs
+          bash -n deploy/kali-core-v2-pm2-stage.sh
       - name: Assert RC3 is not eligible for live deployment
         run: |
           set -Eeuo pipefail
