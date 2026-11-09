@@ -12,6 +12,7 @@ type Config={integrationPool:Pool;restaurantsPool:Pool};
 type InterestRow={
  application_id:string;m6_store_id:string;m6_staff_actor_id:string;
  operation_id:string;state:'interested';selected_for_founders:false;
+ agreement_version:string|null;marketing_opt_in:boolean;
 };
 export type CreceInterest={applicationId:string;state:'interested';
  selectedForFounders:false;replayed:boolean};
@@ -30,6 +31,7 @@ function requireLab(){
  */
 export async function recordCreceInterestLab(config:Config,raw:{
  storeId:string;staffActorId:string;operationId:string;
+ termsAccepted:true;termsVersion:string;marketingOptIn:boolean;
 }):Promise<CreceInterest>{
  requireLab();
  if(!config?.integrationPool||!config?.restaurantsPool)
@@ -37,6 +39,10 @@ export async function recordCreceInterestLab(config:Config,raw:{
  const storeId=validUuid(raw?.storeId),
   actorId=validUuid(raw?.staffActorId),
   operationId=validUuid(raw?.operationId);
+ if(raw?.termsAccepted!==true||
+  raw.termsVersion!=='crece-founder-pilot-2026-11-v1'||
+  typeof raw.marketingOptIn!=='boolean')
+  throw new IntegrationError('M11_CRECE_EXPLICIT_TERMS_REQUIRED');
  if(await getDatabase(config.integrationPool)!=='tala_integration_v2_test'||
    await getDatabase(config.restaurantsPool)!=='tala_restaurants_v2_test')
   throw new IntegrationError('M11_CRECE_LAB_ONLY');
@@ -59,11 +65,14 @@ export async function recordCreceInterestLab(config:Config,raw:{
    ['crece-founder-interest:'+storeId]);
   const current=await client.query<InterestRow>(
    'SELECT application_id,m6_store_id,m6_staff_actor_id,operation_id,state,'+
-   'selected_for_founders FROM tala_integration_v2.crece_founder_interest '+
+   'selected_for_founders,agreement_version,marketing_opt_in '+
+   'FROM tala_integration_v2.crece_founder_interest '+
    'WHERE m6_store_id=$1::uuid FOR UPDATE',[storeId]);
   const prev=current.rows[0];
   if(prev){
-   if(prev.operation_id!==operationId||prev.m6_staff_actor_id!==actorId)
+   if(prev.operation_id!==operationId||prev.m6_staff_actor_id!==actorId||
+      prev.agreement_version!==raw.termsVersion||
+      prev.marketing_opt_in!==raw.marketingOptIn)
     throw new IntegrationError('M11_CRECE_ALREADY_REQUESTED');
    await client.query('COMMIT');
    return {applicationId:prev.application_id,state:'interested',
@@ -71,13 +80,20 @@ export async function recordCreceInterestLab(config:Config,raw:{
   }
   const created=await client.query<InterestRow>(
    'INSERT INTO tala_integration_v2.crece_founder_interest '+
-   '(m6_store_id,m6_staff_actor_id,operation_id) '+
-   'VALUES($1::uuid,$2::uuid,$3::uuid) '+
+   '(m6_store_id,m6_staff_actor_id,operation_id,agreement_version,'+
+   'agreement_accepted_at,marketing_opt_in) '+
+   'VALUES($1::uuid,$2::uuid,$3::uuid,$4,clock_timestamp(),$5) '+
    'RETURNING application_id,m6_store_id,m6_staff_actor_id,operation_id,state,'+
-   'selected_for_founders',[storeId,actorId,operationId]);
+   'selected_for_founders,agreement_version,marketing_opt_in',
+   [storeId,actorId,operationId,raw.termsVersion,raw.marketingOptIn]);
   const row=created.rows[0];
   if(!row||row.selected_for_founders)
    throw new IntegrationError('M11_CRECE_INSERT_INVALID');
+  await client.query(
+   'INSERT INTO tala_integration_v2.crece_founder_consents '+
+   '(application_id,agreement_version,marketing_opt_in) '+
+   'VALUES($1::uuid,$2,$3)',[row.application_id,raw.termsVersion,
+    raw.marketingOptIn]);
   await client.query(
    'INSERT INTO tala_integration_v2.crece_founder_interest_events '+
    '(application_id) VALUES($1::uuid)',[row.application_id]);
