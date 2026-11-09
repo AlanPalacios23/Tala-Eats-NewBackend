@@ -14,7 +14,10 @@ export const ACTIONS={
  'merchant.store.suspend':{limit:3,stepUp:true},
  'payments.refund.request':{limit:5,stepUp:true},
  'finance.payout.request':{limit:3,stepUp:true},
- 'profile.export':{limit:3,stepUp:true}
+ 'profile.export':{limit:3,stepUp:true},
+ 'crece.interest.submit':{limit:6,stepUp:false},
+ 'crece.founder.review':{limit:15,stepUp:false},
+ 'crece.founder.list':{limit:40,stepUp:false}
 } as const;
 export type SecurityAction=keyof typeof ACTIONS;
 export type Assurance='session'|'step_up';
