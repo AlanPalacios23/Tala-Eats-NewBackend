@@ -104,3 +104,22 @@ El adaptador LAB de interés exige ahora `owner_id` M6 idéntico al actor confir
 La transacción M11 toma un **advisory transaction lock por identificador de tienda** antes de consultar si existe el registro. Doce solicitudes de LAB concurrentes con la misma clave deben recuperar el mismo `applicationId` (una creación + once replays), sin errores de unicidad ni eventos duplicados. Cambiar la clave o el actor es rechazado. Los eventos son append-only y el campo `selected_for_founders` permanece permanentemente `false` en esta migración LAB: **nadie puede asignar plazas desde este código**.
 
 [Línea M11 — CI PostgreSQL integrado](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42511523068). No equivale a habilitar un alta por HTTP ni disponer de M4/M9 comercial. Hasta crear las autorizaciones de ADMIN y registrar aceptación contractual, los prospectos deben continuar con el flujo de contacto y revisión manual.
+
+## RC6 — ciclo de afiliación comprobable en LAB (9/nov/2026)
+
+Para que el programa no sea únicamente una presentación, se añadió el flujo interno **solicitud → revisión → aprobación/rechazo → estado** al mismo Core v2:
+
+1. **Identidad M4**: `createCreceEnrollmentLab(config).submit(...)` recibe una **sesión M4**, sin aceptar identificadores de actor del navegador. Exige rol comerciante vigente. M6 confirma que ese usuario es el **propietario actual** de la tienda. M9 registra una decisión por acción/recurso con grant firmado y de un solo uso.
+2. **Consentimiento explícito y separado**: la solicitud solo se graba cuando el propietario acepta `crece-founder-pilot-2026-11-v1`. La suscripción a publicidad es un booleano **opcional e independiente**, sin valor verdadero por omisión. La migración 009 no inventa consentimiento para solicitudes antiguas.
+3. **Bandeja ADMIN**: `listForAdmin({sessionToken})` requiere M4 `staff/owner` (sesión MFA de acuerdo con las reglas M4) y M9 `crece.founder.list`. Devuelve únicamente UUID de solicitud/tienda, fecha y decisión: no correos, teléfonos ni secretos.
+4. **Decisión ADMIN**: `review({sessionToken,applicationId,operationId,decision,reasonCode?})` exige M4 staff/owner y M9 `crece.founder.review`, con UUID de solicitud como recurso. La aprobación consume **una de 10 plazas por transacción SQL**. El rechazo requiere motivo codificado y no consume plazas. Una solicitud no puede revisarse dos veces; el replay idéntico retorna el mismo resultado.
+5. **Estado propio**: `readMyStatus` exige sesión M4 de comerciante y propiedad M6 actual. Devuelve interesado, aprobado o rechazado únicamente al dueño; no revela solicitudes de otros comercios.
+6. **Auditoría/consistencia**: PostgreSQL exige `capacity=10` y `approved_count BETWEEN 0 AND 10`; cada aprobación toma un lock transaccional sobre el contador. Los registros de consentimiento/revisión/eventos son inmutables y los IDs de operación son únicos.
+
+### Puertas de seguridad
+
+- Sigue restringido a base `tala_integration_v2_test`, `NODE_ENV!=production` y `CORE_V2_INTEGRATION_RUNTIME=isolated-lab`. No hay endpoints HTTP públicos de inscripción, decisión ni listado.
+- Se extendió intencionalmente la superficie de acciones M9 LAB: `crece.interest.submit`, `crece.founder.list` y `crece.founder.review`. El **árbol del módulo M9 se repineó con SHA explícito** en `modules/integration/source-lock.json` versión 3; la verificación CI de los diez módulos sigue obligatoria. No se modifica ninguna clave LIVE.
+- `approval=true` del programa Fundadores **no equivale a restaurante activado**, saldo pagado, campaña publicada, usuario verificado contractualmente ni GO del backend; siguen pendientes contrato legal real, fraude, soporte, publicidad, identidad cruzada entre el LIVE actual y M4/M6, G3–G9 y reconciliación financiera.
+- Este conjunto de pruebas se ejecuta exclusivamente en **GitHub-hosted Linux con PostgreSQL temporal**. Que la CI use contenedores desechables en GitHub no significa introducir Docker a Kali: el servidor de usuario permanece con PM2 y PostgreSQL 18.
+- El plan de desplegar Core v2 en Kali reutiliza la única carpeta staging ya prevista. No hay instrucciones para reiniciar/reemplazar LIVE.
