@@ -135,6 +135,34 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
   const before=await gate.listForAdmin({sessionToken:admin.session});
   assert.equal(before.seatsApproved,0);
   assert.ok(before.applicants.length>=12);
+  // Exact keyset pagination keeps all applicants, no duplicate from
+  // PostgreSQL microsecond timestamps truncated to JS milliseconds.
+  const firstPage=await gate.listForAdmin({sessionToken:admin.session,limit:5});
+  assert.equal(firstPage.applicants.length,5);
+  assert.ok(firstPage.nextCursor);
+  const secondPage=await gate.listForAdmin({
+   sessionToken:admin.session,limit:5,cursor:firstPage.nextCursor!
+  });
+  assert.equal(secondPage.applicants.length,5);
+  assert.ok(secondPage.nextCursor);
+  const thirdPage=await gate.listForAdmin({
+   sessionToken:admin.session,limit:5,cursor:secondPage.nextCursor!
+  });
+  assert.equal(thirdPage.applicants.length,2);
+  assert.equal(thirdPage.nextCursor,null);
+  const paged=[...firstPage.applicants,...secondPage.applicants,...thirdPage.applicants];
+  assert.equal(new Set(paged.map(x=>x.applicationId)).size,12);
+  assert.equal(new Set(paged.map(x=>x.storeId)).size,12);
+  assert.equal(paged.every(x=>x.status==='interested'),true);
+  await assert.rejects(gate.listForAdmin({
+   sessionToken:admin.session,limit:101
+  }),isErr('M11_CRECE_PAGE_LIMIT_INVALID'));
+  await assert.rejects(gate.listForAdmin({
+   sessionToken:admin.session,cursor:{createdAt:'bad',applicationId:uid()}
+  }),isErr('M11_CRECE_CURSOR_INVALID'));
+  await assert.rejects(gate.listForAdmin({
+   sessionToken:admin.session,status:'unknown' as 'approved'
+  }),isErr('M11_CRECE_STATUS_FILTER_INVALID'));
   assert.ok(!JSON.stringify(before).includes(one.email));
   assert.ok(!JSON.stringify(before).includes(one.session));
 
@@ -172,6 +200,15 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
   assert.equal(quota.capacity,10);
   assert.equal(quota.seatsApproved,10);
   assert.equal(quota.seatsRemaining,0);
+  const approved=await gate.listForAdmin({
+   sessionToken:admin.session,status:'approved',limit:10
+  });
+  assert.equal(approved.applicants.length,10);
+  assert.ok(approved.applicants.every(x=>x.status==='approved'));
+  const declinedList=await gate.listForAdmin({
+   sessionToken:admin.session,status:'declined'
+  });
+  assert.equal(declinedList.applicants.length,1);
   const firstWin=winners[0]!;
   const ownerOfWin=[one,two,three][Math.floor(firstWin.storeIndex/4)]!;
   const verified=await gate.readMyStatus({
@@ -202,6 +239,20 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
   await assert.rejects(integrationPool.query(
    'DELETE FROM tala_integration_v2.crece_founder_reviews WHERE application_id=$1::uuid',
    [applications[1]]));
+  // A previously valid merchant that loses its M4 merchant role must not
+  // receive a founder seat on review, even with consent on disk.
+  const staleStore=await newStore(restaurantsPool,one);
+  const stale=await gate.submit({
+   sessionToken:one.session,storeId:staleStore,operationId:uid(),
+   ...agreement,marketingOptIn:false
+  });
+  await usersPool.query(
+   "UPDATE tala_users_v2.account_roles SET role='customer' WHERE account_id=$1::uuid",
+   [one.id]);
+  await assert.rejects(gate.review({
+   sessionToken:admin.session,applicationId:stale.applicationId,
+   operationId:uid(),decision:'approved'
+  }),isErr('M11_CRECE_APPLICANT_NO_LONGER_ELIGIBLE'));
   await logoutLabSession(usersPool,{sessionToken:admin.session,secret:pepper});
   await assert.rejects(gate.listForAdmin({sessionToken:admin.session}),
    isErr('M11_CRECE_SESSION_OR_ROLE_DENIED'));
