@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "purpose": "Ten-module isolated M11 CI snapshot pins: M1 pricing v3 retained; M9 action-scoped founder LAB policies intentionally versioned for Crece with audited tree SHA",
   "rootSource": "feat/core-v2-logistica-lab1",
   "rootTree": "43774c0f6cada4582fe4dce2d88952bcdae2afec",
@@ -66,8 +66,8 @@
       "domain": "security",
       "source": "feat/core-v2-crece-fundadores-lab-20261108",
       "path": "modules/security",
-      "tree": "4c9ec6ce6ecd2c6c8333e5607c1995e702d5c318",
-      "note": "M9 deliberately extended with short-lived resource-scoped Crece interest/review/list actions for isolated LAB; original source tree c5332c7243d4f0c4e4d18ee5e6c9f31e101b9c36. No LIVE security promotion, full M9 provenance recorded in PR #24. LAB grants tests updated to preserve all nine known actions."
+      "tree": "4bd48ad8a85e4c18775fa87191ef7a75eda5cad6",
+      "note": "M9 lab policies additionally include CRECE_MARKETING_PREFERENCE for consent revocation (rate-limited, M4+M6 owner checked). Original source tree c5332c7243d4f0c4e4d18ee5e6c9f31e101b9c36; no LIVE security promotion. Actions and tests audited in PR #24."
     },
     {
       "id": "M10",
