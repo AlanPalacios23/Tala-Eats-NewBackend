@@ -20,6 +20,21 @@ import {IntegrationError,validUuid} from '../src/events.js';
 import {recordCreceInterestLab} from './crece-founders-lab.js';
 
 const PILOT='crece-founder-pilot-2026-11-v1';
+const ASSISTED_IDS=[
+ 'alta','fotos','kit','destacado','redes','comisiones','soporte'
+] as const;
+type AssistedId=(typeof ASSISTED_IDS)[number];
+type AssistedStatus='requested'|'in_progress'|'reported_completed'|'declined';
+const ASSISTED_STATUSES=['in_progress','reported_completed','declined'] as const;
+const HASH=/^[a-f0-9]{64}$/;
+const safeNote=(value:unknown,required:boolean)=>{
+ if(value===undefined&&!required)return '';
+ if(typeof value!=='string'||value.trim().length>(required?500:500)||
+  value.trim().length<(required?8:0))
+  throw new IntegrationError('M11_CRECE_SERVICE_NOTE_INVALID');
+ return value.trim();
+};
+
 const LIST_RESOURCE='f070d0a1-0000-4000-8000-000000000010';
 type Role='merchant'|'staff'|'owner';
 type Decision='approved'|'declined';
@@ -362,6 +377,167 @@ export function createCreceEnrollmentLab(config:Config){
     return Object.freeze({
      marketingOptIn:input.marketingOptIn,replayed:false
     });
+   });
+  },
+  /** Request an actual HUMAN assisted service, not an automatic credit.
+   * One request per benefit+store in the initial pilot, safely idempotent.
+   */
+  requestAssistance:async(input:{
+   sessionToken:string;storeId:string;operationId:string;
+   benefitId:AssistedId
+  })=>{
+   configCheck(config);
+   const storeId=validUuid(input.storeId),op=validUuid(input.operationId);
+   if(!ASSISTED_IDS.includes(input.benefitId))
+    throw new IntegrationError('M11_CRECE_BENEFIT_INVALID');
+   const actor=await authenticated(config,input.sessionToken,['merchant']);
+   const store=await readStore(config.restaurantsPool,{actorId:actor},storeId)
+    .catch(()=>null);
+   if(store?.store?.owner_id!==actor)
+    throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
+   await grant(config,actor,'crece.benefit.request',storeId);
+   return tx(config.integrationPool,async c=>{
+    await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
+     ['crece.assisted|'+storeId+'|'+input.benefitId]);
+    const old=await c.query<{
+     id:string;operation_id:string;requested_by:string
+    }>('SELECT id,operation_id,requested_by FROM '+
+     'tala_integration_v2.crece_assisted_requests '+
+     'WHERE store_id=$1::uuid AND benefit_id=$2 FOR UPDATE',
+     [storeId,input.benefitId]);
+    if(old.rows[0]){
+     if(old.rows[0].operation_id!==op||
+        old.rows[0].requested_by!==actor)
+      throw new IntegrationError('M11_CRECE_BENEFIT_ALREADY_REQUESTED');
+     return Object.freeze({requestId:old.rows[0].id,
+      status:'requested' as const,replayed:true});
+    }
+    const res=await c.query<{id:string}>(
+     'INSERT INTO tala_integration_v2.crece_assisted_requests '+
+     '(store_id,requested_by,benefit_id,operation_id) '+
+     'VALUES($1::uuid,$2::uuid,$3,$4::uuid) RETURNING id',
+     [storeId,actor,input.benefitId,op]);
+    const id=res.rows[0]?.id;
+    if(!id)throw new IntegrationError('M11_CRECE_BENEFIT_WRITE_FAILED');
+    await c.query(
+     'INSERT INTO tala_integration_v2.crece_assisted_events '+
+     '(request_id,operation_id,actor_id,status) '+
+     "VALUES($1::uuid,$2::uuid,$3::uuid,'requested')",
+     [id,op,actor]);
+    return Object.freeze({requestId:id,
+     status:'requested' as const,replayed:false});
+   });
+  },
+  listMyAssistance:async(input:{sessionToken:string;storeId:string})=>{
+   configCheck(config);
+   const storeId=validUuid(input.storeId);
+   const actor=await authenticated(config,input.sessionToken,['merchant']);
+   const store=await readStore(config.restaurantsPool,{actorId:actor},storeId)
+    .catch(()=>null);
+   if(store?.store?.owner_id!==actor)
+    throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
+   await grant(config,actor,'crece.benefit.list',storeId);
+   return tx(config.integrationPool,async c=>{
+    const data=await c.query<{
+     id:string;benefit_id:AssistedId;status:AssistedStatus;
+     created_at:Date
+    }>(
+     'SELECT r.id,r.benefit_id,e.status,r.created_at '+
+     'FROM tala_integration_v2.crece_assisted_requests r '+
+     'JOIN LATERAL (SELECT status FROM '+
+     'tala_integration_v2.crece_assisted_events '+
+     'WHERE request_id=r.id ORDER BY id DESC LIMIT 1) e ON true '+
+     'WHERE r.store_id=$1::uuid ORDER BY r.created_at,r.id',
+     [storeId]);
+    return data.rows.map(row=>({
+     requestId:row.id,benefitId:row.benefit_id,status:row.status,
+     createdAt:new Date(row.created_at).toISOString()
+    }));
+   },true);
+  },
+  listAdminAssistance:async(input:{sessionToken:string;limit?:number})=>{
+   configCheck(config);
+   const limit=input.limit??50;
+   if(!Number.isSafeInteger(limit)||limit<1||limit>100)
+    throw new IntegrationError('M11_CRECE_PAGE_LIMIT_INVALID');
+   const admin=await authenticated(config,input.sessionToken,['staff','owner']);
+   await grant(config,admin,'crece.benefit.list',LIST_RESOURCE);
+   return tx(config.integrationPool,async c=>{
+    const results=await c.query<{
+     id:string;store_id:string;benefit_id:AssistedId;
+     status:AssistedStatus;created_at:Date
+    }>(
+     'SELECT r.id,r.store_id,r.benefit_id,e.status,r.created_at '+
+     'FROM tala_integration_v2.crece_assisted_requests r '+
+     'JOIN LATERAL (SELECT status FROM '+
+     'tala_integration_v2.crece_assisted_events '+
+     'WHERE request_id=r.id ORDER BY id DESC LIMIT 1) e ON true '+
+     'ORDER BY r.created_at,r.id LIMIT $1',[limit]);
+    return results.rows.map(row=>({
+     requestId:row.id,storeId:row.store_id,
+     benefitId:row.benefit_id,status:row.status,
+     createdAt:new Date(row.created_at).toISOString()
+    }));
+   },true);
+  },
+  /** Human service proof is a reported record, NEVER marketplace activation.
+   * A SHA256 of an externally reviewed deliverable is required for reporting.
+   * A future admin portal must confirm the real deliverable exists.
+   */
+  reviewAssistance:async(input:{
+   sessionToken:string;requestId:string;operationId:string;
+   status:(typeof ASSISTED_STATUSES)[number];note?:string;
+   evidenceSha256?:string
+  })=>{
+   configCheck(config);
+   const requestId=validUuid(input.requestId),op=validUuid(input.operationId);
+   if(!ASSISTED_STATUSES.includes(input.status))
+    throw new IntegrationError('M11_CRECE_BENEFIT_STATUS_INVALID');
+   const note=safeNote(input.note,
+    input.status==='declined'||input.status==='reported_completed');
+   const hash=input.evidenceSha256??null;
+   if(hash!==null&&!HASH.test(hash))
+    throw new IntegrationError('M11_CRECE_EVIDENCE_INVALID');
+   if(input.status==='reported_completed'&&hash===null)
+    throw new IntegrationError('M11_CRECE_EVIDENCE_REQUIRED');
+   const admin=await authenticated(config,input.sessionToken,['staff','owner']);
+   await grant(config,admin,'crece.benefit.review',requestId);
+   return tx(config.integrationPool,async c=>{
+    const row=await c.query<{id:string}>(
+     'SELECT id FROM tala_integration_v2.crece_assisted_requests '+
+     'WHERE id=$1::uuid FOR UPDATE',[requestId]);
+    if(!row.rows[0])
+     throw new IntegrationError('M11_CRECE_BENEFIT_NOT_FOUND');
+    const idempotent=await c.query<{
+     status:AssistedStatus;note:string;actor_id:string;
+     evidence_sha256:string|null;request_id:string
+    }>(
+     'SELECT status,note,actor_id,evidence_sha256,request_id '+
+     'FROM tala_integration_v2.crece_assisted_events '+
+     'WHERE operation_id=$1::uuid',[op]);
+    if(idempotent.rows[0]){
+     const prev=idempotent.rows[0];
+     if(prev.request_id!==requestId||prev.actor_id!==admin||
+        prev.status!==input.status||prev.note!==note||
+        prev.evidence_sha256!==hash)
+      throw new IntegrationError('M11_CRECE_BENEFIT_OPERATION_CONFLICT');
+     return {status:prev.status,replayed:true,commerceActivated:false};
+    }
+    const previous=await c.query<{status:AssistedStatus}>(
+     'SELECT status FROM tala_integration_v2.crece_assisted_events '+
+     'WHERE request_id=$1::uuid ORDER BY id DESC LIMIT 1',[requestId]);
+    const current=previous.rows[0]?.status;
+    if(!current||
+      !((current==='requested'&&
+        ['in_progress','declined'].includes(input.status))||
+        (current==='in_progress'&&
+        ['reported_completed','declined'].includes(input.status))))
+      throw new IntegrationError('M11_CRECE_BENEFIT_TRANSITION_INVALID');
+    await c.query('INSERT INTO tala_integration_v2.crece_assisted_events '+
+     '(request_id,operation_id,actor_id,status,note,evidence_sha256) '+
+     'VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5,$6)',
+     [requestId,op,admin,input.status,note,hash]);
+    return {status:input.status,replayed:false,commerceActivated:false};
    });
   },
   /** Owner sees its own real decision, never another store's application. */
