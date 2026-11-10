@@ -17,6 +17,7 @@ CREATE TABLE tala_integration_v2.crece_assisted_requests(
  requested_by uuid NOT NULL,
  benefit_id text NOT NULL CHECK(benefit_id IN
   ('alta','fotos','kit','destacado','redes','comisiones','soporte')),
+ UNIQUE(store_id,benefit_id),
  operation_id uuid NOT NULL UNIQUE,
  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
