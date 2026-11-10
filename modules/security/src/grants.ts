@@ -21,7 +21,9 @@ export const ACTIONS={
  'crece.marketing.preference':{limit:60,stepUp:false},
  'crece.benefit.request':{limit:20,stepUp:false},
  'crece.benefit.review':{limit:45,stepUp:false},
- 'crece.benefit.list':{limit:60,stepUp:false}
+ 'crece.benefit.list':{limit:60,stepUp:false},
+ 'crece.draft.write':{limit:40,stepUp:false},
+ 'crece.draft.read':{limit:90,stepUp:false}
 } as const;
 export type SecurityAction=keyof typeof ACTIONS;
 export type Assurance='session'|'step_up';
