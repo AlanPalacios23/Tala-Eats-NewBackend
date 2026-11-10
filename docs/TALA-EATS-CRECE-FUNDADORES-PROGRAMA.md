@@ -148,3 +148,28 @@ Para que el programa no sea únicamente una presentación, se añadió el flujo 
 **Pruebas PostgreSQL:** reintentos concurrentes de una misma operación, cambio de sí→no, lectura del valor efectivo, rechazo de otro propietario, unicidad de eventos y rechazo de modificaciones directas del contador de plazas. La CI también rechaza 010 y 011 cuando se ejecutan contra bases de datos con nombres ajenos al laboratorio.
 
 **Pendientes antes de usarlo con comercios reales:** aviso de privacidad aprobado, mecanismo de consentimiento/retirada accesible en el frontend a través de un gateway comercial seguro, política de retención/supresión compatible con obligaciones fiscales, y conexión de las sesiones/IDs reales del sistema LIVE. No enviar campañas por este nuevo código; las migraciones de laboratorio **no** se aplican a LIVE y no se ha desplegado nada en Kali.
+
+## RC9 — cierre de los 27 beneficios en arquitectura, 10/nov/2026
+
+Se incorporaron al **mismo M11, en LAB**, dos capas operativas:
+
+### Siete servicios asistidos
+- Migración `012_crece_assisted_benefits_lab.sql`: una solicitud por comercio/beneficio, una identidad y operación, registro inmutable de avance, motivo y hash SHA256 de evidencia.
+- Métodos en `createCreceEnrollmentLab`: `requestAssistance` (solo dueño M4/M6, M9), `listMyAssistance` (aislado por comercio), `listAdminAssistance` (staff/owner MFA) y `reviewAssistance` (estados validados).
+- Estados: `requested → in_progress → reported_completed` o `declined`. `reported_completed` significa que ADMIN **reportó evidencia**, no que se haya activado una campaña, comprobado una foto o pagado un servicio.
+- Lista exacta: alta, fotos, kit, destacado, redes, comisiones y soporte. Cada beneficio queda ligado al comercio y no modifica precios, wallet, compras ni roles.
+
+### Ocho funciones avanzadas en borrador
+- Migración `013_crece_future_benefit_drafts_lab.sql`: borradores con una fila por `store_id+feature_id` y revisiones inmutables, limitadas a 100 por función y operación idempotente.
+- `normalizeCreceDraft` valida campos de las ocho funciones: cupones, campañas de temporada, programación de pedidos, combos, sucursales, fidelidad, empresas/eventos y criterios de calidad. No admite campos desconocidos ni importes fraccionarios; maneja dinero en centavos.
+- `saveFutureDraft` y `listMyFutureDrafts` exigen sesión M4 de comerciante vigente, titularidad M6 actual, firma M9 por comercio y lectura/escritura M11 en BD LAB. Las ediciones aplican bloqueo de versión y deduplicación por `operationId`.
+- **Todos los resultados incluyen `published=false`**. Guardar un borrador NO activa el beneficio comercial: no existen todavía el motor de cupones, el libro de puntos, la creación segura de pedidos futuros ni la emisión real de distintivos en M1/M6/M8/M10.
+
+### PWA y control de evidencia
+- La interfaz existente (PR #48) presenta una acción para **cada uno de los 27 IDs**: navegar a funciones disponibles, compartir enlace verificado, consultar al canal comercial oficial o descargar un borrador local claramente rotulado no comercial.
+- M11 012 y 013 son migraciones restringidas a BD de LAB; el CI prueba que fallan en una BD de nombre ajeno. Los tests contra PostgreSQL prueban el aislamiento por comercio, reintentos simultáneos, control de revisiones, evidencias requeridas, límites y denegación de operaciones no autorizadas.
+- El cuadro de aceptación por beneficio y requisitos específicos de LIVE está en [RC175 — 27 beneficios](https://github.com/AlanPalacios23/tala-eats-version-web/blob/feat/restaurantes-crece-fundadores-20261108/docs/RC175-CRECE-27-BENEFICIOS-GATES.md).
+
+**Estado verificable:** [integración M11 PASS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42885598207), [pedidos PASS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42885598320), [PM2 sin Docker PASS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42885598353), [PWA PASS](https://github.com/AlanPalacios23/tala-eats-version-web/actions/runs/42885849264).
+
+**NO-GO comercial, NO tocado Kali LIVE.** El camino para llamar operativos los 27 beneficios exige completar integración con sesiones/IDs del sistema LIVE, M4/M9 y ADMIN, motor transaccional de las ocho funciones, publicaciones y soporte humanos verificables, E2E Stripe TEST/repartidor/finanzas y aprobación de despliegue en Kali PostgreSQL18/PM2. No ejecutar estas migraciones LAB sobre la base de producción. Ningún beneficio cambia la política económica 17% comercio, 7% cliente, 0% propinas.
