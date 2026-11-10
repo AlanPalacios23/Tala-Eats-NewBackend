@@ -43,7 +43,16 @@ test('M9 LAB rejects hostile schema, expiry, unknown scope and improperly issued
  err(()=>signHostGrant({...g,audience:'other' as HostGrant['audience']},
    'rot01',keyring),'M9_GRANT_INVALID');
  err(()=>signHostGrant(g,'rot01',{rot01:randomBytes(8)}),'M9_KEY_INVALID');
- assert.equal(Object.keys(ACTIONS).length,6);
+ assert.equal(Object.keys(ACTIONS).length,15);
+ assert.deepEqual(ACTIONS['crece.draft.write'],{limit:40,stepUp:false});
+ assert.deepEqual(ACTIONS['crece.draft.read'],{limit:90,stepUp:false});
+ assert.deepEqual(ACTIONS['crece.benefit.request'],{limit:20,stepUp:false});
+ assert.deepEqual(ACTIONS['crece.benefit.review'],{limit:45,stepUp:false});
+ assert.deepEqual(ACTIONS['crece.benefit.list'],{limit:60,stepUp:false});
+ assert.deepEqual(ACTIONS['crece.marketing.preference'],{limit:60,stepUp:false});
+ assert.deepEqual(ACTIONS['crece.interest.submit'],{limit:6,stepUp:false});
+ assert.deepEqual(ACTIONS['crece.founder.review'],{limit:15,stepUp:false});
+ assert.deepEqual(ACTIONS['crece.founder.list'],{limit:40,stepUp:false});
 });
 test('M9 LAB strict grant length, signatures, noncanonical payload and duplicate keys',()=>{
  const g=sample();

@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "purpose": "Ten-module isolated M11 CI snapshot pins; M1 pricing 17/7 version v3 deliberately upgraded in RC1 without merging upstream PRs",
+  "version": 6,
+  "purpose": "M11 LAB: all 27 Crece benefits with 7 assisted request workflows, 8 validated versioned drafts, 12 existing PWA tools, no merchant financial authority",
   "rootSource": "feat/core-v2-logistica-lab1",
   "rootTree": "43774c0f6cada4582fe4dce2d88952bcdae2afec",
   "origins": [
@@ -64,9 +64,10 @@
     {
       "id": "M9",
       "domain": "security",
-      "source": "feat/core-v2-seguridad-foundation",
+      "source": "feat/core-v2-crece-fundadores-lab-20261108",
       "path": "modules/security",
-      "tree": "c5332c7243d4f0c4e4d18ee5e6c9f31e101b9c36"
+      "tree": "17bf1f32d27df63ff1348d82ecb653d02f0cc358",
+      "note": "Intentionally extended M9 from original source tree c5332c7243d4f0c4e4d18ee5e6c9f31e101b9c36 with founder, optional marketing, assisted service and 8 draft read/write scoped LAB actions; no LIVE promotion. PR #24."
     },
     {
       "id": "M10",
