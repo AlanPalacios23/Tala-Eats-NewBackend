@@ -184,6 +184,98 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
   await assert.rejects(gate.readMyStatus({
    sessionToken:two.session,storeId:storeIds[0]!
   }),isErr('M11_CRECE_OWNER_REQUIRED'));
+  // All seven human-assisted benefits now have durable owner requests.
+  // None of these requests changes payment pricing or client-facing offers.
+  const assisted=['alta','fotos','kit','destacado','redes','comisiones','soporte'] as const;
+  const serviceRequests:string[]=[];
+  for(const benefitId of assisted){
+   const operationId=uid();
+   const requested=await gate.requestAssistance({
+    sessionToken:one.session,storeId:storeIds[0]!,operationId,benefitId
+   });
+   assert.equal(requested.status,'requested');
+   assert.equal(requested.replayed,false);
+   const replay=await gate.requestAssistance({
+    sessionToken:one.session,storeId:storeIds[0]!,operationId,benefitId
+   });
+   assert.equal(replay.replayed,true);
+   assert.equal(replay.requestId,requested.requestId);
+   serviceRequests.push(requested.requestId);
+  }
+  const myAssistance=await gate.listMyAssistance({
+   sessionToken:one.session,storeId:storeIds[0]!
+  });
+  assert.equal(myAssistance.length,7);
+  assert.deepEqual(new Set(myAssistance.map(x=>x.benefitId)),new Set(assisted));
+  assert.ok(myAssistance.every(x=>x.status==='requested'));
+  await assert.rejects(gate.listMyAssistance({
+   sessionToken:two.session,storeId:storeIds[0]!
+  }),isErr('M11_CRECE_OWNER_REQUIRED'));
+  await assert.rejects(gate.requestAssistance({
+   sessionToken:one.session,storeId:storeIds[0]!,operationId:uid(),
+   benefitId:'fotos'
+  }),isErr('M11_CRECE_BENEFIT_ALREADY_REQUESTED'));
+  await assert.rejects(gate.requestAssistance({
+   sessionToken:one.session,storeId:storeIds[0]!,operationId:uid(),
+   benefitId:'inventario' as 'fotos'
+  }),isErr('M11_CRECE_BENEFIT_INVALID'));
+  await assert.rejects(gate.requestAssistance({
+   sessionToken:two.session,storeId:storeIds[0]!,operationId:uid(),
+   benefitId:'soporte'
+  }),isErr('M11_CRECE_OWNER_REQUIRED'));
+  const serviceAdmin=await gate.listAdminAssistance({
+   sessionToken:admin.session
+  });
+  assert.equal(serviceAdmin.length,7);
+  assert.ok(!JSON.stringify(serviceAdmin).includes(one.email));
+  await assert.rejects(gate.listAdminAssistance({
+   sessionToken:stranger.session
+  }),isErr('M11_CRECE_SESSION_OR_ROLE_DENIED'));
+  const photos=serviceRequests[1]!;
+  await assert.rejects(gate.reviewAssistance({
+   sessionToken:admin.session,requestId:photos,operationId:uid(),
+   status:'reported_completed',note:'Fotos realizadas y entregadas',
+   evidenceSha256:'a'.repeat(64)
+  }),isErr('M11_CRECE_BENEFIT_TRANSITION_INVALID'));
+  const startedOp=uid();
+  const started=await gate.reviewAssistance({
+   sessionToken:admin.session,requestId:photos,operationId:startedOp,
+   status:'in_progress'
+  });
+  assert.equal(started.commerceActivated,false);
+  assert.equal((await gate.reviewAssistance({
+   sessionToken:admin.session,requestId:photos,operationId:startedOp,
+   status:'in_progress'
+  })).replayed,true);
+  await assert.rejects(gate.reviewAssistance({
+   sessionToken:admin.session,requestId:photos,operationId:uid(),
+   status:'reported_completed',note:'Fotos realizadas y entregadas'
+  }),isErr('M11_CRECE_EVIDENCE_REQUIRED'));
+  await assert.rejects(gate.reviewAssistance({
+   sessionToken:stranger.session,requestId:photos,operationId:uid(),
+   status:'declined',note:'Motivo comercial verificable'
+  }),isErr('M11_CRECE_SESSION_OR_ROLE_DENIED'));
+  const completed=await gate.reviewAssistance({
+   sessionToken:admin.session,requestId:photos,operationId:uid(),
+   status:'reported_completed',note:'Fotografías originales entregadas a revisión',
+   evidenceSha256:'a'.repeat(64)
+  });
+  assert.equal(completed.status,'reported_completed');
+  assert.equal(completed.commerceActivated,false);
+  const afterPhoto=await gate.listMyAssistance({
+   sessionToken:one.session,storeId:storeIds[0]!
+  });
+  assert.equal(afterPhoto.find(x=>x.benefitId==='fotos')?.status,'reported_completed');
+  const serviceProof=await integrationPool.query<{status:string,n:number}>(
+   'SELECT max(status) FILTER (WHERE status=$2) AS status,count(*)::int AS n '+
+   'FROM tala_integration_v2.crece_assisted_events '+
+   'WHERE request_id=$1::uuid',[photos,'reported_completed']);
+  assert.equal(serviceProof.rows[0]?.status,'reported_completed');
+  assert.equal(serviceProof.rows[0]?.n,3);
+  await assert.rejects(integrationPool.query(
+   'DELETE FROM tala_integration_v2.crece_assisted_events WHERE request_id=$1::uuid',
+   [photos]
+  ));
   const before=await gate.listForAdmin({sessionToken:admin.session});
   assert.equal(before.seatsApproved,0);
   assert.ok(before.applicants.length>=12);
