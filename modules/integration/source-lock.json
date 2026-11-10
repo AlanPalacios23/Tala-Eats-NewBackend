@@ -1,6 +1,6 @@
 {
-  "version": 5,
-  "purpose": "10-source M11 LAB with benefit-requests M4/M6/M9 authority and auditable follow-through; preserved M1 pricing and disabled commercial gateway",
+  "version": 6,
+  "purpose": "M11 LAB: all 27 Crece benefits with 7 assisted request workflows, 8 validated versioned drafts, 12 existing PWA tools, no merchant financial authority",
   "rootSource": "feat/core-v2-logistica-lab1",
   "rootTree": "43774c0f6cada4582fe4dce2d88952bcdae2afec",
   "origins": [
@@ -66,8 +66,8 @@
       "domain": "security",
       "source": "feat/core-v2-crece-fundadores-lab-20261108",
       "path": "modules/security",
-      "tree": "e96bc40a1b3f6194c6f20a3deddabe290c17aed3",
-      "note": "M9 explicitly extended in Crece lab with benefit request/list/review limits and signed resource grants (plus founder/marketing actions). Replaces previous pinned M9 tree in lab only; never promotes to LIVE. Documented PR #24."
+      "tree": "17bf1f32d27df63ff1348d82ecb653d02f0cc358",
+      "note": "Intentionally extended M9 from original source tree c5332c7243d4f0c4e4d18ee5e6c9f31e101b9c36 with founder, optional marketing, assisted service and 8 draft read/write scoped LAB actions; no LIVE promotion. PR #24."
     },
     {
       "id": "M10",
