@@ -174,7 +174,8 @@ jobs:
             modules/integration/migrations/009_crece_founder_review_lab.sql \
             modules/integration/migrations/010_crece_founder_ledger_integrity_lab.sql \
             modules/integration/migrations/011_crece_revocable_marketing_lab.sql \
-            modules/integration/migrations/012_crece_assisted_benefits_lab.sql; do
+            modules/integration/migrations/012_crece_assisted_benefits_lab.sql \
+            modules/integration/migrations/013_crece_future_benefit_drafts_lab.sql; do
             if psql -v ON_ERROR_STOP=1 \
               'postgresql://integration_ci:integration_ci_local_only@127.0.0.1:5432/unrelated_m11_test' \
               -f "$file"; then
