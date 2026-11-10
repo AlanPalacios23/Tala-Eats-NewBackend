@@ -24,15 +24,18 @@ const integer=(n:unknown,min:number,max:number)=>{
  if(!Number.isSafeInteger(n)||(n as number)<min||(n as number)>max)reject();
  return n as number;
 };
-const txt=(s:unknown,min=2,max=90)=>{
- if(typeof s!=='string'||s.trim().length<min||
-   s.trim().length>max||/[\u0000-\u001f\u007f]/.test(s))reject();
- return s.trim();
+const txt=(s:unknown,min=2,max=90):string=>{
+ if(typeof s!=='string')return reject();
+ const value=s.trim();
+ if(value.length<min||value.length>max||/[\u0000-\u001f\u007f]/.test(s))
+  return reject();
+ return value;
 };
-const date=(s:unknown)=>{
- if(typeof s!=='string'||!/^20\d{2}-\d{2}-\d{2}$/.test(s)||
+const date=(s:unknown):string=>{
+ if(typeof s!=='string')return reject();
+ if(!/^20\d{2}-\d{2}-\d{2}$/.test(s)||
   !Number.isFinite(Date.parse(s))||
-  new Date(s).toISOString().slice(0,10)!==s)reject();
+  new Date(s).toISOString().slice(0,10)!==s)return reject();
  return s;
 };
 const city=(s:unknown)=>{
@@ -68,9 +71,10 @@ export function normalizeCreceDraft(id:unknown,proposal:unknown):Shape{
  }
  case 'combos':{
   p=object(proposal,['title','variants','priceMinor']);
-  if(!Array.isArray(p.variants)||p.variants.length<2||
-    p.variants.length>8)reject();
-  const variants=p.variants.map(v=>{
+   if(!Array.isArray(p.variants))return reject();
+   const rawVariants=p.variants;
+   if(rawVariants.length<2||rawVariants.length>8)return reject();
+   const variants=rawVariants.map((v:unknown)=>{
    const item=object(v,['variantId','quantity']);
    return {variantId:validUuid(item.variantId),
     quantity:integer(item.quantity,1,20)};
