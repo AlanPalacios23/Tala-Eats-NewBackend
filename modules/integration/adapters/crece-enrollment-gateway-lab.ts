@@ -9,6 +9,8 @@
  * supplied by the caller. Production deliberately fails closed.
  */
 import {randomUUID} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
+import {normalizeCreceDraft,type CreceFutureId} from './crece-future-contracts.js';
 import type {Pool,PoolClient} from 'pg';
 import {requireLabAccountRole} from '../../users/src/auth.js';
 import {readStore} from '../../restaurants/src/stores.js';
@@ -539,6 +541,110 @@ export function createCreceEnrollmentLab(config:Config){
      [requestId,op,admin,input.status,note,hash]);
     return {status:input.status,replayed:false,commerceActivated:false};
    });
+  },
+  /** All eight previously planned features can persist STRICTLY VALIDATED
+   * merchant-owned LAB proposals, never issue a public coupon, order, badge,
+   * branch, loyalty point, financial write, or booking.
+   */
+  saveFutureDraft:async(input:{
+   sessionToken:string;storeId:string;operationId:string;
+   featureId:CreceFutureId;expectedRevision:number;proposal:unknown
+  })=>{
+   configCheck(config);
+   const storeId=validUuid(input.storeId),op=validUuid(input.operationId);
+   if(!Number.isSafeInteger(input.expectedRevision)||
+     input.expectedRevision<0||input.expectedRevision>99)
+    throw new IntegrationError('M11_CRECE_DRAFT_VERSION_INVALID');
+   const proposal=normalizeCreceDraft(input.featureId,input.proposal);
+   const actor=await authenticated(config,input.sessionToken,['merchant']);
+   const store=await readStore(config.restaurantsPool,{actorId:actor},storeId)
+    .catch(()=>null);
+   if(store?.store?.owner_id!==actor)
+    throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
+   await grant(config,actor,'crece.draft.write',storeId);
+   return tx(config.integrationPool,async c=>{
+    await c.query(
+     'SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
+     ['crece.draft|'+storeId+'|'+input.featureId]);
+    const previousOperation=await c.query<{
+     id:string;store_id:string;feature_id:string;actor_id:string;
+     revision:number;proposal:unknown
+    }>(
+     'SELECT d.id,d.store_id,d.feature_id,v.actor_id,'+
+     'v.revision,v.proposal FROM '+
+     'tala_integration_v2.crece_feature_draft_versions v '+
+     'JOIN tala_integration_v2.crece_feature_drafts d '+
+     'ON d.id=v.draft_id WHERE v.operation_id=$1::uuid',[op]);
+    const prev=previousOperation.rows[0];
+    if(prev){
+     if(prev.store_id!==storeId||prev.feature_id!==input.featureId||
+       prev.actor_id!==actor||!isDeepStrictEqual(prev.proposal,proposal))
+      throw new IntegrationError('M11_CRECE_DRAFT_OPERATION_CONFLICT');
+     return Object.freeze({draftId:prev.id,revision:prev.revision,
+      replayed:true,published:false as const});
+    }
+    const existing=await c.query<{id:string;owner_id:string}>(
+     'SELECT id,owner_id FROM tala_integration_v2.crece_feature_drafts '+
+     'WHERE store_id=$1::uuid AND feature_id=$2 FOR UPDATE',
+     [storeId,input.featureId]);
+    let draft=existing.rows[0]?.id;
+    if(existing.rows[0]&&existing.rows[0].owner_id!==actor)
+      throw new IntegrationError('M11_CRECE_DRAFT_OWNER_CHANGED');
+    if(!draft){
+     if(input.expectedRevision!==0)
+      throw new IntegrationError('M11_CRECE_DRAFT_VERSION_CONFLICT');
+     const inserted=await c.query<{id:string}>(
+      'INSERT INTO tala_integration_v2.crece_feature_drafts '+
+      '(store_id,owner_id,feature_id) '+
+      'VALUES($1::uuid,$2::uuid,$3) RETURNING id',
+      [storeId,actor,input.featureId]);
+     draft=inserted.rows[0]?.id;
+    }
+    if(!draft)throw new IntegrationError('M11_CRECE_DRAFT_WRITE_FAILED');
+    const current=await c.query<{revision:number}>(
+     'SELECT revision FROM tala_integration_v2.crece_feature_draft_versions '+
+     'WHERE draft_id=$1::uuid ORDER BY revision DESC LIMIT 1',[draft]);
+    const latest=current.rows[0]?.revision??0;
+    if(latest!==input.expectedRevision)
+     throw new IntegrationError('M11_CRECE_DRAFT_VERSION_CONFLICT');
+    const revision=latest+1;
+    if(revision>100)
+     throw new IntegrationError('M11_CRECE_DRAFT_REVISION_LIMIT');
+    await c.query(
+     'INSERT INTO tala_integration_v2.crece_feature_draft_versions '+
+     '(draft_id,operation_id,actor_id,revision,proposal) '+
+     'VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5::jsonb)',
+     [draft,op,actor,revision,JSON.stringify(proposal)]);
+    return Object.freeze({draftId:draft,revision,
+     replayed:false,published:false as const});
+   });
+  },
+  listMyFutureDrafts:async(input:{sessionToken:string;storeId:string})=>{
+   configCheck(config);
+   const storeId=validUuid(input.storeId);
+   const actor=await authenticated(config,input.sessionToken,['merchant']);
+   const store=await readStore(config.restaurantsPool,{actorId:actor},storeId)
+    .catch(()=>null);
+   if(store?.store?.owner_id!==actor)
+    throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
+   await grant(config,actor,'crece.draft.read',storeId);
+   return tx(config.integrationPool,async c=>{
+    const data=await c.query<{
+     id:string;feature_id:CreceFutureId;
+     revision:number;proposal:unknown
+    }>(
+     'SELECT d.id,d.feature_id,v.revision,v.proposal '+
+     'FROM tala_integration_v2.crece_feature_drafts d '+
+     'JOIN LATERAL (SELECT revision,proposal FROM '+
+     'tala_integration_v2.crece_feature_draft_versions '+
+     'WHERE draft_id=d.id ORDER BY revision DESC LIMIT 1) v ON true '+
+     'WHERE d.store_id=$1::uuid AND d.owner_id=$2::uuid '+
+     'ORDER BY d.feature_id',[storeId,actor]);
+    return data.rows.map(x=>Object.freeze({
+     draftId:x.id,featureId:x.feature_id,revision:x.revision,
+     proposal:x.proposal,published:false as const
+    }));
+   },true);
   },
   /** Owner sees its own real decision, never another store's application. */
   readMyStatus:async(input:{sessionToken:string;storeId:string})=>{
