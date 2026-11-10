@@ -276,6 +276,92 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
    'DELETE FROM tala_integration_v2.crece_assisted_events WHERE request_id=$1::uuid',
    [photos]
   ));
+  // Eight FUTURE capabilities persist genuinely validated LAB proposals.
+  // They never publish a coupon, assign points, issue badges or reserve food.
+  const drafts=[
+   {featureId:'cupones',proposal:{
+    code:'TALA10',percentBps:1000,maxUses:50,expiresOn:'2027-06-01'}},
+   {featureId:'temporadas',proposal:{
+    title:'Festival local',startsOn:'2027-01-01',endsOn:'2027-02-01',
+    budgetMinor:50000}},
+   {featureId:'programados',proposal:{
+    prepMinutes:35,leadHours:4,maxConcurrent:5}},
+   {featureId:'combos',proposal:{
+    title:'Combo de prueba',
+    variants:[{variantId:uid(),quantity:1},
+     {variantId:uid(),quantity:2}],priceMinor:19900}},
+   {featureId:'sucursales',proposal:{
+    name:'Sucursal de prueba',city:'Tala',district:'Centro'}},
+   {featureId:'fidelidad',proposal:{
+    pointsPer100Pesos:10,maxPoints:500,expiresDays:90}},
+   {featureId:'empresas',proposal:{
+    minPeople:20,minimumNoticeHours:48,
+    note:'Pedido anticipado para oficinas locales'}},
+   {featureId:'calidad',proposal:{
+    minDelivered:50,maxCancellationBps:500,maxLateBps:800}}
+  ] as const;
+  for(const draft of drafts){
+   const op=uid();
+   const inserted=await gate.saveFutureDraft({
+    sessionToken:one.session,storeId:storeIds[0]!,
+    operationId:op,featureId:draft.featureId,
+    expectedRevision:0,proposal:draft.proposal
+   });
+   assert.equal(inserted.revision,1);
+   assert.equal(inserted.published,false);
+   const replay=await gate.saveFutureDraft({
+    sessionToken:one.session,storeId:storeIds[0]!,
+    operationId:op,featureId:draft.featureId,
+    expectedRevision:0,proposal:draft.proposal
+   });
+   assert.equal(replay.replayed,true);
+   assert.equal(replay.draftId,inserted.draftId);
+  }
+  const myDrafts=await gate.listMyFutureDrafts({
+   sessionToken:one.session,storeId:storeIds[0]!
+  });
+  assert.equal(myDrafts.length,8);
+  assert.equal(new Set(myDrafts.map(x=>x.featureId)).size,8);
+  assert.ok(myDrafts.every(x=>x.revision===1&&!x.published));
+  await assert.rejects(gate.listMyFutureDrafts({
+   sessionToken:two.session,storeId:storeIds[0]!
+  }),isErr('M11_CRECE_OWNER_REQUIRED'));
+  await assert.rejects(gate.saveFutureDraft({
+   sessionToken:two.session,storeId:storeIds[0]!,operationId:uid(),
+   featureId:'cupones',expectedRevision:1,proposal:drafts[0]!.proposal
+  }),isErr('M11_CRECE_OWNER_REQUIRED'));
+  await assert.rejects(gate.saveFutureDraft({
+   sessionToken:one.session,storeId:storeIds[0]!,operationId:uid(),
+   featureId:'cupones',expectedRevision:0,proposal:drafts[0]!.proposal
+  }),isErr('M11_CRECE_DRAFT_VERSION_CONFLICT'));
+  await assert.rejects(gate.saveFutureDraft({
+   sessionToken:one.session,storeId:storeIds[0]!,operationId:uid(),
+   featureId:'cupones',expectedRevision:1,
+   proposal:{code:'FAKE',percentBps:9000,
+    maxUses:999,expiresOn:'2027-06-01'}
+  }),isErr('M11_CRECE_PROPOSAL_INVALID'));
+  const nextProposal={
+   code:'TALA15',percentBps:1500,maxUses:100,expiresOn:'2027-06-01'
+  };
+  const revisions=await Promise.allSettled([uid(),uid()].map(operationId=>
+   gate.saveFutureDraft({
+    sessionToken:one.session,storeId:storeIds[0]!,operationId,
+    featureId:'cupones',expectedRevision:1,proposal:nextProposal
+   })));
+  assert.equal(revisions.filter(x=>x.status==='fulfilled').length,1);
+  assert.equal(revisions.filter(x=>x.status==='rejected').length,1);
+  assert.ok(revisions.filter(x=>x.status==='rejected').every(x=>
+   x.status==='rejected'&&isErr('M11_CRECE_DRAFT_VERSION_CONFLICT')(x.reason)));
+  const finalDraft=await gate.listMyFutureDrafts({
+   sessionToken:one.session,storeId:storeIds[0]!
+  });
+  assert.equal(finalDraft.find(x=>x.featureId==='cupones')?.revision,2);
+  assert.ok(finalDraft.every(x=>x.published===false));
+  await assert.rejects(integrationPool.query(
+   'DELETE FROM tala_integration_v2.crece_feature_draft_versions '+
+   'WHERE draft_id=$1::uuid',
+   [finalDraft.find(x=>x.featureId==='cupones')!.draftId]
+  ));
   const before=await gate.listForAdmin({sessionToken:admin.session});
   assert.equal(before.seatsApproved,0);
   assert.ok(before.applicants.length>=12);
