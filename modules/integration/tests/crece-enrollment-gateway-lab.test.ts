@@ -301,6 +301,27 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
    sessionToken:one.session,storeId:storeIds[0]!
   });
   assert.equal(afterPhoto.find(x=>x.benefitId==='fotos')?.status,'reported_completed');
+  const timeline=await gate.readMyAssistanceTimeline({
+   sessionToken:one.session,storeId:storeIds[0]!,requestId:photos
+  });
+  assert.equal(timeline.benefitId,'fotos');
+  assert.deepEqual(timeline.events.map(x=>x.status),
+   ['requested','in_progress','reported_completed']);
+  assert.equal(timeline.events[2]?.evidenceRecorded,true);
+  assert.equal(timeline.events[0]?.evidenceRecorded,false);
+  assert.equal(timeline.events[2]?.note,
+   'Fotografías originales entregadas a revisión');
+  assert.ok(!JSON.stringify(timeline).includes(one.email));
+  assert.ok(!JSON.stringify(timeline).includes(admin.id));
+  assert.ok(!JSON.stringify(timeline).includes('a'.repeat(64)));
+  await assert.rejects(gate.readMyAssistanceTimeline({
+   sessionToken:two.session,storeId:storeIds[0]!,
+   requestId:photos
+  }),isErr('M11_CRECE_OWNER_REQUIRED'));
+  await assert.rejects(gate.readMyAssistanceTimeline({
+   sessionToken:one.session,storeId:storeIds[1]!,
+   requestId:photos
+  }),isErr('M11_CRECE_BENEFIT_NOT_FOUND'));
   const serviceCompleted=await gate.listAdminAssistance({
    sessionToken:admin.session,status:'reported_completed'
   });
