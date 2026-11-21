@@ -457,6 +457,43 @@ export function createCreceEnrollmentLab(config:Config){
     }));
    },true);
   },
+  /** The current M6 owner may read the exact audit timeline of a service
+   * case for their shop. No staff IDs, emails, storage keys or financial data.
+   */
+  readMyAssistanceTimeline:async(input:{
+   sessionToken:string;storeId:string;requestId:string
+  })=>{
+   configCheck(config);
+   const storeId=validUuid(input.storeId),requestId=validUuid(input.requestId);
+   const actor=await authenticated(config,input.sessionToken,['merchant']);
+   const store=await readStore(config.restaurantsPool,{actorId:actor},storeId)
+    .catch(()=>null);
+   if(store?.store?.owner_id!==actor)
+    throw new IntegrationError('M11_CRECE_OWNER_REQUIRED');
+   await grant(config,actor,'crece.benefit.list',storeId);
+   return tx(config.integrationPool,async c=>{
+    const owned=await c.query<{id:string;benefit_id:AssistedId}>(
+     'SELECT id,benefit_id FROM tala_integration_v2.crece_assisted_requests '+
+     'WHERE id=$1::uuid AND store_id=$2::uuid',[requestId,storeId]);
+    if(!owned.rows[0])
+     throw new IntegrationError('M11_CRECE_BENEFIT_NOT_FOUND');
+    const data=await c.query<{
+     status:AssistedStatus;note:string;
+     created_at:Date;evidence_sha256:string|null
+    }>(
+     'SELECT status,note,created_at,evidence_sha256 '+
+     'FROM tala_integration_v2.crece_assisted_events '+
+     'WHERE request_id=$1::uuid ORDER BY id ASC',[requestId]);
+    return Object.freeze({
+     requestId,benefitId:owned.rows[0].benefit_id,
+     events:data.rows.map(row=>Object.freeze({
+      status:row.status,note:row.note,
+      occurredAt:new Date(row.created_at).toISOString(),
+      evidenceRecorded:row.evidence_sha256!==null
+     }))
+    });
+   },true);
+  },
   /** M11 assisted services admin inbox, paged without leaking merchant PII.
    * Latest state is read from immutable events, not a mutable status column.
    */
