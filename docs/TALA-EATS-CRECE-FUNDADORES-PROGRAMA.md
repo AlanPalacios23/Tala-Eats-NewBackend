@@ -173,3 +173,15 @@ Se incorporaron al **mismo M11, en LAB**, dos capas operativas:
 **Estado verificable:** [integración M11 PASS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42885598207), [pedidos PASS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42885598320), [PM2 sin Docker PASS](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/actions/runs/42885598353), [PWA PASS](https://github.com/AlanPalacios23/tala-eats-version-web/actions/runs/42885849264).
 
 **NO-GO comercial, NO tocado Kali LIVE.** El camino para llamar operativos los 27 beneficios exige completar integración con sesiones/IDs del sistema LIVE, M4/M9 y ADMIN, motor transaccional de las ocho funciones, publicaciones y soporte humanos verificables, E2E Stripe TEST/repartidor/finanzas y aprobación de despliegue en Kali PostgreSQL18/PM2. No ejecutar estas migraciones LAB sobre la base de producción. Ningún beneficio cambia la política económica 17% comercio, 7% cliente, 0% propinas.
+
+## RC10 — atención verificable y capacidad de seguimiento ADMIN (21/nov/2026)
+
+A partir de la migración M11 `012` previamente incorporada para siete servicios humanos, ahora se refuerza el **flujo de consulta** sin crear nuevas bases ni procesos:
+
+1. `listAdminAssistance({sessionToken,limit,status,cursor})` devuelve `{requests,nextCursor}` y no una lista truncada silenciosamente. Usa paginación por cursor `created_at + UUID` con precisión de milisegundos, límite estricto 1–100 y filtrado por último estado inmutable `requested/in_progress/reported_completed/declined`. Exige sesión M4 de ADMIN, grant M9 limitado a la bandeja y comprobación de BD LAB. Nunca devuelve emails, tokens ni metadatos bancarios. Es un ajuste del contrato **solo LAB**; no existe consumidor HTTP LIVE que deba migrarse.
+2. `readMyAssistanceTimeline({sessionToken,storeId,requestId})` permite al **propietario actual**, autenticado en M4 y validado en M6, obtener su cronología de servicio (estado, nota, fecha y bandera `evidenceRecorded`). No devuelve identidad de empleados, emails, hash de evidencia, URLs del almacenamiento ni entradas de otro comercio.
+3. Pruebas PostgreSQL: tres páginas (3+3+1 solicitudes), filtros por estado, IDs de cursor malformados, prohibición de lista a un usuario sin rol ADMIN, visita por otro propietario denegada, notas y tres estados de fotografía entregada, ausencia de datos sensibles.
+
+**Regla contractual:** `reported_completed` sigue siendo una declaración auditada del equipo, no prueba automática de servicio prestado. Sin fotos reales, entregables, responsable y aprobación comercial, no anunciar el beneficio como efectivamente satisfecho.
+
+**Producción pendiente:** crear gateway comercial M4/M6/M9, revisar identidad de dueño entre backend actual y Core v2, integrar ADMIN y PWA, ejecutar QA en Kali PM2/PostgreSQL18 sin migrar tablas de laboratorio a LIVE. Estas consultas no alteran el procesamiento real de pedidos, los porcentajes de comisión, pagos Stripe o la entrega con PIN.
