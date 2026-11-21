@@ -4,7 +4,8 @@
 set -Eeuo pipefail
 umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-BRANCH="release/core-v2-rc5-pm2-single-stage"
+RELEASE_BRANCH="release/core-v2-rc5-pm2-single-stage"
+CRECE_BRANCH="feat/core-v2-crece-fundadores-lab-20261108"
 APP="tala-core-v2-stage"
 STAGE_PORT=18286
 STAGE_PM2_HOME="$HOME/.pm2-tala-core-v2-stage"
@@ -21,8 +22,12 @@ assert_source(){
   require git; require node
   [[ "$(node -p 'process.versions.node.split(".")[0]')" == "24" ]] ||
     fail "NODE_24_REQUIRED"
-  [[ "$(git -C "$ROOT" branch --show-current)" == "$BRANCH" ]] ||
-    fail "WRONG_BRANCH"
+  local active_branch
+  active_branch="$(git -C "$ROOT" branch --show-current)"
+  case "$active_branch" in
+    "$RELEASE_BRANCH"|"$CRECE_BRANCH") ;;
+    *) fail "WRONG_BRANCH" ;;
+  esac
   local origin
   origin="$(git -C "$ROOT" remote get-url origin)"
   case "$origin" in
@@ -45,7 +50,8 @@ approve(){
 }
 plan(){
   echo "RC5_SINGLE_CHECKOUT=$ROOT"
-  echo "REPOSITORY_BRANCH=$BRANCH"
+  echo "REPOSITORY_BRANCH=$(git -C "$ROOT" branch --show-current 2>/dev/null || echo UNKNOWN)"
+  echo "AUTHORIZED_BRANCHES=$RELEASE_BRANCH OR $CRECE_BRANCH"
   echo "PROCESS_MANAGER=PM2"
   echo "PM2_NAMESPACE=$STAGE_PM2_HOME"
   echo "STAGE_PROCESS=$APP"
@@ -148,6 +154,10 @@ test_modules(){
   done
   "$PG_BIN/psql" -X -q -v ON_ERROR_STOP=1 -d tala_restaurants_v2_test \
     -f "$ROOT/modules/integration/m6-extension/008_order_stock_holds.sql"
+  # The root M1 database MUST exist before root migrations are applied.
+  # All DBs belong to the fresh PostgreSQL 18 instance on loopback :18432.
+  "$PG_BIN/psql" -X -q -v ON_ERROR_STOP=1 -d postgres \
+    -c "CREATE DATABASE tala_core_v2_test"
   for sql in "$ROOT/migrations/"*.sql; do
     echo "RC5_TEMP_MIGRATION=core/$(basename "$sql")"
     "$PG_BIN/psql" -X -q -v ON_ERROR_STOP=1 -d tala_core_v2_test -f "$sql"

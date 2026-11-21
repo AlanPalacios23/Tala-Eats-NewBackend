@@ -109,3 +109,33 @@ Los procesos PM2 LIVE no se modifican porque RC5 usa `PM2_HOME` propio; **no** u
 RC5 es para **verificar integración y salud dentro de Kali**; no declara que una app haga pedidos reales. Los siguientes cambios de código seguirán siendo necesarios: gateway autenticado M4/M9 con acceso por recurso, checkout y holds M1/M6, prueba Stripe TEST **remota**, entrega M2/M7, contabilidad M3/M8 y apps completas en staging. Los gates G1–G9 siguen abiertos en [issue #20](https://github.com/AlanPalacios23/Tala-Eats-NewBackend/issues/20).
 
 **No se ha ejecutado Kali desde esta conversación**, ya que la conexión disponible a GitHub no provee acceso SSH; los pasos deben ejecutarse desde el terminal del servidor y devolverse los resultados.
+
+## RC6 Crece: ejecutar las nuevas pruebas en la MISMA carpeta (NO clonar)
+
+La rama de trabajo `feat/core-v2-crece-fundadores-lab-20261108` se añadió a la lista fija de ramas autorizadas del script de staging. Conserva el mismo `~/tala-core-v2-stage`, el PM2 LIVE original y el `PM2_HOME` separado de staging. Los comandos siguientes **no son un despliegue comercial**, ejecutan tests en PostgreSQL 18 temporal. Solo ejecutarlos cuando Kali tenga RAM/disco disponibles y los requisitos anteriores.
+
+```bash
+cd "$HOME/tala-core-v2-stage"
+git status --short              # Debe estar limpia antes de cambiar de rama
+git fetch origin
+git switch feat/core-v2-crece-fundadores-lab-20261108 || \
+ git switch --track origin/feat/core-v2-crece-fundadores-lab-20261108
+git pull --ff-only
+bash deploy/kali-core-v2-pm2-stage.sh --plan
+```
+
+Si la carpeta de staging tiene trabajo no confirmado, **no** ejecutar `git reset --hard` ni sobrescribir archivos; preservar el trabajo antes de cambiar de rama. Si todavía no existe ninguna carpeta Core v2, crear **una sola** siguiendo las instrucciones de arriba y cambiar de rama en ese checkout.
+
+Una vez revisado `--plan` y el SHA de Git, ejecutar:
+
+```bash
+bash deploy/kali-core-v2-pm2-stage.sh --test \
+ "$(git rev-parse HEAD)" \
+ I_APPROVE_CORE_V2_PM2_ISOLATED_STAGE_ONLY
+```
+
+El script crea en la instancia PostgreSQL18 temporal la base principal `tala_core_v2_test` **antes** de las migraciones M1 (error del runner RC5 original corregido), más las nueve bases de módulos. Ejecuta la suite M11 Crece con propietario M6, MFA M4, grants M9, cuota de diez en M11 y migraciones 008/009 de consentimiento y aprobación. Después de apagar la base temporal, limpia sus archivos y conserva solo evidencias en `~/tala-core-v2-evidence`.
+
+**Permanece prohibido:** `docker`, cambiar variables `DATABASE_URL` o Stripe LIVE, ejecutar migraciones en PostgreSQL de producción, ejecutar `pm2 restart all` o crear un backend adicional. El PM2 del backend actual sigue sin cambios. No habilitar Nginx/Cloudflare para la puerta de diagnóstico de Core v2. `/v2/ready` sigue **503** y las operaciones comerciales públicas continúan cerradas.
+
+Pruebas CI en GitHub **no** acreditan que estos comandos ya se hayan ejecutado en el Kali del usuario. Guardar y revisar logs reales antes de cualquier instalación.

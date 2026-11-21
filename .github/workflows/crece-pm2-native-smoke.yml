@@ -1,0 +1,63 @@
+name: Crece Core v2 PM2 native isolated smoke (no Docker)
+on:
+  push:
+    branches: [feat/core-v2-crece-fundadores-lab-20261108]
+  pull_request:
+    paths:
+      - 'deploy/kali-core-v2-pm2-stage.sh'
+      - 'scripts/pm2-core-v2-stage.ts'
+      - 'modules/integration/adapters/crece-enrollment-gateway-lab.ts'
+      - 'modules/integration/migrations/009_crece_founder_review_lab.sql'
+      - 'modules/security/src/grants.ts'
+      - 'modules/integration/source-lock.json'
+      - 'tests/kali-pm2-crece-runner.test.mjs'
+      - '.github/workflows/crece-pm2-native-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stage-pm2-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/core-v2-crece-fundadores-lab-20261108
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Stage runner must be safe and exact
+        run: |
+          set -Eeuo pipefail
+          bash -n deploy/kali-core-v2-pm2-stage.sh
+          node --test tests/kali-pm2-crece-runner.test.mjs
+          node modules/integration/scripts/verify-snapshots.mjs
+          bash deploy/kali-core-v2-pm2-stage.sh --plan
+      - name: Dependencies for same checkout and PM2
+        run: |
+          set -Eeuo pipefail
+          npm install -g pm2
+          npm install --ignore-scripts --no-audit --no-fund
+          for module in finance users notifications restaurants locations payments security analytics integration; do
+            npm --prefix "modules/$module" install --ignore-scripts --no-audit --no-fund
+          done
+      - name: PM2 loopback diagnostics only, never public or commercial
+        run: |
+          set -Eeuo pipefail
+          bash deploy/kali-core-v2-pm2-stage.sh --start \
+            "$(git rev-parse HEAD)" I_APPROVE_CORE_V2_PM2_ISOLATED_STAGE_ONLY
+          test "$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:18286/v2/health)" = 200
+          test "$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:18286/v2/ready)" = 503
+          test "$(curl --noproxy '*' -s -o /dev/null -w '%{http_code}' \
+            -X POST http://127.0.0.1:18286/api/v2/orders)" = 503
+          echo 'CRECE_PM2_STAGE_HEALTH=200'
+          echo 'CRECE_PM2_STAGE_COMMERCE=BLOCKED_503'
+          echo 'CRECE_LIVE_RELEASE=NO_GO'
+      - name: Stop only named Crece stage process
+        if: always()
+        run: |
+          bash deploy/kali-core-v2-pm2-stage.sh --stop \
+            I_APPROVE_CORE_V2_PM2_ISOLATED_STAGE_ONLY || true
+          echo 'CRECE_PM2_ONLY_STAGE_REMOVED=TRUE'
