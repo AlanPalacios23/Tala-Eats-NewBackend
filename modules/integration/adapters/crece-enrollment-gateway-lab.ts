@@ -457,11 +457,31 @@ export function createCreceEnrollmentLab(config:Config){
     }));
    },true);
   },
-  listAdminAssistance:async(input:{sessionToken:string;limit?:number})=>{
+  /** M11 assisted services admin inbox, paged without leaking merchant PII.
+   * Latest state is read from immutable events, not a mutable status column.
+   */
+  listAdminAssistance:async(input:{
+   sessionToken:string;limit?:number;
+   status?:AssistedStatus;
+   cursor?:{createdAt:string;requestId:string}
+  })=>{
    configCheck(config);
    const limit=input.limit??50;
    if(!Number.isSafeInteger(limit)||limit<1||limit>100)
     throw new IntegrationError('M11_CRECE_PAGE_LIMIT_INVALID');
+   if(input.status!==undefined&&
+     !['requested','in_progress','reported_completed','declined'].includes(input.status))
+    throw new IntegrationError('M11_CRECE_BENEFIT_STATUS_INVALID');
+   const cursor=input.cursor;
+   if(cursor!==undefined){
+    if(!cursor||typeof cursor.createdAt!=='string'||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(cursor.createdAt)||
+      !Number.isFinite(Date.parse(cursor.createdAt))||
+      new Date(cursor.createdAt).toISOString()!==cursor.createdAt)
+     throw new IntegrationError('M11_CRECE_CURSOR_INVALID');
+    try{validUuid(cursor.requestId);}
+    catch{throw new IntegrationError('M11_CRECE_CURSOR_INVALID');}
+   }
    const admin=await authenticated(config,input.sessionToken,['staff','owner']);
    await grant(config,admin,'crece.benefit.list',LIST_RESOURCE);
    return tx(config.integrationPool,async c=>{
@@ -474,12 +494,26 @@ export function createCreceEnrollmentLab(config:Config){
      'JOIN LATERAL (SELECT status FROM '+
      'tala_integration_v2.crece_assisted_events '+
      'WHERE request_id=r.id ORDER BY id DESC LIMIT 1) e ON true '+
-     'ORDER BY r.created_at,r.id LIMIT $1',[limit]);
-    return results.rows.map(row=>({
-     requestId:row.id,storeId:row.store_id,
-     benefitId:row.benefit_id,status:row.status,
-     createdAt:new Date(row.created_at).toISOString()
-    }));
+     'WHERE ($1::timestamptz IS NULL OR '+
+     '(date_trunc(\'milliseconds\',r.created_at),r.id) > '+
+     '($1::timestamptz,$2::uuid)) '+
+     'AND ($3::text IS NULL OR e.status=$3) '+
+     'ORDER BY date_trunc(\'milliseconds\',r.created_at),r.id LIMIT $4',
+     [cursor?.createdAt??null,cursor?.requestId??null,
+      input.status??null,limit+1]);
+    const page=results.rows.slice(0,limit);
+    const last=page.at(-1);
+    const nextCursor=results.rows.length>limit&&last?
+     Object.freeze({createdAt:new Date(last.created_at).toISOString(),
+      requestId:last.id}):null;
+    return Object.freeze({
+     requests:page.map(row=>Object.freeze({
+      requestId:row.id,storeId:row.store_id,
+      benefitId:row.benefit_id,status:row.status,
+      createdAt:new Date(row.created_at).toISOString()
+     })),
+     nextCursor
+    });
    },true);
   },
   /** Human service proof is a reported record, NEVER marketplace activation.
