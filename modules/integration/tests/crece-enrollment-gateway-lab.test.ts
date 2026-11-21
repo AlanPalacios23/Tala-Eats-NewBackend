@@ -226,8 +226,43 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
   const serviceAdmin=await gate.listAdminAssistance({
    sessionToken:admin.session
   });
-  assert.equal(serviceAdmin.length,7);
+  assert.equal(serviceAdmin.requests.length,7);
+  assert.equal(serviceAdmin.nextCursor,null);
   assert.ok(!JSON.stringify(serviceAdmin).includes(one.email));
+  const serviceFirst=await gate.listAdminAssistance({
+   sessionToken:admin.session,limit:3
+  });
+  assert.equal(serviceFirst.requests.length,3);
+  assert.ok(serviceFirst.nextCursor);
+  const serviceSecond=await gate.listAdminAssistance({
+   sessionToken:admin.session,limit:3,cursor:serviceFirst.nextCursor!
+  });
+  assert.equal(serviceSecond.requests.length,3);
+  assert.ok(serviceSecond.nextCursor);
+  const serviceThird=await gate.listAdminAssistance({
+   sessionToken:admin.session,limit:3,cursor:serviceSecond.nextCursor!
+  });
+  assert.equal(serviceThird.requests.length,1);
+  assert.equal(serviceThird.nextCursor,null);
+  const allServicePages=[...serviceFirst.requests,
+   ...serviceSecond.requests,...serviceThird.requests];
+  assert.equal(new Set(allServicePages.map(x=>x.requestId)).size,7);
+  await assert.rejects(gate.listAdminAssistance({
+   sessionToken:admin.session,limit:101
+  }),isErr('M11_CRECE_PAGE_LIMIT_INVALID'));
+  await assert.rejects(gate.listAdminAssistance({
+   sessionToken:admin.session,cursor:{
+    createdAt:'not-a-date',requestId:uid()
+   }
+  }),isErr('M11_CRECE_CURSOR_INVALID'));
+  await assert.rejects(gate.listAdminAssistance({
+   sessionToken:admin.session,cursor:{
+    createdAt:new Date().toISOString(),requestId:'invalid'
+   }
+  }),isErr('M11_CRECE_CURSOR_INVALID'));
+  await assert.rejects(gate.listAdminAssistance({
+   sessionToken:admin.session,status:'deleted' as 'requested'
+  }),isErr('M11_CRECE_BENEFIT_STATUS_INVALID'));
   await assert.rejects(gate.listAdminAssistance({
    sessionToken:stranger.session
   }),isErr('M11_CRECE_SESSION_OR_ROLE_DENIED'));
@@ -266,6 +301,15 @@ test('Crece M4+M6+M9+M11: explicit consent, admin queue, quota=10 and isolation'
    sessionToken:one.session,storeId:storeIds[0]!
   });
   assert.equal(afterPhoto.find(x=>x.benefitId==='fotos')?.status,'reported_completed');
+  const serviceCompleted=await gate.listAdminAssistance({
+   sessionToken:admin.session,status:'reported_completed'
+  });
+  assert.equal(serviceCompleted.requests.length,1);
+  assert.equal(serviceCompleted.requests[0]?.requestId,photos);
+  const serviceRequested=await gate.listAdminAssistance({
+   sessionToken:admin.session,status:'requested'
+  });
+  assert.equal(serviceRequested.requests.length,6);
   const serviceProof=await integrationPool.query<{status:string,n:number}>(
    'SELECT max(status) FILTER (WHERE status=$2) AS status,count(*)::int AS n '+
    'FROM tala_integration_v2.crece_assisted_events '+
